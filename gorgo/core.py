@@ -36,7 +36,7 @@ class Bernoulli(StochasticPrimitive):
     def log_probability(self, element):
         return {
             True: math.log(self.p),
-            False: math.log(1 - self.p)
+            False: math.log(1 - self.p) if self.p != 1.0 else float('-inf')
         }[element]
 
 # TODO: finalize this interface

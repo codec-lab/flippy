@@ -53,7 +53,7 @@ class CPSInterpreter:
                 continuation=_cont,
                 message=SampleMessage(
                     address=_address,
-                    distribution=call
+                    distribution=call.__self__
                 ),
                 is_returned=False
             )
