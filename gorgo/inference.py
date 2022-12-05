@@ -1,5 +1,5 @@
 import random
-from gorgo.core import StartingMessage, SampleMessage, ObserveMessage
+from gorgo.core import StartingMessage, SampleMessage, ObserveMessage, ProgramState
 from gorgo.interpreter import CPSInterpreter
 
 class SamplePrior:
@@ -39,14 +39,19 @@ class PrioritizedItem:
     item: Any=dataclasses.field(compare=False)
 
 class Enumeration:
-    def __init__(self, function):
+    def __init__(self, function, max_executions=float('inf')):
         self.function = function
+        self.max_executions = max_executions
     def run(self, *args, **kws):
         frontier = []
         return_probs = defaultdict(float)
+        executions = 0
         ps = CPSInterpreter().initial_program_state(self.function)
+        ps : ProgramState
         heapq.heappush(frontier, PrioritizedItem(0, ps))
         while len(frontier) > 0:
+            if executions >= self.max_executions:
+                break
             item = heapq.heappop(frontier)
             cum_weight = -item.priority
             ps = item.item
@@ -68,6 +73,7 @@ class Enumeration:
                 cum_prob = math.exp(cum_weight)
                 assert cum_prob > 0, "Possible underflow"
                 return_probs[ps.message.value] += cum_prob
+                executions += 1
             else:
                 raise ValueError("Unrecognized program state message")
         total_prob = sum(return_probs.values())
