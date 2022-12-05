@@ -5,6 +5,7 @@ from gorgo.core import ProgramState, ReturnMessage, \
     StochasticPrimitive, ObservationStatement
 from gorgo.transforms import DesugaringTransform, \
     CallWrap_and_Arg_Transform, SetLineNumbers, CPSTransform
+from gorgo.funcutils import method_cache
 
 class CPSInterpreter:
     def __init__(self):
@@ -37,6 +38,7 @@ class CPSInterpreter:
             ),
         )
         
+    @method_cache
     def interpret(self, call):
         if isinstance(call, type):
             return self.interpret_class(call)
