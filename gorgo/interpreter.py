@@ -13,7 +13,7 @@ class CPSInterpreter:
         self.call_transform = CallWrap_and_Arg_Transform()
         self.setlines_transform = SetLineNumbers()
         self.cps_transform = CPSTransform()
-    
+
     def initial_program_state(self, function):
         interpreted_function = self.interpret(function)
         def return_continuation(value):
@@ -37,9 +37,11 @@ class CPSInterpreter:
                 address=()
             ),
         )
-        
+
     @method_cache
     def interpret(self, call):
+        if getattr(call, CPSTransform.is_transformed_property, False):
+            return self.interpret_transformed(call)
         if isinstance(call, type):
             return self.interpret_class(call)
         if hasattr(call, "__self__"):
@@ -48,7 +50,12 @@ class CPSInterpreter:
         if isinstance(call, ObservationStatement):
             return self.interpret_observation(call)
         return self.interpret_generic(call)
-    
+
+    def interpret_transformed(self, func):
+        def wrapper_generic(*args, _address=(), **kws):
+            return func(*args, **kws, _cps=self, _address=_address)
+        return wrapper_generic
+
     def interpret_sample(self, call):
         def sample_wrapper(_address, _cont):
             return ProgramState(
@@ -60,7 +67,7 @@ class CPSInterpreter:
                 is_returned=False
             )
         return sample_wrapper
-    
+
     def interpret_observation(self, func):
         def observation_wrapper(*args, _address=None, _cont=None, **kws):
             return ProgramState(
@@ -72,12 +79,12 @@ class CPSInterpreter:
                 )
             )
         return observation_wrapper
-    
+
     def interpret_class(self, cls):
         def class_wrapper(*args, _address=None, _cont=None, **kws):
             return lambda :  _cont(cls(*args, **kws))
         return class_wrapper
-    
+
     def interpret_generic(self, func):
         trans_node = ast.parse(inspect.getsource(func))
         trans_node = self.desugaring_transform(trans_node)
@@ -95,7 +102,7 @@ class CPSInterpreter:
         def wrapper_generic(*args, _address=(), **kws):
             return trans_func(*args, **kws, _cps=self, _address=_address)
         return wrapper_generic
-    
+
     def get_closure(self, func):
         if getattr(func, "__closure__", None) is not None:
             closure_keys = func.__code__.co_freevars
