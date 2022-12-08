@@ -1,5 +1,6 @@
 import ast
 import inspect
+import textwrap
 from gorgo.core import ProgramState, ReturnMessage, \
     StartingMessage, SampleMessage, ObserveMessage, \
     StochasticPrimitive, ObservationStatement
@@ -85,13 +86,16 @@ class CPSInterpreter:
             return lambda :  _cont(cls(*args, **kws))
         return class_wrapper
 
-    def interpret_generic(self, func):
-        trans_node = ast.parse(inspect.getsource(func))
+    def transform(self, func):
+        trans_node = ast.parse(textwrap.dedent(inspect.getsource(func)))
         trans_node = self.desugaring_transform(trans_node)
         trans_node = self.call_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
-        trans_source = ast.unparse(trans_node)
+        return ast.unparse(trans_node)
+
+    def interpret_generic(self, func):
+        trans_source = self.transform(func)
         # print(trans_source)
         local_context = {**self.get_closure(func), "_cps": self}
         try:

@@ -3,4 +3,3 @@ python_files = "*test*.py"
 testpaths = [
     "gorgo/tests",
 ]
-

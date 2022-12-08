@@ -1,0 +1,33 @@
+import functools
+from gorgo.transforms import CPSTransform
+from gorgo.inference import Enumeration
+from gorgo.core import Multinomial
+
+def keep_deterministic(fn):
+    def wrapped(*args, _cont=None, _cps=None, **kws):
+        rv = fn(*args, **kws)
+        if _cont is None:
+            return rv
+        else:
+            return lambda : _cont(rv)
+    setattr(wrapped, CPSTransform.is_transformed_property, True)
+    return wrapped
+
+def infer(func=None, method=Enumeration, **kwargs):
+    if func is None:
+        return functools.partial(infer, **kwargs)
+
+    if isinstance(method, str):
+        method = {
+            'Enumeration': Enumeration,
+        }[method]
+
+    func = method(func, **kwargs)
+
+    @keep_deterministic
+    def wrapped(*args, _cont=None, _cps=None, **kws):
+        dist = func.run(*args, **kws)
+        ele, probs = zip(*dist.items())
+        return Multinomial(ele, probabilities=probs)
+
+    return wrapped
