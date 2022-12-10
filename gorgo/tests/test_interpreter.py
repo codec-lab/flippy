@@ -15,7 +15,7 @@ def algebra():
     def NUM():
         return Multinomial(range(5)).sample()
     def OP():
-        return Multinomial(['+', '*'])
+        return Multinomial(['+', '*']).sample()
     def EQ():
         if flip():
             return NUM()
@@ -23,17 +23,16 @@ def algebra():
             return (NUM(), OP(), EQ())
     return EQ()
 
-def check_trace(func, trace):
-    return_value = trace.pop()
-
+def check_trace(func, trace, *, args=(), kwargs={}, return_value):
     ps = CPSInterpreter().initial_program_state(func)
-    ps = ps.step(*trace.pop(0))
+    print(ast.unparse(CPSInterpreter().transform_from_func(func)))
+    ps = ps.step(*args, **kwargs)
 
-    for (dist, value) in trace:
+    for trace_idx, (dist, value) in enumerate(trace):
         m = ps.message
-        assert isinstance(m, SampleMessage)
-        assert isinstance(m.distribution, dist.__class__)
-        assert m.distribution.__dict__ == dist.__dict__
+        assert isinstance(m, SampleMessage), (f'{trace_idx=}', m)
+        assert isinstance(m.distribution, dist.__class__), (f'{trace_idx=}', m)
+        assert m.distribution.__dict__ == dist.__dict__, (f'{trace_idx=}', m)
         ps = ps.step(value)
 
     m = ps.message
@@ -42,45 +41,38 @@ def check_trace(func, trace):
 
 def test_interpreter():
     check_trace(geometric, [
-        (0.9,),
         (Bernoulli(0.9), 0),
-        0,
-    ])
+    ], args=(0.9,), return_value=0)
 
     check_trace(geometric, [
-        (0.8,),
         (Bernoulli(0.8), 1),
         (Bernoulli(0.8), 1),
         (Bernoulli(0.8), 0),
-        2,
-    ])
+    ], args=(0.8,), return_value=2)
 
     check_trace(algebra, [
-        [],
         (Bernoulli(0.5), 1),
         (Multinomial(range(5)), 3),
-        3,
-    ])
+    ], return_value=3)
 
-    # TODO: fix this
-    # check_trace(algebra, [
-    #     [],
-    #     (Bernoulli(0.5), 0),
-    #     (Multinomial(range(5)), 3),
-    #     (Bernoulli(0.5), 0),
-    #     (Multinomial(range(5)), 2),
-    #     (Bernoulli(0.5), 1),
-    #     (Multinomial(['+', '*']), '*'),
-    #     # (Bernoulli(0.5), 1),
-    #     (3, '*', 2),
-    # ])
+    check_trace(algebra, [
+        (Bernoulli(0.5), 0),
+        (Multinomial(range(5)), 3),
+        (Multinomial(['+', '*']), '*'),
+        # subtree on right
+        (Bernoulli(0.5), 0),
+        (Multinomial(range(5)), 2),
+        (Multinomial(['+', '*']), '+'),
+        (Bernoulli(0.5), 1),
+        (Multinomial(range(5)), 4),
+    ], return_value=(3, '*', (2, '+', 4)))
 
 def test_check_exception():
     def test_fn():
         raise Exception('expected exception')
         return 3
     with pytest.raises(Exception) as e:
-        check_trace(test_fn, [(), 3])
+        check_trace(test_fn, [], return_value=3)
     # The right exception was raised.
     assert 'expected exception' in str(e)
 
