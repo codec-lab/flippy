@@ -1,6 +1,7 @@
 from gorgo.interpreter import *
 from gorgo.core import Bernoulli, Multinomial
 import pytest
+import traceback
 
 def geometric(p):
     x = Bernoulli(p).sample()
@@ -79,5 +80,22 @@ def test_check_exception():
         raise Exception('expected exception')
         return 3
     with pytest.raises(Exception) as e:
-        check_trace(test_fn, [(), None])
+        check_trace(test_fn, [(), 3])
+    # The right exception was raised.
     assert 'expected exception' in str(e)
+
+    # Now check exception content to make sure it references code.
+    _, exc, tb = e._excinfo
+    # We show compiled code, which in this case isn't particularly readable.
+    # This line will have to change depending on our compiled output.
+    exception_line = 'raise __body_0__body_0__exc'
+
+    # First, we just check that the traceback will render the code.
+    formatted = ''.join(traceback.format_exception(exc, None, tb))
+    assert exception_line in formatted
+
+    # This is a more detailed check of the contents, ensuring the filename is correct in traceback.
+    last_entry = traceback.extract_tb(tb)[-1]
+    assert 'test_fn' in last_entry.filename
+    assert hex(id(test_fn)).removeprefix('0x') in last_entry.filename
+    assert last_entry.line == exception_line
