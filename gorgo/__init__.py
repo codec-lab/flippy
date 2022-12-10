@@ -1,7 +1,17 @@
 import functools
 from gorgo.transforms import CPSTransform
 from gorgo.inference import Enumeration
-from gorgo.core import Multinomial
+from gorgo.core import Multinomial, Bernoulli, observe
+
+__all__ = [
+    # Core API
+    'infer',
+    'keep_deterministic',
+    'observe',
+    # Distributions
+    'Multinomial',
+    'Bernoulli',
+]
 
 def keep_deterministic(fn):
     def wrapped(*args, _cont=None, _cps=None, **kws):

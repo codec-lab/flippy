@@ -31,8 +31,7 @@ def check_trace(func, trace, *, args=(), kwargs={}, return_value):
     for trace_idx, (dist, value) in enumerate(trace):
         m = ps.message
         assert isinstance(m, SampleMessage), (f'{trace_idx=}', m)
-        assert isinstance(m.distribution, dist.__class__), (f'{trace_idx=}', m)
-        assert m.distribution.__dict__ == dist.__dict__, (f'{trace_idx=}', m)
+        assert m.distribution.isclose(dist), (f'{trace_idx=}', m)
         ps = ps.step(value)
 
     m = ps.message

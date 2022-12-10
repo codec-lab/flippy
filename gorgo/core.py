@@ -17,6 +17,12 @@ class Distribution(Generic[Element]):
         pass
     def sample(self) -> Element:
         pass
+    def isclose(self, other: "Distribution") -> bool:
+        full_support = set(self.support) | set(other.support)
+        return all(
+            isclose(self.log_probability(s), other.log_probability(s))
+            for s in full_support
+        )
 
 class StochasticPrimitive(Distribution):
     support : Sequence
