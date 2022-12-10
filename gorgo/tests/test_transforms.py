@@ -11,8 +11,9 @@ def interpret(func, *args, **kwargs):
     interpreter = CPSInterpreter()
     local_context = {**interpreter.get_closure(func), "_cps": interpreter}
     print(func.__name__, local_context)
-    print(interpreter.transform(func))
-    exec(interpreter.transform(func), func.__globals__, local_context)
+    code = interpreter.transform_from_func(func)
+    print(code)
+    exec(ast.unparse(code), func.__globals__, local_context)
     trans_func = local_context[func.__name__]
     return trampoline(trans_func(*args, **kwargs))
 

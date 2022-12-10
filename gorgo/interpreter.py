@@ -7,6 +7,7 @@ from gorgo.core import ProgramState, ReturnMessage, \
 from gorgo.transforms import DesugaringTransform, \
     CallWrap_and_Arg_Transform, SetLineNumbers, CPSTransform
 from gorgo.funcutils import method_cache
+import linecache
 
 class CPSInterpreter:
     def __init__(self):
@@ -86,20 +87,38 @@ class CPSInterpreter:
             return lambda :  _cont(cls(*args, **kws))
         return class_wrapper
 
-    def transform(self, func):
+    def transform_from_func(self, func):
         trans_node = ast.parse(textwrap.dedent(inspect.getsource(func)))
+        return self.transform(trans_node)
+
+    def transform(self, trans_node):
         trans_node = self.desugaring_transform(trans_node)
         trans_node = self.call_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
-        return ast.unparse(trans_node)
+        return trans_node
+
+    def compile(self, filename, node):
+        source = ast.unparse(node)
+        # In order to get stack traces that reference compiled code, we follow the scheme IPython does
+        # in CachingCompiler.cache, by adding an entry to Python's linecache.
+        # https://github.com/ipython/ipython/blob/47abb68a/IPython/core/compilerop.py#L134-L178
+        linecache.cache[filename] = (
+            len(source),
+            None,
+            [line + "\n" for line in source.splitlines()],
+            filename,
+        )
+        return compile(source, filename, 'exec')
 
     def interpret_generic(self, func):
-        trans_source = self.transform(func)
-        # print(trans_source)
+        code = self.compile(
+            f'{func.__name__}_{hex(id(func)).removeprefix("0x")}.py',
+            self.transform_from_func(func),
+        )
         local_context = {**self.get_closure(func), "_cps": self}
         try:
-            exec(trans_source, func.__globals__, local_context)
+            exec(code, func.__globals__, local_context)
         except SyntaxError as err :
             raise err
         trans_func = local_context[func.__name__]

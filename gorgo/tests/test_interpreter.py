@@ -1,5 +1,6 @@
 from gorgo.interpreter import *
 from gorgo.core import Bernoulli, Multinomial
+import pytest
 
 def geometric(p):
     x = Bernoulli(p).sample()
@@ -72,3 +73,11 @@ def test_interpreter():
     #     # (Bernoulli(0.5), 1),
     #     (3, '*', 2),
     # ])
+
+def test_check_exception():
+    def test_fn():
+        raise Exception('expected exception')
+        return 3
+    with pytest.raises(Exception) as e:
+        check_trace(test_fn, [(), None])
+    assert 'expected exception' in str(e)
