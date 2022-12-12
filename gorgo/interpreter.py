@@ -42,7 +42,7 @@ class CPSInterpreter:
 
     @method_cache
     def interpret(self, call):
-        if getattr(call, CPSTransform.is_transformed_property, False):
+        if CPSTransform.is_transformed(call):
             return self.interpret_transformed(call)
         if isinstance(call, type):
             return self.interpret_class(call)

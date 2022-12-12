@@ -27,6 +27,12 @@ def infer(func=None, method=Enumeration, **kwargs):
     if func is None:
         return functools.partial(infer, **kwargs)
 
+    # After the wrapped function is CPS transformed, it will be evaluated.
+    # If it is decorated with this function, the CPS-transformed function
+    # will be passed in again. We simply return it.
+    if CPSTransform.is_transformed(func):
+        return func
+
     if isinstance(method, str):
         method = {
             'Enumeration': Enumeration,

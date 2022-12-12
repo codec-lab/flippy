@@ -57,29 +57,26 @@ def meaning(utt, world):
         True
     )
 
+@infer
 def literal_listener(utterance):
     world = world_prior()
     m = meaning(utterance, world)
     observe(Bernoulli(1.0), m)
     return world
 
-literal_listener = infer(literal_listener)
-
+@infer
 def speaker(world):
     utterance = utterance_prior()
     L = literal_listener(utterance)
     observe(L, world)
     return utterance
 
-speaker = infer(speaker)
-
+@infer
 def listener(utterance):
     world = world_prior()
     S = speaker(world)
     observe(S, utterance)
     return world
-
-listener = infer(listener)
 
 def test_scalar_implicature():
     assert listener('some of the people are nice').isclose(Multinomial(

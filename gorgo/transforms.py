@@ -179,6 +179,10 @@ class CPSTransform(ast.NodeTransformer):
     def __call__(self, node):
         return self.visit(node)
 
+    @classmethod
+    def is_transformed(cls, func):
+        return getattr(func, CPSTransform.is_transformed_property, False)
+
     def transform_block(self, block):
         self.block = [s for s in block]
         self.new_block = []
@@ -227,7 +231,17 @@ class CPSTransform(ast.NodeTransformer):
             node.args.kw_defaults.append(ast.parse("lambda val: val").body[0].value)
         node.body = CPSTransform().transform_block(node.body)
         decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
+
+        # This decorator position makes it the last decorator called.
+        # This ensures that the outermost function has `is_transformed_property` set.
         node.decorator_list.insert(0, decorator)
+        # This decorator position makes it the first decorator called.
+        # This is important so that intermediate decorators can change their behavior
+        # the second time that this function is executed.
+        # Functions are executed a second time when being evaluted after being CPS-transformed
+        # because decorators aren't removed by the transform.
+        node.decorator_list.append(decorator)
+
         self.cur_statement = node
         return node
 
