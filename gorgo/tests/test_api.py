@@ -83,3 +83,12 @@ def test_scalar_implicature():
         [1, 2, 3],
         probabilities=[4/9, 4/9, 1/9],
     ))
+
+def test_builtins():
+    @infer
+    def model():
+        return abs(Multinomial([-1, 0, 1]).sample())
+    assert model().isclose(Multinomial(
+        [0, 1],
+        probabilities=[1/3, 2/3],
+    ))
