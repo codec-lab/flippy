@@ -8,6 +8,7 @@ from gorgo.transforms import DesugaringTransform, \
     CallWrap_and_Arg_Transform, SetLineNumbers, CPSTransform
 from gorgo.funcutils import method_cache
 import linecache
+import builtins
 
 class CPSInterpreter:
     def __init__(self):
@@ -51,7 +52,14 @@ class CPSInterpreter:
                 return self.interpret_sample(call)
         if isinstance(call, ObservationStatement):
             return self.interpret_observation(call)
+        if getattr(builtins, call.__name__, None) == call:
+            return self.interpret_builtin(call)
         return self.interpret_generic(call)
+
+    def interpret_builtin(self, func):
+        def builtin_wrapper(*args, _address=(), _cps=None, _cont=lambda val: val, **kws):
+            return _cont(func(*args, **kws))
+        return builtin_wrapper
 
     def interpret_transformed(self, func):
         def wrapper_generic(*args, _address=(), **kws):
