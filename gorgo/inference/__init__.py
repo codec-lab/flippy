@@ -1,0 +1,1 @@
+from gorgo.inference.enumeration import Enumeration
