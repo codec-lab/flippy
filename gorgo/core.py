@@ -2,9 +2,8 @@ from typing import Sequence, Generic, TypeVar, Any, Callable
 import math
 import random
 import abc
+import dataclasses
 from gorgo.tools import isclose
-from gorgo.transforms import CPSTransform
-
 
 ############################################
 #  Sampling and observations
@@ -30,14 +29,8 @@ class StochasticPrimitive(Distribution):
     @abc.abstractmethod
     def __call__(self, *params, rng=random):
         pass
-    def sample(self, rng=random, _address=None, _cont=None, **kws):
-        if _cont is None:
-            return self(rng=rng)
-        return SampleState(
-            continuation=_cont,
-            distribution=self
-        )
-    setattr(sample, CPSTransform.is_transformed_property, True)
+    def sample(self, rng=random):
+        return self(rng=rng)
 
 class Bernoulli(StochasticPrimitive):
     support = (True, False)
@@ -80,15 +73,15 @@ class Multinomial(StochasticPrimitive):
             for s in self.support
         })
 
-def observe(distribution : Distribution, value : Element, _address=None, _cont=None, **kws):
-    if _cont is None:
-        return
-    return ObserveState(
-        continuation=lambda : _cont(None),
-        distribution=distribution,
-        value=value
-    )
-setattr(observe, CPSTransform.is_transformed_property, True)
+# TODO: finalize this interface
+class ObservationStatement:
+    def __call__(
+        self,
+        distribution,
+        value,
+    ):
+        pass
+observe = ObservationStatement()
 
 ############################################
 #  Program State
