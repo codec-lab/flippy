@@ -124,6 +124,12 @@ class DesugaringTransform(ast.NodeTransformer):
             def_node
         ))
         return ast.Name(id=def_name, ctx=ast.Load())
+    
+    def visit_Return(self, node):
+        self.generic_visit(node)
+        if node.value is None:
+            node.value = ast.Constant(value=None)
+        return node
 
 class CallWrap_and_Arg_Transform(ast.NodeTransformer):
     """
