@@ -16,6 +16,7 @@ class Enumeration:
     def __init__(self, function, max_executions=float('inf')):
         self.function = function
         self.max_executions = max_executions
+
     def run(self, *args, **kws):
         frontier = []
         return_probs = defaultdict(float)
