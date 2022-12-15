@@ -1,5 +1,5 @@
 import random
-from gorgo.core import StartingMessage, SampleMessage, ObserveMessage, ProgramState
+from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
 
 class SamplePrior:
@@ -11,13 +11,13 @@ class SamplePrior:
         rng = random.Random(self.seed)
         ps = CPSInterpreter().initial_program_state(self.function)
         trajectory = [ps]
-        while not ps.is_returned():
-            if isinstance(ps.message, StartingMessage):
+        while not isinstance(ps, ReturnState):
+            if isinstance(ps, InitialState):
                 ps = ps.step(*args, **kws)
-            elif isinstance(ps.message, SampleMessage):
-                value = ps.message.distribution.sample(rng=rng)
+            elif isinstance(ps, SampleState):
+                value = ps.distribution.sample(rng=rng)
                 ps = ps.step(value)
-            elif isinstance(ps.message, ObserveMessage):
+            elif isinstance(ps, ObserveState):
                 ps = ps.step()
             else:
                 raise ValueError("Unrecognized program state message")
@@ -30,7 +30,7 @@ from collections import defaultdict
 import dataclasses
 from typing import Any
 
-from gorgo.core import StartingMessage, SampleMessage, ObserveMessage, ReturnMessage
+from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
 
 @dataclasses.dataclass(order=True)
@@ -55,24 +55,24 @@ class Enumeration:
             item = heapq.heappop(frontier)
             cum_weight = -item.priority
             ps = item.item
-            if isinstance(ps.message, StartingMessage):
+            if isinstance(ps, InitialState):
                 new_ps = ps.step(*args, **kws)
                 heapq.heappush(frontier, PrioritizedItem(-cum_weight, new_ps))
-            elif isinstance(ps.message, SampleMessage):
-                for value in ps.message.distribution.support:
-                    weight = ps.message.distribution.log_probability(value)
+            elif isinstance(ps, SampleState):
+                for value in ps.distribution.support:
+                    weight = ps.distribution.log_probability(value)
                     new_ps = ps.step(value)
                     heapq.heappush(frontier, PrioritizedItem(-(cum_weight + weight), new_ps))
-            elif isinstance(ps.message, ObserveMessage):
-                value = ps.message.value
-                weight = ps.message.distribution.log_probability(value)
+            elif isinstance(ps, ObserveState):
+                value = ps.value
+                weight = ps.distribution.log_probability(value)
                 if weight > float('-inf'):
                     new_ps = ps.step()
                     heapq.heappush(frontier, PrioritizedItem(-(cum_weight + weight), new_ps))
-            elif isinstance(ps.message, ReturnMessage):
+            elif isinstance(ps, ReturnState):
                 cum_prob = math.exp(cum_weight)
                 assert cum_prob > 0, "Possible underflow"
-                return_probs[ps.message.value] += cum_prob
+                return_probs[ps.value] += cum_prob
                 executions += 1
             else:
                 raise ValueError("Unrecognized program state message")

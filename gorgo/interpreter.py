@@ -1,9 +1,8 @@
 import ast
 import inspect
 import textwrap
-from gorgo.core import ProgramState, ReturnMessage, \
-    StartingMessage, SampleMessage, ObserveMessage, \
-    StochasticPrimitive, ObservationStatement
+from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
+from gorgo.core import StochasticPrimitive, ObservationStatement
 from gorgo.transforms import DesugaringTransform, \
     CallWrap_and_Arg_Transform, SetLineNumbers, CPSTransform
 from gorgo.funcutils import method_cache
@@ -20,13 +19,8 @@ class CPSInterpreter:
     def initial_program_state(self, function):
         interpreted_function = self.interpret(function)
         def return_continuation(value):
-            return ProgramState(
-                continuation=None,
-                message=ReturnMessage(
-                    address=None,
-                    value=value
-                ),
-                is_returned=True
+            return ReturnState(
+                value=value
             )
         def program_continuation(*args, **kws):
             return interpreted_function(
@@ -34,11 +28,8 @@ class CPSInterpreter:
                 _cont=return_continuation,
                 **kws
             )
-        return ProgramState(
+        return InitialState(
             continuation=program_continuation,
-            message=StartingMessage(
-                address=()
-            ),
         )
 
     @method_cache
@@ -68,25 +59,18 @@ class CPSInterpreter:
 
     def interpret_sample(self, call):
         def sample_wrapper(_address, _cont):
-            return ProgramState(
+            return SampleState(
                 continuation=_cont,
-                message=SampleMessage(
-                    address=_address,
-                    distribution=call.__self__
-                ),
-                is_returned=False
+                distribution=call.__self__
             )
         return sample_wrapper
 
     def interpret_observation(self, func):
-        def observation_wrapper(*args, _address=None, _cont=None, **kws):
-            return ProgramState(
+        def observation_wrapper(distribution, value, _address=None, _cont=None, **kws):
+            return ObserveState(
                 continuation=lambda : _cont(None),
-                message=ObserveMessage(
-                    address=_address,
-                    distribution=args[0] if len(args) >= 1 else kws['distribution'],
-                    value=args[1] if len(args) >= 2 else kws['value']
-                )
+                distribution=distribution,
+                value=value
             )
         return observation_wrapper
 
