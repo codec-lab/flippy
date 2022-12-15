@@ -79,7 +79,7 @@ def test_check_exception():
     _, exc, tb = e._excinfo
     # We show compiled code, which in this case isn't particularly readable.
     # This line will have to change depending on our compiled output.
-    exception_line = 'raise __body_0__body_0__exc'
+    exception_line = 'raise __v0'
 
     # First, we just check that the traceback will render the code.
     formatted = ''.join(traceback.format_exception(exc, None, tb))

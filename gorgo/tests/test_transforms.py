@@ -1,3 +1,5 @@
+import itertools
+import textwrap
 from gorgo.transforms import *
 from gorgo.interpreter import CPSInterpreter
 from gorgo import keep_deterministic
@@ -44,3 +46,46 @@ def test_x():
     assert interpret(main_in_function_helper_in_closure) == 9
     # TODO: fix!
     # assert interpret(main_in_function_helper_in_function) == 9
+
+def test_desugaring_transform():
+    src_compiled = [
+        ("b = f(g(a))", "__v0 = g(a); b = f(__v0)"),
+        (
+            "c = 0 if a > 5 else 1",
+            textwrap.dedent("""
+            if a > 5:
+                __v0 = 0
+            else:
+                __v0 = 1
+            c = __v0
+            """)
+        ),
+        (
+            "d = (lambda x, y=1: g(2)*100)()",
+            textwrap.dedent("""
+            __v0 = g(2)
+            def __v1(x, y=1):
+                return __v0*100
+            d = __v1()
+            """)
+        )
+    ]
+    for src, comp in src_compiled:
+        node = ast.parse(src)
+        node = DesugaringTransform()(node)
+        assert compare_ast(node, ast.parse(comp))
+
+def compare_ast(node1, node2):
+    if type(node1) is not type(node2):
+        return False
+    if isinstance(node1, ast.AST):
+        for k, v in vars(node1).items():
+            if k in ('lineno', 'col_offset', 'ctx', 'end_col_offset', 'end_lineno', '_parent'):
+                continue
+            if not compare_ast(v, getattr(node2, k)):
+                return False
+        return True
+    elif isinstance(node1, list):
+        return all(itertools.starmap(compare_ast, itertools.zip_longest(node1, node2)))
+    else:
+        return node1 == node2

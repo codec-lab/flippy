@@ -1,4 +1,5 @@
 import ast
+import textwrap
 import copy
 
 class DesugaringTransform(ast.NodeTransformer):
@@ -7,10 +8,12 @@ class DesugaringTransform(ast.NodeTransformer):
     - separating out function calls to individual assignments
     - converting <exp> if <cond> else <exp> statements to explicit
     if-else blocks
+    - converting lambda expressions to function def
     """
     # TODO: desugaring can be made more concise
     def __call__(self, rootnode):
         self.new_statements = []
+        self.n_temporary_vars = 0
         self.visit(rootnode)
         self.insert_new_statements()
         ast.fix_missing_locations(rootnode)
@@ -33,18 +36,8 @@ class DesugaringTransform(ast.NodeTransformer):
                         list_child._parent_field_idx = child_i
 
     def generate_name(self, node):
-        name = []
-        while True:
-            if not hasattr(node, "_parent"):
-                name.append("")
-                break
-            if node._parent_field_is_list:
-                level_name = f"{node._parent_field}_{node._parent_field_idx}"
-            else:
-                level_name = f"{node._parent_field}"
-            name.append(level_name)
-            node = node._parent
-        return "__".join(name[::-1])
+        self.n_temporary_vars += 1
+        return f"__v{self.n_temporary_vars - 1}"
 
     def insert_new_statements(self):
         while self.new_statements:
@@ -113,18 +106,36 @@ class DesugaringTransform(ast.NodeTransformer):
             preline_if
         ))
         return ast.Name(id=return_name, ctx=ast.Load())
+    
+    def visit_Lambda(self, node):
+        self.generic_visit(node)
+        block, idx = self.get_block_blockindex(node)
+        def_name = self.generate_name(node)
+        def_node = ast.parse(textwrap.dedent("""
+        def _myfunc_():
+            return None
+        """)).body[0]
+        def_node.args = node.args
+        def_node.body[0].value = node.body
+        def_node.name = def_name
+        self.new_statements.append((
+            block,
+            idx,
+            def_node
+        ))
+        return ast.Name(id=def_name, ctx=ast.Load())
 
 class CallWrap_and_Arg_Transform(ast.NodeTransformer):
     """
     Wrap every call with a cps interpreter
     """
     context_name = "<root>"
-    def __call__(self, rootnode, call_wrap_name="_cps.interpret"):
-        self.call_wrap_name = call_wrap_name
+    call_wrap_name = "_cps.interpret"
+    def __call__(self, rootnode):
         self.visit(rootnode)
         return rootnode
     def visit_Call(self, node):
-        new_address = f"('{self.context_name}', {node.lineno}, )"
+        new_address = f"({node.lineno}, )"
         new_node = ast.parse(f'{self.call_wrap_name}(_func)(_address=_address + {new_address})').body[0].value
         new_node.func.args = [node.func]
         new_node.args = node.args
