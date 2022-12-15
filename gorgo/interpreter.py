@@ -66,11 +66,11 @@ class CPSInterpreter:
         return sample_wrapper
 
     def interpret_observation(self, func):
-        def observation_wrapper(*args, _address=None, _cont=None, **kws):
+        def observation_wrapper(distribution, value, _address=None, _cont=None, **kws):
             return ObserveState(
                 continuation=lambda : _cont(None),
-                distribution=args[0] if len(args) >= 1 else kws['distribution'],
-                value=args[1] if len(args) >= 2 else kws['value']
+                distribution=distribution,
+                value=value
             )
         return observation_wrapper
 
