@@ -1,5 +1,7 @@
-from gorgo.interpreter import *
 from gorgo.core import Bernoulli, Multinomial
+from gorgo.core import SampleState, ReturnState
+from gorgo.interpreter import CPSInterpreter
+import ast
 import pytest
 import traceback
 

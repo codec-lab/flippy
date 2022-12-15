@@ -30,8 +30,14 @@ class StochasticPrimitive(Distribution):
     @abc.abstractmethod
     def __call__(self, *params, rng=random):
         pass
-    def sample(self, rng=random):
-        return self(rng=rng)
+    def sample(self, rng=random, _address=None, _cont=None, **kws):
+        if _cont is None:
+            return self(rng=rng)
+        return SampleState(
+            continuation=_cont,
+            distribution=self
+        )
+    setattr(sample, CPSTransform.is_transformed_property, True)
 
 class Bernoulli(StochasticPrimitive):
     support = (True, False)

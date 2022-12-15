@@ -1,8 +1,7 @@
 import ast
 import inspect
 import textwrap
-from gorgo.core import ProgramState, ReturnState, SampleState, InitialState
-from gorgo.core import StochasticPrimitive
+from gorgo.core import ReturnState, InitialState
 from gorgo.transforms import DesugaringTransform, \
     CallWrap_and_Arg_Transform, SetLineNumbers, CPSTransform
 from gorgo.funcutils import method_cache
@@ -38,9 +37,6 @@ class CPSInterpreter:
             return self.interpret_transformed(call)
         if isinstance(call, type):
             return self.interpret_class(call)
-        if hasattr(call, "__self__"):
-            if isinstance(call.__self__, StochasticPrimitive) and call.__name__ == "sample":
-                return self.interpret_sample(call)
         if getattr(builtins, call.__name__, None) == call:
             return self.interpret_builtin(call)
         return self.interpret_generic(call)
@@ -54,14 +50,6 @@ class CPSInterpreter:
         def wrapper_generic(*args, _address=(), **kws):
             return func(*args, **kws, _cps=self, _address=_address)
         return wrapper_generic
-
-    def interpret_sample(self, call):
-        def sample_wrapper(_address, _cont):
-            return SampleState(
-                continuation=_cont,
-                distribution=call.__self__
-            )
-        return sample_wrapper
 
     def interpret_class(self, cls):
         def class_wrapper(*args, _address=None, _cont=None, **kws):
