@@ -2,8 +2,9 @@ from typing import Sequence, Generic, TypeVar, Any, Callable
 import math
 import random
 import abc
-import dataclasses
 from gorgo.tools import isclose
+from gorgo.transforms import CPSTransform
+
 
 ############################################
 #  Sampling and observations
@@ -73,15 +74,15 @@ class Multinomial(StochasticPrimitive):
             for s in self.support
         })
 
-# TODO: finalize this interface
-class ObservationStatement:
-    def __call__(
-        self,
-        distribution,
-        value,
-    ):
-        pass
-observe = ObservationStatement()
+def observe(distribution : Distribution, value : Element, _address=None, _cont=None, **kws):
+    if _cont is None:
+        return
+    return ObserveState(
+        continuation=lambda : _cont(None),
+        distribution=distribution,
+        value=value
+    )
+setattr(observe, CPSTransform.is_transformed_property, True)
 
 ############################################
 #  Program State
