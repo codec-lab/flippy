@@ -29,14 +29,12 @@ def check_trace(func, trace, *, args=(), kwargs={}, return_value):
     ps = ps.step(*args, **kwargs)
 
     for trace_idx, (dist, value) in enumerate(trace):
-        m = ps.message
-        assert isinstance(m, SampleMessage), (f'{trace_idx=}', m)
-        assert m.distribution.isclose(dist), (f'{trace_idx=}', m)
+        assert isinstance(ps, SampleState), (f'{trace_idx=}', ps)
+        assert ps.distribution.isclose(dist), (f'{trace_idx=}', ps)
         ps = ps.step(value)
 
-    m = ps.message
-    assert isinstance(m, ReturnMessage)
-    assert m.value == return_value
+    assert isinstance(ps, ReturnState)
+    assert ps.value == return_value
 
 def test_interpreter():
     check_trace(geometric, [

@@ -1,4 +1,4 @@
-from typing import Sequence, Generic, TypeVar, Any
+from typing import Sequence, Generic, TypeVar, Any, Callable
 import math
 import random
 import abc
@@ -84,50 +84,41 @@ class ObservationStatement:
 observe = ObservationStatement()
 
 ############################################
-#  Messages and Program State
+#  Program State
 ############################################
-
-@dataclasses.dataclass
-class ProgramMessage:
-    address : tuple
-
-@dataclasses.dataclass
-class StartingMessage(ProgramMessage):
-    pass
-
-@dataclasses.dataclass
-class ObserveMessage(ProgramMessage):
-    distribution: Distribution
-    value: Any
-
-@dataclasses.dataclass
-class SampleMessage(ProgramMessage):
-    distribution: Distribution
-
-@dataclasses.dataclass
-class ReturnMessage(ProgramMessage):
-    value : Any
 
 class ProgramState:
     def __init__(
         self,
         continuation,
-        message,
-        is_returned=False
     ):
         self.continuation = continuation
-        self.message = message
-        self._is_returned = is_returned
-
-    def is_returned(self):
-        return self._is_returned
 
     def step(self, *args, **kws):
-        if self.is_returned():
-            raise ValueError
         thunk = self.continuation(*args, **kws)
         while True:
             next_ = thunk()
             if isinstance(next_, ProgramState):
                 return next_
             thunk = next_
+
+class InitialState(ProgramState):
+    pass
+
+class ObserveState(ProgramState):
+    def __init__(self, continuation: Callable[[], Callable], distribution: Distribution, value: Any):
+        super().__init__(continuation=continuation)
+        self.distribution = distribution
+        self.value = value
+
+class SampleState(ProgramState):
+    def __init__(self, continuation: Callable[[], Callable], distribution: Distribution):
+        super().__init__(continuation=continuation)
+        self.distribution = distribution
+
+class ReturnState(ProgramState):
+    def __init__(self, value: Any):
+        self.value = value
+
+    def step(self, *args, **kws):
+        raise ValueError
