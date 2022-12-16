@@ -30,13 +30,13 @@ class DesugaringTransform(ast.NodeTransformer):
         self.new_stmt_stack[-1].append(node)
         return self.new_stmt_stack.pop()
 
-    def generate_name(self, node):
+    def generate_name(self):
         self.n_temporary_vars += 1
         return f"__v{self.n_temporary_vars - 1}"
 
     def visit_Call(self, node):
         self.generic_visit(node)
-        return_name = self.generate_name(node)
+        return_name = self.generate_name()
         assn_node = ast.Assign(
             targets=[ast.Name(id=return_name, ctx=ast.Store())],
             value=node,
@@ -49,27 +49,10 @@ class DesugaringTransform(ast.NodeTransformer):
         """
         Convert <exp> if <cond> else <exp> to explicit if then else blocks
         """
-        test_name = self.generate_name(node)
-        return_name = self.generate_name(node)
-        test_node, if_node = ast.parse(textwrap.dedent(f"""
-        {test_name} = test
-        if {test_name}:
-            {return_name} = if_body
-        else:
-            {return_name} = else_body
-        """)).body
-        test_node.value = node.test
-        test_node = self.generic_visit(test_node)
-        if not isinstance(test_node, list):
-            test_node = [test_node]
-        if_node.body[0].value = node.body
-        if_node.orelse[0].value = node.orelse
-        self.generic_visit(if_node)
-        self.new_stmt_stack[-1].extend([*test_node, if_node])
-        return ast.Name(id=return_name, ctx=ast.Load())
+        return self.desugar_to_IfElse_block(node.test, node.body, node.orelse)
     
     def visit_Lambda(self, node):
-        def_name = self.generate_name(node)
+        def_name = self.generate_name()
         def_node = ast.parse(textwrap.dedent(f"""
         def {def_name}():
             return None
@@ -85,6 +68,43 @@ class DesugaringTransform(ast.NodeTransformer):
             node.value = ast.Constant(value=None)
         node = self.generic_visit(node)
         return node
+    
+    # TODO: this doesn't work yet
+    # def visit_BoolOp(self, node):
+    #     if isinstance(node.op, ast.And):
+    #         return self.desugar_to_IfElse_block(
+    #             test_expr=node.values[0],
+    #             if_expr=node.values[1],
+    #             else_expr=ast.Constant(value=False)
+    #         )
+    #     elif isinstance(node.op, ast.Or):
+    #         return self.desugar_to_IfElse_block(
+    #             test_expr=node.values[0],
+    #             if_expr=ast.Constant(value=True),
+    #             else_expr=node.values[1]
+    #         )
+    #     raise ValueError("BoolOp is neither And nor Or")
+    
+    def desugar_to_IfElse_block(self, test_expr, if_expr, else_expr):
+        test_name = self.generate_name()
+        return_name = self.generate_name()
+        test_node, if_node = ast.parse(textwrap.dedent(f"""
+        {test_name} = test
+        if {test_name}:
+            {return_name} = if_body
+        else:
+            {return_name} = else_body
+        """)).body
+        test_node.value = test_expr
+        test_node = self.generic_visit(test_node)
+        if not isinstance(test_node, list):
+            test_node = [test_node]
+        if_node.body[0].value = if_expr
+        if_node.orelse[0].value = else_expr
+        self.generic_visit(if_node)
+        self.new_stmt_stack[-1].extend([*test_node, if_node])
+        return ast.Name(id=return_name, ctx=ast.Load())
+    
 
 class CallWrap_and_Arg_Transform(ast.NodeTransformer):
     """
