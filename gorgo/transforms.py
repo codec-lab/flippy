@@ -14,7 +14,7 @@ class DesugaringTransform(ast.NodeTransformer):
         self.new_stmt_stack = []
         self.n_temporary_vars = 0
         self.visit(rootnode)
-        rootnode = ast.parse(ast.unparse(rootnode))
+        rootnode = ast.parse(ast.unparse(rootnode)) #HACK: this might be slow
         return rootnode
 
     def generic_visit(self, node):
@@ -49,18 +49,23 @@ class DesugaringTransform(ast.NodeTransformer):
         """
         Convert <exp> if <cond> else <exp> to explicit if then else blocks
         """
+        test_name = self.generate_name(node)
         return_name = self.generate_name(node)
-        if_node = ast.parse(textwrap.dedent(f"""
-        if test:
+        test_node, if_node = ast.parse(textwrap.dedent(f"""
+        {test_name} = test
+        if {test_name}:
             {return_name} = if_body
         else:
             {return_name} = else_body
-        """)).body[0]
-        if_node.test = node.test
+        """)).body
+        test_node.value = node.test
+        test_node = self.generic_visit(test_node)
+        if not isinstance(test_node, list):
+            test_node = [test_node]
         if_node.body[0].value = node.body
         if_node.orelse[0].value = node.orelse
         self.generic_visit(if_node)
-        self.new_stmt_stack[-1].append(if_node)
+        self.new_stmt_stack[-1].extend([*test_node, if_node])
         return ast.Name(id=return_name, ctx=ast.Load())
     
     def visit_Lambda(self, node):

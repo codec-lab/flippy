@@ -51,13 +51,29 @@ def test_desugaring_transform():
     src_compiled = [
         ("b = f(g(a))", "__v0 = g(a); __v1 = f(__v0); b = __v1"),
         (
-            "c = 0 if a > 5 else 1",
+            "a = lambda x: g(h(x))",
             textwrap.dedent("""
-            if a > 5:
-                __v0 = 0
+            def __v0(x):
+                __v1 = h(x)
+                __v2 = g(__v1)
+                return __v2
+            a = __v0
+            """)
+        ),
+        (
+            "a = g(h(x)) if f(x) else h(g(x))",
+            textwrap.dedent("""
+            __v2 = f(x)
+            __v0 = __v2
+            if __v0:
+                __v3 = h(x)
+                __v4 = g(__v3)
+                __v1 = __v4
             else:
-                __v0 = 1
-            c = __v0
+                __v5 = g(x)
+                __v6 = h(__v5)
+                __v1 = __v6
+            a = __v1
             """)
         ),
         (
@@ -74,7 +90,7 @@ def test_desugaring_transform():
     for src, comp in src_compiled:
         node = ast.parse(src)
         node = DesugaringTransform()(node)
-        assert compare_ast(node, ast.parse(comp))
+        assert compare_ast(node, ast.parse(comp)), src
 
 def compare_ast(node1, node2):
     if type(node1) is not type(node2):
