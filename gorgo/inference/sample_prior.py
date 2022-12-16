@@ -1,0 +1,30 @@
+import random
+from collections import defaultdict
+from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
+from gorgo.interpreter import CPSInterpreter
+
+class SamplePrior:
+    """Sample from the prior and ignore observation statements"""
+    def __init__(self, function, samples : int, seed=None):
+        self.function = function
+        self.seed = seed
+        self.samples = samples
+
+    def run(self, *args, **kws):
+        rng = random.Random(self.seed)
+        return_counts = defaultdict(int)
+        init_ps = CPSInterpreter().initial_program_state(self.function)
+        for _ in range(self.samples):
+            ps = init_ps.step(*args, **kws)
+            while not isinstance(ps, ReturnState):
+                if isinstance(ps, SampleState):
+                    value = ps.distribution.sample(rng=rng)
+                    ps = ps.step(value)
+                elif isinstance(ps, ObserveState):
+                    ps = ps.step()
+                else:
+                    raise ValueError("Unrecognized program state message")
+            return_counts[ps.value] += 1
+        total_prob = sum(return_counts.values())
+        return_probs = {e: p/total_prob for e, p in return_counts.items()}
+        return return_probs
