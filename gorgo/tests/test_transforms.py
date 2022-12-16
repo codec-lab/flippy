@@ -49,7 +49,7 @@ def test_x():
 
 def test_desugaring_transform():
     src_compiled = [
-        ("b = f(g(a))", "__v0 = g(a); b = f(__v0)"),
+        ("b = f(g(a))", "__v0 = g(a); __v1 = f(__v0); b = __v1"),
         (
             "c = 0 if a > 5 else 1",
             textwrap.dedent("""
@@ -66,7 +66,8 @@ def test_desugaring_transform():
             def __v0(x, y=1):
                 __v1 = g(x)
                 return __v1*100
-            d = __v0()
+            __v2 = __v0()
+            d = __v2
             """)
         )
     ]

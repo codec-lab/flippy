@@ -10,125 +10,75 @@ class DesugaringTransform(ast.NodeTransformer):
     if-else blocks
     - converting lambda expressions to function def
     """
-    # TODO: desugaring can be made more concise
     def __call__(self, rootnode):
-        self.new_statements = []
+        self.new_stmt_stack = []
         self.n_temporary_vars = 0
         self.visit(rootnode)
-        self.insert_new_statements()
-        ast.fix_missing_locations(rootnode)
-        rootnode = ast.parse(ast.unparse(rootnode)) #HACK: this might be slow
+        rootnode = ast.parse(ast.unparse(rootnode))
         return rootnode
 
-    def link_children(self, parent):
-        for field, child in ast.iter_fields(parent):
-            if isinstance(child, ast.AST):
-                child._parent = parent
-                child._parent_field = field
-                child._parent_field_is_list = False
-                child._parent_field_idx = None
-            if isinstance(child, list):
-                for child_i, list_child in enumerate(child):
-                    if isinstance(list_child, ast.AST):
-                        list_child._parent = parent
-                        list_child._parent_field = field
-                        list_child._parent_field_is_list = True
-                        list_child._parent_field_idx = child_i
+    def generic_visit(self, node):
+        if isinstance(node, ast.stmt):
+            node = self.visit_stmt(node)
+        else:
+            node = ast.NodeTransformer.generic_visit(self, node)
+        return node
+
+    def visit_stmt(self, node):
+        self.new_stmt_stack.append([])
+        ast.NodeTransformer.generic_visit(self, node)
+        self.new_stmt_stack[-1].append(node)
+        return self.new_stmt_stack.pop()
 
     def generate_name(self, node):
         self.n_temporary_vars += 1
         return f"__v{self.n_temporary_vars - 1}"
 
-    def insert_new_statements(self):
-        while self.new_statements:
-            block, idx, stmt = self.new_statements.pop()
-            block.insert(idx, stmt)
-
-    def get_block_blockindex(self, node):
-        while True:
-            if isinstance(node, ast.stmt):
-                assert node._parent_field_is_list
-                return getattr(node._parent, node._parent_field), node._parent_field_idx
-            node = node._parent
-
-    def generic_visit(self, node):
-        self.link_children(node)
-        ast.NodeTransformer.generic_visit(self, node)
-        return node
-
     def visit_Call(self, node):
         self.generic_visit(node)
-        if isinstance(node._parent, ast.Assign):
-            return node
-        block, idx = self.get_block_blockindex(node)
         return_name = self.generate_name(node)
-        preline_assn = ast.Assign(
+        assn_node = ast.Assign(
             targets=[ast.Name(id=return_name, ctx=ast.Store())],
-            value=node
+            value=node,
+            lineno=0
         )
-        preline_assn._is_preline_assn = True
-        self.new_statements.append((
-            block,
-            idx,
-            preline_assn
-        ))
+        self.new_stmt_stack[-1].append(assn_node)
         return ast.Name(id=return_name, ctx=ast.Load())
 
     def visit_IfExp(self, node):
         """
-        Convert <exp> if <cond> else <exp> to explicit
-        if then else blocks
-
-        Note: this might be less efficient if you have nested IfExp nodes
-        since it will evaluate all branches
+        Convert <exp> if <cond> else <exp> to explicit if then else blocks
         """
-        self.generic_visit(node)
-        block, idx = self.get_block_blockindex(node)
         return_name = self.generate_name(node)
-        preline_if = ast.If(
-            test=node.test,
-            body=[
-                ast.Assign(
-                    targets=[ast.Name(id=return_name, ctx=ast.Store())],
-                    value=node.body
-                )
-            ],
-            orelse=[
-                ast.Assign(
-                    targets=[ast.Name(id=return_name, ctx=ast.Store())],
-                    value=node.orelse
-                )
-            ],
-        )
-        self.new_statements.append((
-            block,
-            idx,
-            preline_if
-        ))
+        if_node = ast.parse(textwrap.dedent(f"""
+        if test:
+            {return_name} = if_body
+        else:
+            {return_name} = else_body
+        """)).body[0]
+        if_node.test = node.test
+        if_node.body[0].value = node.body
+        if_node.orelse[0].value = node.orelse
+        self.generic_visit(if_node)
+        self.new_stmt_stack[-1].append(if_node)
         return ast.Name(id=return_name, ctx=ast.Load())
     
     def visit_Lambda(self, node):
-        block, idx = self.get_block_blockindex(node)
         def_name = self.generate_name(node)
-        def_node = ast.parse(textwrap.dedent("""
-        def _myfunc_():
+        def_node = ast.parse(textwrap.dedent(f"""
+        def {def_name}():
             return None
         """)).body[0]
         def_node.args = node.args
         def_node.body[0].value = node.body
-        def_node.name = def_name
         self.generic_visit(def_node)
-        self.new_statements.append((
-            block,
-            idx,
-            def_node
-        ))
+        self.new_stmt_stack[-1].append(def_node)
         return ast.Name(id=def_name, ctx=ast.Load())
     
     def visit_Return(self, node):
-        self.generic_visit(node)
         if node.value is None:
             node.value = ast.Constant(value=None)
+        node = self.generic_visit(node)
         return node
 
 class CallWrap_and_Arg_Transform(ast.NodeTransformer):
