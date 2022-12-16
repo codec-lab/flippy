@@ -61,12 +61,12 @@ def test_desugaring_transform():
             """)
         ),
         (
-            "d = (lambda x, y=1: g(2)*100)()",
+            "d = (lambda x, y=1: g(x)*100)()",
             textwrap.dedent("""
-            __v0 = g(2)
-            def __v1(x, y=1):
-                return __v0*100
-            d = __v1()
+            def __v0(x, y=1):
+                __v1 = g(x)
+                return __v1*100
+            d = __v0()
             """)
         )
     ]

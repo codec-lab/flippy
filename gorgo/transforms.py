@@ -108,7 +108,7 @@ class DesugaringTransform(ast.NodeTransformer):
         return ast.Name(id=return_name, ctx=ast.Load())
     
     def visit_Lambda(self, node):
-        self.generic_visit(node)
+        # self.generic_visit(node)
         block, idx = self.get_block_blockindex(node)
         def_name = self.generate_name(node)
         def_node = ast.parse(textwrap.dedent("""
@@ -118,6 +118,7 @@ class DesugaringTransform(ast.NodeTransformer):
         def_node.args = node.args
         def_node.body[0].value = node.body
         def_node.name = def_name
+        self.generic_visit(def_node)
         self.new_statements.append((
             block,
             idx,
