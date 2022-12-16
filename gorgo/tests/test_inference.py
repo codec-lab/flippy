@@ -50,6 +50,6 @@ def test_likelihood_weighting_and_sample_prior():
     prior_dist = SamplePrior(geometric, samples=1000, seed=seed).run(param)
     prior_exp = expectation(_distribution_from_inference(prior_dist))
 
-    assert isclose(lw_exp, prior_exp), 'Should match when there are no observe statements'
+    assert lw_exp == prior_exp, 'Should be identical when there are no observe statements'
 
     assert isclose(expected, prior_exp, atol=1e-2), 'Should be somewhat close to expected value'
