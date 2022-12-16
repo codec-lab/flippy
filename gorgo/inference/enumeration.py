@@ -1,29 +1,3 @@
-import random
-from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
-from gorgo.interpreter import CPSInterpreter
-
-class SamplePrior:
-    def __init__(self, function, seed=None):
-        self.function = function
-        self.seed = seed
-
-    def run(self, *args, **kws):
-        rng = random.Random(self.seed)
-        ps = CPSInterpreter().initial_program_state(self.function)
-        trajectory = [ps]
-        while not isinstance(ps, ReturnState):
-            if isinstance(ps, InitialState):
-                ps = ps.step(*args, **kws)
-            elif isinstance(ps, SampleState):
-                value = ps.distribution.sample(rng=rng)
-                ps = ps.step(value)
-            elif isinstance(ps, ObserveState):
-                ps = ps.step()
-            else:
-                raise ValueError("Unrecognized program state message")
-            trajectory.append(ps)
-        return trajectory
-
 import heapq
 import math
 from collections import defaultdict
@@ -42,6 +16,7 @@ class Enumeration:
     def __init__(self, function, max_executions=float('inf')):
         self.function = function
         self.max_executions = max_executions
+
     def run(self, *args, **kws):
         frontier = []
         return_probs = defaultdict(float)

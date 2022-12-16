@@ -1,6 +1,6 @@
 import functools
 from gorgo.transforms import CPSTransform
-from gorgo.inference import Enumeration
+from gorgo.inference import Enumeration, _distribution_from_inference
 from gorgo.core import Multinomial, Bernoulli, observe
 
 __all__ = [
@@ -43,7 +43,6 @@ def infer(func=None, method=Enumeration, **kwargs):
     @keep_deterministic
     def wrapped(*args, _cont=None, _cps=None, **kws):
         dist = func.run(*args, **kws)
-        ele, probs = zip(*dist.items())
-        return Multinomial(ele, probabilities=probs)
+        return _distribution_from_inference(dist)
 
     return wrapped
