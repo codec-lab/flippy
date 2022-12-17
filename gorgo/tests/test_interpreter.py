@@ -1,4 +1,4 @@
-from gorgo import cps_map, cps_filter
+from gorgo import cps_map, cps_filter, cps_reduce
 from gorgo.core import Bernoulli, Multinomial
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
@@ -93,6 +93,62 @@ def test_cps_filter():
         (Multinomial([1, 2, 3, 4]), 3),
         (Multinomial([1, 2, 3, 4]), 4),
     ], return_value=6)
+
+def test_cps_reduce():
+    def fn():
+        return cps_reduce(lambda acc, x: acc + Bernoulli(x).sample(), [.1, .2], 0)
+
+    check_trace(fn, [
+        (Bernoulli(0.1), 1),
+        (Bernoulli(0.2), 1),
+    ], return_value=2)
+
+def test_list_comprehension():
+    # Simple case
+    expected = [0, 1, 4]
+    def fn():
+        return [x**2 for x in range(3)]
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Multiple if statements.
+    expected = [0, 2]
+    def fn():
+        return [x for x in range(5) if x % 2 == 0 if x < 3]
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Multiple generators
+    expected = [(0, 0), (0, 1), (0, 2), (2, 0)]
+    def fn():
+        return [
+            (x, y)
+            for x in range(4)
+            if x % 2 == 0
+            for y in range(5)
+            if x + y < 3
+        ]
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Nested comprehensions
+    expected = [[0], [0, 1], [0, 1, 2]]
+    def fn():
+        return [
+            [y for y in range(x+1)]
+            for x in range(3)
+        ]
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Checking something stochastic.
+    def fn():
+        return sum([Bernoulli(x).sample() for x in [.1, .2, .3]])
+    check_trace(fn, [
+        (Bernoulli(0.1), 1),
+        (Bernoulli(0.2), 0),
+        (Bernoulli(0.3), 1),
+    ], return_value=2)
 
 def test_check_exception():
     def test_fn():

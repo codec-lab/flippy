@@ -60,3 +60,8 @@ def cps_filter(fn, iter):
     else:
         head = []
     return head + cps_filter(fn, iter[1:])
+
+def cps_reduce(fn, iter, initializer):
+    if len(iter) == 0:
+        return initializer
+    return cps_reduce(fn, iter[1:], fn(initializer, iter[0]))

@@ -56,7 +56,7 @@ class DesugaringTransform(ast.NodeTransformer):
             test_name = self.generate_name(),
             return_name = self.generate_name()
         )
-    
+
     def visit_Lambda(self, node):
         def_name = self.generate_name()
         def_node = ast.parse(textwrap.dedent(f"""
@@ -68,13 +68,13 @@ class DesugaringTransform(ast.NodeTransformer):
         self.generic_visit(def_node)
         self.new_stmt_stack[-1].append(def_node)
         return ast.Name(id=def_name, ctx=ast.Load())
-    
+
     def visit_Return(self, node):
         if node.value is None:
             node.value = ast.Constant(value=None)
         node = self.generic_visit(node)
         return node
-    
+
     def visit_BoolOp(self, node):
         test_name = self.generate_name()
         return_name = self.generate_name()
@@ -95,7 +95,7 @@ class DesugaringTransform(ast.NodeTransformer):
                 return_name=return_name
             )
         raise ValueError("BoolOp is neither And nor Or")
-    
+
     def desugar_to_IfElse_block(
         self,
         test_expr,
@@ -120,7 +120,60 @@ class DesugaringTransform(ast.NodeTransformer):
         self.generic_visit(if_node)
         self.new_stmt_stack[-1].extend([*test_node, if_node])
         return ast.Name(id=return_name, ctx=ast.Load())
-    
+
+    def visit_ListComp(self, node):
+        '''
+        Convert list comprehensions into cps_reduce calls. Later generators correspond to
+        nested cps_reduce calls. For the following example input:
+
+        ```
+        [
+            (x, y)
+            for x in range(4)
+            if x % 2 == 0
+            for y in range(5)
+            if x + y < 3
+        ]
+        ```
+
+        We transform code into the following:
+
+        ```
+        cps_reduce(
+            lambda __acc, x: (
+                __acc + cps_reduce(
+                    lambda __acc, y: (
+                        __acc + [(x, y)] if all([x + y < 3]) else __acc
+                    ),
+                    range(5),
+                    [],
+                ) if all([x % 2 == 0]) else __acc
+            ),
+            range(4),
+            [],
+        )
+        ```
+
+        '''
+
+        nested = ast.List(elts=[node.elt], ctx=ast.Load())
+
+        for g in node.generators[::-1]:
+            assert isinstance(g.target, ast.Name) and isinstance(g.target.ctx, ast.Store), 'Only simple targets are supported.'
+            target = g.target.id
+
+            new_node = ast.parse(textwrap.dedent(f'''
+            cps_reduce(lambda __acc, {target}: __acc + None if all([]) else __acc, None, [])
+            ''')).body[0].value
+
+            new_node.args[0].body.body.right = nested
+            new_node.args[0].body.test.args[0].elts = g.ifs
+            new_node.args[1] = g.iter
+
+            nested = new_node
+
+        return self.visit(new_node)
+
 
 class CallWrap_and_Arg_Transform(ast.NodeTransformer):
     """
