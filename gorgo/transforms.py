@@ -9,6 +9,8 @@ class DesugaringTransform(ast.NodeTransformer):
     - converting <exp> if <cond> else <exp> statements to explicit
     if-else blocks
     - converting lambda expressions to function def
+    - converting logical and/or statements to equivalent if/else blocks
+    - make None function return explicit
     """
     def __call__(self, rootnode):
         self.new_stmt_stack = []
@@ -35,7 +37,7 @@ class DesugaringTransform(ast.NodeTransformer):
         return f"__v{self.n_temporary_vars - 1}"
 
     def visit_Call(self, node):
-        self.generic_visit(node)
+        node = ast.NodeTransformer.generic_visit(self, node)
         return_name = self.generate_name()
         assn_node = ast.Assign(
             targets=[ast.Name(id=return_name, ctx=ast.Store())],
@@ -65,7 +67,7 @@ class DesugaringTransform(ast.NodeTransformer):
         """)).body[0]
         def_node.args = node.args
         def_node.body[0].value = node.body
-        self.generic_visit(def_node)
+        def_node = ast.NodeTransformer.generic_visit(self, def_node)
         self.new_stmt_stack[-1].append(def_node)
         return ast.Name(id=def_name, ctx=ast.Load())
     
@@ -95,6 +97,14 @@ class DesugaringTransform(ast.NodeTransformer):
                 return_name=return_name
             )
         raise ValueError("BoolOp is neither And nor Or")
+    
+    def visit_FunctionDef(self, node):
+        node_list = self.generic_visit(node)
+        # make return value of None function explicit
+        if not isinstance(node_list[-1].body[-1], ast.Return):
+            return_none = ast.parse("return None").body[0]
+            node_list[-1].body.append(return_none)
+        return node_list
     
     def desugar_to_IfElse_block(
         self,
