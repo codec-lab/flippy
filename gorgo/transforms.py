@@ -1,4 +1,5 @@
 import ast
+import textwrap
 import copy
 
 class DesugaringTransform(ast.NodeTransformer):
@@ -7,124 +8,199 @@ class DesugaringTransform(ast.NodeTransformer):
     - separating out function calls to individual assignments
     - converting <exp> if <cond> else <exp> statements to explicit
     if-else blocks
+    - converting lambda expressions to function def
+    - converting logical and/or statements to equivalent if/else blocks
+    - make None function return explicit
     """
-    # TODO: desugaring can be made more concise
     def __call__(self, rootnode):
-        self.new_statements = []
+        self.new_stmt_stack = []
+        self.n_temporary_vars = 0
         self.visit(rootnode)
-        self.insert_new_statements()
-        ast.fix_missing_locations(rootnode)
         rootnode = ast.parse(ast.unparse(rootnode)) #HACK: this might be slow
         return rootnode
 
-    def link_children(self, parent):
-        for field, child in ast.iter_fields(parent):
-            if isinstance(child, ast.AST):
-                child._parent = parent
-                child._parent_field = field
-                child._parent_field_is_list = False
-                child._parent_field_idx = None
-            if isinstance(child, list):
-                for child_i, list_child in enumerate(child):
-                    if isinstance(list_child, ast.AST):
-                        list_child._parent = parent
-                        list_child._parent_field = field
-                        list_child._parent_field_is_list = True
-                        list_child._parent_field_idx = child_i
-
-    def generate_name(self, node):
-        name = []
-        while True:
-            if not hasattr(node, "_parent"):
-                name.append("")
-                break
-            if node._parent_field_is_list:
-                level_name = f"{node._parent_field}_{node._parent_field_idx}"
-            else:
-                level_name = f"{node._parent_field}"
-            name.append(level_name)
-            node = node._parent
-        return "__".join(name[::-1])
-
-    def insert_new_statements(self):
-        while self.new_statements:
-            block, idx, stmt = self.new_statements.pop()
-            block.insert(idx, stmt)
-
-    def get_block_blockindex(self, node):
-        while True:
-            if isinstance(node, ast.stmt):
-                assert node._parent_field_is_list
-                return getattr(node._parent, node._parent_field), node._parent_field_idx
-            node = node._parent
-
     def generic_visit(self, node):
-        self.link_children(node)
-        ast.NodeTransformer.generic_visit(self, node)
+        if isinstance(node, ast.stmt):
+            node = self.visit_stmt(node)
+        else:
+            node = ast.NodeTransformer.generic_visit(self, node)
         return node
 
+    def visit_stmt(self, node):
+        self.new_stmt_stack.append([])
+        node = ast.NodeTransformer.generic_visit(self, node)
+        self.add_statement(node)
+        return self.new_stmt_stack.pop()
+
+    def generate_name(self):
+        self.n_temporary_vars += 1
+        return f"__v{self.n_temporary_vars - 1}"
+
     def visit_Call(self, node):
-        self.generic_visit(node)
-        if isinstance(node._parent, ast.Assign):
-            return node
-        block, idx = self.get_block_blockindex(node)
-        return_name = self.generate_name(node)
-        preline_assn = ast.Assign(
+        node = ast.NodeTransformer.generic_visit(self, node)
+        return_name = self.generate_name()
+        assn_node = ast.Assign(
             targets=[ast.Name(id=return_name, ctx=ast.Store())],
-            value=node
+            value=node,
+            lineno=0
         )
-        preline_assn._is_preline_assn = True
-        self.new_statements.append((
-            block,
-            idx,
-            preline_assn
-        ))
+        self.add_statement(assn_node)
         return ast.Name(id=return_name, ctx=ast.Load())
 
     def visit_IfExp(self, node):
         """
-        Convert <exp> if <cond> else <exp> to explicit
-        if then else blocks
-
-        Note: this might be less efficient if you have nested IfExp nodes
-        since it will evaluate all branches
+        Convert <exp> if <cond> else <exp> to explicit if then else blocks
         """
-        self.generic_visit(node)
-        block, idx = self.get_block_blockindex(node)
-        return_name = self.generate_name(node)
-        preline_if = ast.If(
-            test=node.test,
-            body=[
-                ast.Assign(
-                    targets=[ast.Name(id=return_name, ctx=ast.Store())],
-                    value=node.body
-                )
-            ],
-            orelse=[
-                ast.Assign(
-                    targets=[ast.Name(id=return_name, ctx=ast.Store())],
-                    value=node.orelse
-                )
-            ],
+        return self.desugar_to_IfElse_block(
+            test_expr=node.test,
+            if_expr=node.body,
+            else_expr=node.orelse,
+            test_name = self.generate_name(),
+            return_name = self.generate_name()
         )
-        self.new_statements.append((
-            block,
-            idx,
-            preline_if
-        ))
+
+    def visit_Lambda(self, node):
+        def_name = self.generate_name()
+        def_node = ast.parse(textwrap.dedent(f"""
+        def {def_name}():
+            return None
+        """)).body[0]
+        def_node.args = node.args
+        def_node.body[0].value = node.body
+        def_node = ast.NodeTransformer.generic_visit(self, def_node)
+        self.add_statement(def_node)
+        return ast.Name(id=def_name, ctx=ast.Load())
+    
+    def visit_Return(self, node):
+        if node.value is None:
+            node.value = ast.Constant(value=None)
+        node = self.generic_visit(node)
+        return node
+
+    def visit_BoolOp(self, node):
+        test_name = self.generate_name()
+        return_name = self.generate_name()
+        if isinstance(node.op, ast.And):
+            return self.desugar_to_IfElse_block(
+                test_expr=node.values[0],
+                if_expr=node.values[1],
+                else_expr=ast.Name(id=test_name),
+                test_name=test_name,
+                return_name=return_name
+            )
+        elif isinstance(node.op, ast.Or):
+            return self.desugar_to_IfElse_block(
+                test_expr=node.values[0],
+                if_expr=ast.Name(id=test_name),
+                else_expr=node.values[1],
+                test_name=test_name,
+                return_name=return_name
+            )
+        raise ValueError("BoolOp is neither And nor Or")
+    
+    def visit_FunctionDef(self, node):
+        node_list = self.generic_visit(node)
+        # make return value of None function explicit
+        # Note: this is required for CPSTransform to work
+        if not isinstance(node_list[-1].body[-1], ast.Return):
+            return_none = ast.parse("return None").body[0]
+            node_list[-1].body.append(return_none)
+        return node_list
+
+    def visit_ListComp(self, node):
+        '''
+        Convert list comprehensions into cps_reduce calls. Later generators correspond to
+        nested cps_reduce calls. For the following example input:
+
+        ```
+        [
+            (x, y)
+            for x in range(4)
+            if x % 2 == 0
+            for y in range(5)
+            if x + y < 3
+        ]
+        ```
+
+        We transform code into the following:
+
+        ```
+        cps_reduce(
+            lambda __acc, x: (
+                __acc + cps_reduce(
+                    lambda __acc, y: (
+                        __acc + [(x, y)] if all([x + y < 3]) else __acc
+                    ),
+                    range(5),
+                    [],
+                ) if all([x % 2 == 0]) else __acc
+            ),
+            range(4),
+            [],
+        )
+        ```
+
+        '''
+
+        nested = ast.List(elts=[node.elt], ctx=ast.Load())
+
+        for g in node.generators[::-1]:
+            assert isinstance(g.target, ast.Name) and isinstance(g.target.ctx, ast.Store), 'Only simple targets are supported.'
+            target = g.target.id
+
+            new_node = ast.parse(textwrap.dedent(f'''
+            cps_reduce(lambda __acc, {target}: __acc + None if all([]) else __acc, None, [])
+            ''')).body[0].value
+
+            new_node.args[0].body.body.right = nested
+            new_node.args[0].body.test.args[0].elts = g.ifs
+            new_node.args[1] = g.iter
+
+            nested = new_node
+
+        return self.visit(new_node)
+    
+    def desugar_to_IfElse_block(
+        self,
+        test_expr,
+        if_expr,
+        else_expr,
+        test_name,
+        return_name
+    ):
+        test_node, if_node = ast.parse(textwrap.dedent(f"""
+        {test_name} = test
+        if {test_name}:
+            {return_name} = if_body
+        else:
+            {return_name} = else_body
+        """)).body
+        test_node.value = test_expr
+        test_node = self.generic_visit(test_node)
+        if not isinstance(test_node, list):
+            test_node = [test_node]
+        if_node.body[0].value = if_expr
+        if_node.orelse[0].value = else_expr
+        self.generic_visit(if_node)
+        for stmt in [*test_node, if_node]:
+            self.add_statement(stmt)
         return ast.Name(id=return_name, ctx=ast.Load())
+
+    def add_statement(self, node):
+        self.new_stmt_stack[-1].append(node)
+
 
 class CallWrap_and_Arg_Transform(ast.NodeTransformer):
     """
     Wrap every call with a cps interpreter
     """
     context_name = "<root>"
-    def __call__(self, rootnode, call_wrap_name="_cps.interpret"):
-        self.call_wrap_name = call_wrap_name
+    call_wrap_name = "_cps.interpret"
+    def __call__(self, rootnode):
         self.visit(rootnode)
         return rootnode
     def visit_Call(self, node):
-        new_address = f"('{self.context_name}', {node.lineno}, )"
+        new_address = f"({node.lineno}, )"
         new_node = ast.parse(f'{self.call_wrap_name}(_func)(_address=_address + {new_address})').body[0].value
         new_node.func.args = [node.func]
         new_node.args = node.args

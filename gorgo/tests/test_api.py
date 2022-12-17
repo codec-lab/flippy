@@ -1,4 +1,4 @@
-from gorgo import keep_deterministic, infer, Bernoulli, Multinomial, observe
+from gorgo import keep_deterministic, infer, Bernoulli, Multinomial, observe, cps_map, cps_filter, cps_reduce
 
 def algebra():
     def flip():
@@ -92,3 +92,21 @@ def test_builtins():
         [0, 1],
         probabilities=[1/3, 2/3],
     ))
+
+def test_cps_map():
+    assert cps_map(lambda x: x ** 2, []) == []
+    assert cps_map(lambda x: x ** 2, list(range(5))) == [0, 1, 4, 9, 16]
+
+def test_cps_filter():
+    assert cps_filter(lambda x: x % 2 == 0, []) == []
+    assert cps_filter(lambda x: x % 2 == 0, list(range(5))) == [0, 2, 4]
+
+def test_cps_reduce():
+    sumfn = lambda acc, el: acc + el
+
+    assert cps_reduce(sumfn, [], 0) == 0
+    assert cps_reduce(sumfn, [1], 0) == 1
+    assert cps_reduce(sumfn, [1, 2], 0) == 3
+    assert cps_reduce(sumfn, [1, 2, 3], 0) == 6
+
+    assert cps_reduce(sumfn, [[3, 4], [5]], []) == [3, 4, 5]

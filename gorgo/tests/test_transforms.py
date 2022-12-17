@@ -1,3 +1,5 @@
+import itertools
+import textwrap
 from gorgo.transforms import *
 from gorgo.interpreter import CPSInterpreter
 from gorgo import keep_deterministic
@@ -44,3 +46,74 @@ def test_x():
     assert interpret(main_in_function_helper_in_closure) == 9
     # TODO: fix!
     # assert interpret(main_in_function_helper_in_function) == 9
+
+def test_desugaring_transform():
+    src_compiled = [
+        ("b = f(g(a))", "__v0 = g(a); __v1 = f(__v0); b = __v1"),
+        (
+            "a = lambda x: g(h(x))",
+            textwrap.dedent("""
+            def __v0(x):
+                __v1 = h(x)
+                __v2 = g(__v1)
+                return __v2
+            a = __v0
+            """)
+        ),
+        (
+            "a = g(h(x)) if f(x) else h(g(x))",
+            textwrap.dedent("""
+            __v2 = f(x)
+            __v0 = __v2
+            if __v0:
+                __v3 = h(x)
+                __v4 = g(__v3)
+                __v1 = __v4
+            else:
+                __v5 = g(x)
+                __v6 = h(__v5)
+                __v1 = __v6
+            a = __v1
+            """)
+        ),
+        (
+            "d = (lambda x, y=1: g(x)*100)()",
+            textwrap.dedent("""
+            def __v0(x, y=1):
+                __v1 = g(x)
+                return __v1*100
+            __v2 = __v0()
+            d = __v2
+            """)
+        ),
+        (
+            textwrap.dedent("""
+            def f():
+                pass
+            """),
+            textwrap.dedent("""
+            def f():
+                pass
+                return None
+            """)
+        )
+    ]
+    for src, comp in src_compiled:
+        node = ast.parse(src)
+        node = DesugaringTransform()(node)
+        assert compare_ast(node, ast.parse(comp)), src
+
+def compare_ast(node1, node2):
+    if type(node1) is not type(node2):
+        return False
+    if isinstance(node1, ast.AST):
+        for k, v in vars(node1).items():
+            if k in ('lineno', 'col_offset', 'ctx', 'end_col_offset', 'end_lineno', '_parent'):
+                continue
+            if not compare_ast(v, getattr(node2, k)):
+                return False
+        return True
+    elif isinstance(node1, list):
+        return all(itertools.starmap(compare_ast, itertools.zip_longest(node1, node2)))
+    else:
+        return node1 == node2

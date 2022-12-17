@@ -1,3 +1,4 @@
+from gorgo import cps_map, cps_filter, cps_reduce
 from gorgo.core import Bernoulli, Multinomial
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
@@ -33,6 +34,7 @@ def check_trace(func, trace, *, args=(), kwargs={}, return_value):
     for trace_idx, (dist, value) in enumerate(trace):
         assert isinstance(ps, SampleState), (f'{trace_idx=}', ps)
         assert ps.distribution.isclose(dist), (f'{trace_idx=}', ps)
+        assert value in dist.support
         ps = ps.step(value)
 
     assert isinstance(ps, ReturnState)
@@ -66,6 +68,88 @@ def test_interpreter():
         (Multinomial(range(5)), 4),
     ], return_value=(3, '*', (2, '+', 4)))
 
+def test_cps_map():
+    def fn():
+        def f(x):
+            return Bernoulli(x).sample()
+        return sum(cps_map(f, [.1, .2]))
+
+    check_trace(fn, [
+        (Bernoulli(0.1), 1),
+        (Bernoulli(0.2), 1),
+    ], return_value=2)
+
+def test_cps_filter():
+    def fn():
+        def f(x):
+            return Multinomial([1, 2, 3, 4]).sample()
+        def is_even(x):
+            return x % 2 == 0
+        return sum(cps_filter(is_even, cps_map(f, [None] * 4)))
+
+    check_trace(fn, [
+        (Multinomial([1, 2, 3, 4]), 1),
+        (Multinomial([1, 2, 3, 4]), 2),
+        (Multinomial([1, 2, 3, 4]), 3),
+        (Multinomial([1, 2, 3, 4]), 4),
+    ], return_value=6)
+
+def test_cps_reduce():
+    def fn():
+        return cps_reduce(lambda acc, x: acc + Bernoulli(x).sample(), [.1, .2], 0)
+
+    check_trace(fn, [
+        (Bernoulli(0.1), 1),
+        (Bernoulli(0.2), 1),
+    ], return_value=2)
+
+def test_list_comprehension():
+    # Simple case
+    expected = [0, 1, 4]
+    def fn():
+        return [x**2 for x in range(3)]
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Multiple if statements.
+    expected = [0, 2]
+    def fn():
+        return [x for x in range(5) if x % 2 == 0 if x < 3]
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Multiple generators
+    expected = [(0, 0), (0, 1), (0, 2), (2, 0)]
+    def fn():
+        return [
+            (x, y)
+            for x in range(4)
+            if x % 2 == 0
+            for y in range(5)
+            if x + y < 3
+        ]
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Nested comprehensions
+    expected = [[0], [0, 1], [0, 1, 2]]
+    def fn():
+        return [
+            [y for y in range(x+1)]
+            for x in range(3)
+        ]
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Checking something stochastic.
+    def fn():
+        return sum([Bernoulli(x).sample() for x in [.1, .2, .3]])
+    check_trace(fn, [
+        (Bernoulli(0.1), 1),
+        (Bernoulli(0.2), 0),
+        (Bernoulli(0.3), 1),
+    ], return_value=2)
+
 def test_check_exception():
     def test_fn():
         raise Exception('expected exception')
@@ -79,7 +163,7 @@ def test_check_exception():
     _, exc, tb = e._excinfo
     # We show compiled code, which in this case isn't particularly readable.
     # This line will have to change depending on our compiled output.
-    exception_line = 'raise __body_0__body_0__exc'
+    exception_line = 'raise __v0'
 
     # First, we just check that the traceback will render the code.
     formatted = ''.join(traceback.format_exception(exc, None, tb))
@@ -90,3 +174,29 @@ def test_check_exception():
     assert 'test_fn' in last_entry.filename
     assert hex(id(test_fn)).removeprefix('0x') in last_entry.filename
     assert last_entry.line == exception_line
+
+def test_control_flow_or():
+    def fn_or():
+        return Bernoulli(0.5).sample() or Bernoulli(0.5).sample()
+
+    check_trace(fn_or, [
+        (Bernoulli(0.5), 0),
+        (Bernoulli(0.5), 1),
+    ], return_value=1)
+
+    check_trace(fn_or, [
+        (Bernoulli(0.5), 1),
+    ], return_value=1)
+
+def test_control_flow_and():
+    def fn_and():
+        return Bernoulli(0.5).sample() and Bernoulli(0.5).sample()
+
+    check_trace(fn_and, [
+        (Bernoulli(0.5), 1),
+        (Bernoulli(0.5), 1),
+    ], return_value=1)
+
+    check_trace(fn_and, [
+        (Bernoulli(0.5), 0),
+    ], return_value=0)
