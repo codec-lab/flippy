@@ -46,3 +46,22 @@ def infer(func=None, method=Enumeration, **kwargs):
         return _distribution_from_inference(dist)
 
     return wrapped
+
+def cps_map(fn, iter):
+    if not iter:
+        return []
+    return [fn(iter[0])] + cps_map(fn, iter[1:])
+
+def cps_filter(fn, iter):
+    if not iter:
+        return []
+    if fn(iter[0]):
+        head = [iter[0]]
+    else:
+        head = []
+    return head + cps_filter(fn, iter[1:])
+
+def cps_reduce(fn, iter, initializer):
+    if len(iter) == 0:
+        return initializer
+    return cps_reduce(fn, iter[1:], fn(initializer, iter[0]))
