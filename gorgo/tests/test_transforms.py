@@ -85,6 +85,17 @@ def test_desugaring_transform():
             __v2 = __v0()
             d = __v2
             """)
+        ),
+        (
+            textwrap.dedent("""
+            def f():
+                pass
+            """),
+            textwrap.dedent("""
+            def f():
+                pass
+                return None
+            """)
         )
     ]
     for src, comp in src_compiled:

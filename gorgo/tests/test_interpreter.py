@@ -174,3 +174,29 @@ def test_check_exception():
     assert 'test_fn' in last_entry.filename
     assert hex(id(test_fn)).removeprefix('0x') in last_entry.filename
     assert last_entry.line == exception_line
+
+def test_control_flow_or():
+    def fn_or():
+        return Bernoulli(0.5).sample() or Bernoulli(0.5).sample()
+
+    check_trace(fn_or, [
+        (Bernoulli(0.5), 0),
+        (Bernoulli(0.5), 1),
+    ], return_value=1)
+
+    check_trace(fn_or, [
+        (Bernoulli(0.5), 1),
+    ], return_value=1)
+
+def test_control_flow_and():
+    def fn_and():
+        return Bernoulli(0.5).sample() and Bernoulli(0.5).sample()
+
+    check_trace(fn_and, [
+        (Bernoulli(0.5), 1),
+        (Bernoulli(0.5), 1),
+    ], return_value=1)
+
+    check_trace(fn_and, [
+        (Bernoulli(0.5), 0),
+    ], return_value=0)
