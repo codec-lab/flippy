@@ -49,7 +49,13 @@ class DesugaringTransform(ast.NodeTransformer):
         """
         Convert <exp> if <cond> else <exp> to explicit if then else blocks
         """
-        return self.desugar_to_IfElse_block(node.test, node.body, node.orelse)
+        return self.desugar_to_IfElse_block(
+            test_expr=node.test,
+            if_expr=node.body,
+            else_expr=node.orelse,
+            test_name = self.generate_name(),
+            return_name = self.generate_name()
+        )
     
     def visit_Lambda(self, node):
         def_name = self.generate_name()
@@ -69,25 +75,35 @@ class DesugaringTransform(ast.NodeTransformer):
         node = self.generic_visit(node)
         return node
     
-    # TODO: this doesn't work yet
-    # def visit_BoolOp(self, node):
-    #     if isinstance(node.op, ast.And):
-    #         return self.desugar_to_IfElse_block(
-    #             test_expr=node.values[0],
-    #             if_expr=node.values[1],
-    #             else_expr=ast.Constant(value=False)
-    #         )
-    #     elif isinstance(node.op, ast.Or):
-    #         return self.desugar_to_IfElse_block(
-    #             test_expr=node.values[0],
-    #             if_expr=ast.Constant(value=True),
-    #             else_expr=node.values[1]
-    #         )
-    #     raise ValueError("BoolOp is neither And nor Or")
-    
-    def desugar_to_IfElse_block(self, test_expr, if_expr, else_expr):
+    def visit_BoolOp(self, node):
         test_name = self.generate_name()
         return_name = self.generate_name()
+        if isinstance(node.op, ast.And):
+            return self.desugar_to_IfElse_block(
+                test_expr=node.values[0],
+                if_expr=node.values[1],
+                else_expr=ast.Name(id=test_name),
+                test_name=test_name,
+                return_name=return_name
+            )
+        elif isinstance(node.op, ast.Or):
+            return self.desugar_to_IfElse_block(
+                test_expr=node.values[0],
+                if_expr=ast.Name(id=test_name),
+                else_expr=node.values[1],
+                test_name=test_name,
+                return_name=return_name
+            )
+        raise ValueError("BoolOp is neither And nor Or")
+    
+    def desugar_to_IfElse_block(
+        self,
+        test_expr,
+        if_expr,
+        else_expr,
+        test_name,
+        return_name
+    ):
         test_node, if_node = ast.parse(textwrap.dedent(f"""
         {test_name} = test
         if {test_name}:
