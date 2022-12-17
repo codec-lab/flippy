@@ -1,6 +1,7 @@
 import ast
 import inspect
 import textwrap
+from typing import Tuple
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
 from gorgo.core import StochasticPrimitive, ObservationStatement
 from gorgo.transforms import DesugaringTransform, \
@@ -33,40 +34,55 @@ class CPSInterpreter:
         )
 
     @method_cache
-    def interpret(self, call):
-        if CPSTransform.is_transformed(call):
-            return self.interpret_transformed(call)
+    def interpret(
+        self,
+        call,
+        stack : Tuple = None, 
+        func_src : str = None,
+        locals_ = None,
+        lineno : int = None,
+    ):
+        # normal python
         if isinstance(call, type):
             return self.interpret_class(call)
+        if hasattr(call, '__name__') and getattr(builtins, call.__name__, None) == call:
+            return self.interpret_builtin(call)
+
+        # cps python
+        if stack is None:
+            cur_stack = None
+        else:
+            cur_stack = stack + ((func_src, lineno),)
+
+        if CPSTransform.is_transformed(call):
+            return self.interpret_transformed(call, cur_stack=cur_stack)
         if hasattr(call, "__self__"):
             if isinstance(call.__self__, StochasticPrimitive) and call.__name__ == "sample":
-                return self.interpret_sample(call)
+                return self.interpret_sample(call, cur_stack=cur_stack)
         if isinstance(call, ObservationStatement):
-            return self.interpret_observation(call)
-        if getattr(builtins, call.__name__, None) == call:
-            return self.interpret_builtin(call)
-        return self.interpret_generic(call)
+            return self.interpret_observation(call, cur_stack=cur_stack)
+        return self.interpret_generic(call, cur_stack=cur_stack)
 
     def interpret_builtin(self, func):
-        def builtin_wrapper(*args, _address=(), _cps=None, _cont=lambda val: val, **kws):
+        def builtin_wrapper(*args, _cont=lambda val: val, **kws):
             return _cont(func(*args, **kws))
         return builtin_wrapper
 
-    def interpret_transformed(self, func):
-        def wrapper_generic(*args, _address=(), **kws):
-            return func(*args, **kws, _cps=self, _address=_address)
+    def interpret_transformed(self, func, cur_stack):
+        def wrapper_generic(*args, **kws):
+            return func(*args, **kws, _cps=self, _stack=cur_stack)
         return wrapper_generic
 
-    def interpret_sample(self, call):
-        def sample_wrapper(_address, _cont):
+    def interpret_sample(self, call, cur_stack):
+        def sample_wrapper(_cont):
             return SampleState(
                 continuation=_cont,
                 distribution=call.__self__
             )
         return sample_wrapper
 
-    def interpret_observation(self, func):
-        def observation_wrapper(distribution, value, _address=None, _cont=None, **kws):
+    def interpret_observation(self, func, cur_stack):
+        def observation_wrapper(distribution, value, _cont=None, **kws):
             return ObserveState(
                 continuation=lambda : _cont(None),
                 distribution=distribution,
@@ -75,7 +91,7 @@ class CPSInterpreter:
         return observation_wrapper
 
     def interpret_class(self, cls):
-        def class_wrapper(*args, _address=None, _cont=None, **kws):
+        def class_wrapper(*args, _cont=None, **kws):
             return lambda :  _cont(cls(*args, **kws))
         return class_wrapper
 
@@ -103,7 +119,7 @@ class CPSInterpreter:
         )
         return compile(source, filename, 'exec')
 
-    def interpret_generic(self, func):
+    def interpret_generic(self, func, cur_stack):
         code = self.compile(
             f'{func.__name__}_{hex(id(func)).removeprefix("0x")}.py',
             self.transform_from_func(func),
@@ -114,8 +130,8 @@ class CPSInterpreter:
         except SyntaxError as err :
             raise err
         trans_func = local_context[func.__name__]
-        def wrapper_generic(*args, _address=(), **kws):
-            return trans_func(*args, **kws, _cps=self, _address=_address)
+        def wrapper_generic(*args, **kws):
+            return trans_func(*args, **kws, _cps=self, _stack=cur_stack)
         return wrapper_generic
 
     def get_closure(self, func):

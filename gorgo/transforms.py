@@ -136,35 +136,39 @@ class CallWrap_and_Arg_Transform(ast.NodeTransformer):
     """
     Wrap every call with a cps interpreter
     """
-    context_name = "<root>"
     call_wrap_name = "_cps.interpret"
+    func_src_name = "__func_src"
     def __call__(self, rootnode):
         self.visit(rootnode)
         return rootnode
+    
     def visit_Call(self, node):
-        new_address = f"({node.lineno}, )"
-        new_node = ast.parse(f'{self.call_wrap_name}(_func)(_address=_address + {new_address})').body[0].value
+        new_node = ast.parse(textwrap.dedent(f'''
+            {self.call_wrap_name}(
+                _func,
+                stack=_stack, 
+                func_src={self.func_src_name},
+                locals_=None,
+                lineno={node.lineno}
+            )()
+        ''')).body[0].value
         new_node.func.args = [node.func]
         new_node.args = node.args
-        new_node.keywords = [
-            *node.keywords,
-            *new_node.keywords
-        ]
+        new_node.keywords = node.keywords
         return new_node
 
     def visit_FunctionDef(self, node):
-        parent_context_name = self.context_name
-        self.context_name = node.name
+        ctx_id = repr(ast.unparse(node))
+        ctx_id_assn = ast.parse(f"{self.func_src_name} = {ctx_id}").body[0]
+        node.body.insert(0, ctx_id_assn)
         cur_keywords = [kw.arg for kw in node.args.kwonlyargs + node.args.args]
-        if "_address" not in cur_keywords:
-            # TODO: fix addressing scheme for functions
-            node.args.kwonlyargs.append(ast.arg(arg='_address'))
+        if "_stack" not in cur_keywords:
+            node.args.kwonlyargs.append(ast.arg(arg='_stack'))
             node.args.kw_defaults.append(ast.parse("()").body[0].value)
         if "_cps" not in cur_keywords:
             node.args.kwonlyargs.append(ast.arg(arg='_cps'))
             node.args.kw_defaults.append(ast.parse("_cps").body[0].value)
-        self.generic_visit(node)
-        self.context_name = parent_context_name
+        node = self.generic_visit(node)
         return node
 
 class SetLineNumbers(ast.NodeTransformer):

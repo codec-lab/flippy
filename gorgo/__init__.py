@@ -14,7 +14,7 @@ __all__ = [
 ]
 
 def keep_deterministic(fn):
-    def wrapped(*args, _cont=None, _cps=None, **kws):
+    def wrapped(*args, _cont=None, _cps=None, _stack=None, **kws):
         rv = fn(*args, **kws)
         if _cont is None:
             return rv
