@@ -28,8 +28,8 @@ class DesugaringTransform(ast.NodeTransformer):
 
     def visit_stmt(self, node):
         self.new_stmt_stack.append([])
-        ast.NodeTransformer.generic_visit(self, node)
-        self.new_stmt_stack[-1].append(node)
+        node = ast.NodeTransformer.generic_visit(self, node)
+        self.add_statement(node)
         return self.new_stmt_stack.pop()
 
     def generate_name(self):
@@ -44,7 +44,7 @@ class DesugaringTransform(ast.NodeTransformer):
             value=node,
             lineno=0
         )
-        self.new_stmt_stack[-1].append(assn_node)
+        self.add_statement(assn_node)
         return ast.Name(id=return_name, ctx=ast.Load())
 
     def visit_IfExp(self, node):
@@ -68,9 +68,9 @@ class DesugaringTransform(ast.NodeTransformer):
         def_node.args = node.args
         def_node.body[0].value = node.body
         def_node = ast.NodeTransformer.generic_visit(self, def_node)
-        self.new_stmt_stack[-1].append(def_node)
+        self.add_statement(def_node)
         return ast.Name(id=def_name, ctx=ast.Load())
-
+    
     def visit_Return(self, node):
         if node.value is None:
             node.value = ast.Constant(value=None)
@@ -101,35 +101,11 @@ class DesugaringTransform(ast.NodeTransformer):
     def visit_FunctionDef(self, node):
         node_list = self.generic_visit(node)
         # make return value of None function explicit
+        # Note: this is required for CPSTransform to work
         if not isinstance(node_list[-1].body[-1], ast.Return):
             return_none = ast.parse("return None").body[0]
             node_list[-1].body.append(return_none)
         return node_list
-    
-    def desugar_to_IfElse_block(
-        self,
-        test_expr,
-        if_expr,
-        else_expr,
-        test_name,
-        return_name
-    ):
-        test_node, if_node = ast.parse(textwrap.dedent(f"""
-        {test_name} = test
-        if {test_name}:
-            {return_name} = if_body
-        else:
-            {return_name} = else_body
-        """)).body
-        test_node.value = test_expr
-        test_node = self.generic_visit(test_node)
-        if not isinstance(test_node, list):
-            test_node = [test_node]
-        if_node.body[0].value = if_expr
-        if_node.orelse[0].value = else_expr
-        self.generic_visit(if_node)
-        self.new_stmt_stack[-1].extend([*test_node, if_node])
-        return ast.Name(id=return_name, ctx=ast.Load())
 
     def visit_ListComp(self, node):
         '''
@@ -183,6 +159,35 @@ class DesugaringTransform(ast.NodeTransformer):
             nested = new_node
 
         return self.visit(new_node)
+    
+    def desugar_to_IfElse_block(
+        self,
+        test_expr,
+        if_expr,
+        else_expr,
+        test_name,
+        return_name
+    ):
+        test_node, if_node = ast.parse(textwrap.dedent(f"""
+        {test_name} = test
+        if {test_name}:
+            {return_name} = if_body
+        else:
+            {return_name} = else_body
+        """)).body
+        test_node.value = test_expr
+        test_node = self.generic_visit(test_node)
+        if not isinstance(test_node, list):
+            test_node = [test_node]
+        if_node.body[0].value = if_expr
+        if_node.orelse[0].value = else_expr
+        self.generic_visit(if_node)
+        for stmt in [*test_node, if_node]:
+            self.add_statement(stmt)
+        return ast.Name(id=return_name, ctx=ast.Load())
+
+    def add_statement(self, node):
+        self.new_stmt_stack[-1].append(node)
 
 
 class CallWrap_and_Arg_Transform(ast.NodeTransformer):
