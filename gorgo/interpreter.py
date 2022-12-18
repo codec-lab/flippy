@@ -2,11 +2,11 @@ import ast
 import functools
 import inspect
 import textwrap
-from typing import Tuple
+from typing import Tuple, Callable
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
 from gorgo.core import StochasticPrimitive, ObservationStatement
 from gorgo.transforms import DesugaringTransform, \
-    CallWrap_and_Arg_Transform, SetLineNumbers, CPSTransform
+    SetLineNumbers, CPSTransform
 from gorgo.funcutils import method_cache
 import linecache
 import builtins
@@ -14,7 +14,6 @@ import builtins
 class CPSInterpreter:
     def __init__(self):
         self.desugaring_transform = DesugaringTransform()
-        self.call_transform = CallWrap_and_Arg_Transform()
         self.setlines_transform = SetLineNumbers()
         self.cps_transform = CPSTransform()
 
@@ -37,6 +36,7 @@ class CPSInterpreter:
     def interpret(
         self,
         call,
+        cont : Callable = None, 
         stack : Tuple = None, 
         func_src : str = None,
         locals_ = None,
@@ -44,14 +44,16 @@ class CPSInterpreter:
     ):
         # normal python
         if isinstance(call, type):
-            return self.interpret_class(call)
+            cps_call = self.interpret_class(call)
+            return functools.partial(cps_call, _cont=cont)
         if hasattr(call, '__name__') and getattr(builtins, call.__name__, None) == call:
-            return self.interpret_builtin(call)
+            cps_call = self.interpret_builtin(call)
+            return functools.partial(cps_call, _cont=cont)
 
         # cps python
         cps_call = self.interpret_cps(call)
         cur_stack = self.update_stack(stack, func_src, locals_, lineno)
-        cps_call = functools.partial(cps_call, _stack=cur_stack)
+        cps_call = functools.partial(cps_call, _stack=cur_stack, _cont=cont)
         return cps_call
 
     def interpret_builtin(self, func):
@@ -83,12 +85,12 @@ class CPSInterpreter:
         return self.interpret_generic(call)
 
     def interpret_transformed(self, func):
-        def wrapper_generic(*args, _stack=None, **kws):
-            return func(*args, **kws, _cps=self, _stack=_stack)
+        def wrapper_generic(*args, _cont=None, _stack=None, **kws):
+            return func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return wrapper_generic
 
     def interpret_sample(self, call):
-        def sample_wrapper(_cont, _stack=None):
+        def sample_wrapper(_cont=None, _stack=None):
             return SampleState(
                 continuation=_cont,
                 distribution=call.__self__
@@ -115,8 +117,8 @@ class CPSInterpreter:
         except SyntaxError as err :
             raise err
         trans_func = local_context[func.__name__]
-        def wrapper_generic(*args, _stack=None, **kws):
-            return trans_func(*args, **kws, _cps=self, _stack=_stack)
+        def wrapper_generic(*args, _cont=None, _stack=None, **kws):
+            return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return wrapper_generic
 
     def transform_from_func(self, func):
@@ -125,7 +127,6 @@ class CPSInterpreter:
 
     def transform(self, trans_node):
         trans_node = self.desugaring_transform(trans_node)
-        trans_node = self.call_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
         return trans_node
