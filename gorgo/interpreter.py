@@ -1,4 +1,5 @@
 import ast
+import functools
 import inspect
 import textwrap
 from typing import Tuple
@@ -33,7 +34,6 @@ class CPSInterpreter:
             continuation=program_continuation,
         )
 
-    @method_cache
     def interpret(
         self,
         call,
@@ -49,40 +49,54 @@ class CPSInterpreter:
             return self.interpret_builtin(call)
 
         # cps python
-        if stack is None:
-            cur_stack = None
-        else:
-            cur_stack = stack + ((func_src, lineno),)
-
-        if CPSTransform.is_transformed(call):
-            return self.interpret_transformed(call, cur_stack=cur_stack)
-        if hasattr(call, "__self__"):
-            if isinstance(call.__self__, StochasticPrimitive) and call.__name__ == "sample":
-                return self.interpret_sample(call, cur_stack=cur_stack)
-        if isinstance(call, ObservationStatement):
-            return self.interpret_observation(call, cur_stack=cur_stack)
-        return self.interpret_generic(call, cur_stack=cur_stack)
+        cps_call = self.interpret_cps(call)
+        cur_stack = self.update_stack(stack, func_src, locals_, lineno)
+        cps_call = functools.partial(cps_call, _stack=cur_stack)
+        return cps_call
 
     def interpret_builtin(self, func):
         def builtin_wrapper(*args, _cont=lambda val: val, **kws):
             return _cont(func(*args, **kws))
         return builtin_wrapper
 
-    def interpret_transformed(self, func, cur_stack):
-        def wrapper_generic(*args, **kws):
-            return func(*args, **kws, _cps=self, _stack=cur_stack)
+    def interpret_class(self, cls):
+        def class_wrapper(*args, _cont=None, **kws):
+            return lambda :  _cont(cls(*args, **kws))
+        return class_wrapper
+
+    def update_stack(self, stack, func_src, locals_, lineno):
+        if stack is None:
+            cur_stack = None
+        else:
+            cur_stack = stack + ((func_src, lineno),)
+        return cur_stack
+
+    @method_cache
+    def interpret_cps(self, call):
+        if CPSTransform.is_transformed(call):
+            return self.interpret_transformed(call)
+        if hasattr(call, "__self__"):
+            if isinstance(call.__self__, StochasticPrimitive) and call.__name__ == "sample":
+                return self.interpret_sample(call)
+        if isinstance(call, ObservationStatement):
+            return self.interpret_observation(call)
+        return self.interpret_generic(call)
+
+    def interpret_transformed(self, func):
+        def wrapper_generic(*args, _stack=None, **kws):
+            return func(*args, **kws, _cps=self, _stack=_stack)
         return wrapper_generic
 
-    def interpret_sample(self, call, cur_stack):
-        def sample_wrapper(_cont):
+    def interpret_sample(self, call):
+        def sample_wrapper(_cont, _stack=None):
             return SampleState(
                 continuation=_cont,
                 distribution=call.__self__
             )
         return sample_wrapper
 
-    def interpret_observation(self, func, cur_stack):
-        def observation_wrapper(distribution, value, _cont=None, **kws):
+    def interpret_observation(self, call):
+        def observation_wrapper(distribution, value, _cont=None, _stack=None, **kws):
             return ObserveState(
                 continuation=lambda : _cont(None),
                 distribution=distribution,
@@ -90,10 +104,20 @@ class CPSInterpreter:
             )
         return observation_wrapper
 
-    def interpret_class(self, cls):
-        def class_wrapper(*args, _cont=None, **kws):
-            return lambda :  _cont(cls(*args, **kws))
-        return class_wrapper
+    def interpret_generic(self, func):
+        code = self.compile(
+            f'{func.__name__}_{hex(id(func)).removeprefix("0x")}.py',
+            self.transform_from_func(func),
+        )
+        local_context = {**self.get_closure(func), "_cps": self}
+        try:
+            exec(code, func.__globals__, local_context)
+        except SyntaxError as err :
+            raise err
+        trans_func = local_context[func.__name__]
+        def wrapper_generic(*args, _stack=None, **kws):
+            return trans_func(*args, **kws, _cps=self, _stack=_stack)
+        return wrapper_generic
 
     def transform_from_func(self, func):
         trans_node = ast.parse(textwrap.dedent(inspect.getsource(func)))
@@ -118,21 +142,6 @@ class CPSInterpreter:
             filename,
         )
         return compile(source, filename, 'exec')
-
-    def interpret_generic(self, func, cur_stack):
-        code = self.compile(
-            f'{func.__name__}_{hex(id(func)).removeprefix("0x")}.py',
-            self.transform_from_func(func),
-        )
-        local_context = {**self.get_closure(func), "_cps": self}
-        try:
-            exec(code, func.__globals__, local_context)
-        except SyntaxError as err :
-            raise err
-        trans_func = local_context[func.__name__]
-        def wrapper_generic(*args, **kws):
-            return trans_func(*args, **kws, _cps=self, _stack=cur_stack)
-        return wrapper_generic
 
     def get_closure(self, func):
         if getattr(func, "__closure__", None) is not None:
