@@ -295,10 +295,11 @@ class CPSTransform(ast.NodeTransformer):
         self.new_block = []
         while True:
             self.cur_stmt = self.remaining_stmts.pop(0)
-            self.cur_stmt = self.visit(self.cur_stmt)
-            self.new_block.append(self.cur_stmt)
+            # cur_stmt gets added or updated explicitly in visit methods
+            self.visit(self.cur_stmt)  
             if len(self.remaining_stmts) == 0:
                 break
+            self.new_block.append(self.cur_stmt)
             
         block[:] = self.new_block
         del self.remaining_stmts
@@ -313,14 +314,22 @@ class CPSTransform(ast.NodeTransformer):
         else:
             <stmts>
         """
+        assert hasattr(self, "cur_stmt")
+        assert hasattr(self, "remaining_stmts")
+        assert hasattr(self, "new_block")
+        
         if_branch = node.body + copy.deepcopy(self.remaining_stmts)
         else_branch = node.orelse + self.remaining_stmts
         node.body = CPSTransform().transform_block(if_branch)
         node.orelse = CPSTransform().transform_block(else_branch)
         self.remaining_stmts = []
-        return node
+        
+        # add node explicitly
+        self.new_block.append(node)
 
     def visit_Return(self, node):
         new_node = ast.parse(f"return lambda : {self.final_continuation_name}(_res)").body[0]
         new_node.value.body.args[0] = node.value
-        return new_node
+        
+        # add node explicitly
+        self.new_block.append(new_node)
