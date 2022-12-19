@@ -243,8 +243,6 @@ class CPSTransform(ast.NodeTransformer):
         # Functions are executed a second time when being evaluted after being CPS-transformed
         # because decorators aren't removed by the transform.
         node.decorator_list.append(decorator)
-
-        self.cur_statement = node
         return node
     
     def add_keyword_to_FunctionDef(self, node, key, value):
@@ -263,51 +261,50 @@ class CPSTransform(ast.NodeTransformer):
         return node
 
     def visit_Call(self, node):
-        # the name of the continuation function containing all
-        # lines of code following this call
-        cont_name = f'_cont_{node.lineno}'
+        assert hasattr(self, "cur_stmt")
+        assert hasattr(self, "remaining_stmts")
+        assert hasattr(self, "new_block")
 
-        # create returned thunk 
-        new_node = ast.parse(textwrap.dedent(f'''
-            {self.cps_interpreter_name}.interpret(
+        continuation_name = f"_cont_{node.lineno}"
+        result_name = f"_res_{node.lineno}"
+        continuation_node, thunk_node = ast.parse(textwrap.dedent(f'''
+            def {continuation_name}({result_name}):
+                pass
+            return lambda : {self.cps_interpreter_name}.interpret(
                 _func,
-                cont={cont_name},
+                cont={continuation_name},
                 stack={self.stack_name}, 
                 func_src={self.func_src_name},
                 locals_=locals(),
                 lineno={node.lineno}
             )()
-        ''')).body[0].value
-        new_node.func.args = [node.func]
-        new_node.args = node.args
-        new_node.keywords = node.keywords
-        ret_node = ast.parse(f'return lambda : _call_()').body[0]
-        ret_node.value.body = new_node
-
-        # create the continuation function containing 
-        # the remaining lines of code, recursively
-        res_name = f'_res_{node.lineno}'
-        cont_node = ast.parse(f"def {cont_name}({res_name}): pass").body[0]
-        cont_node.body = [self.cur_statement]
-        cont_block = CPSTransform().transform_block(self.block)
-        cont_node.body.extend(cont_block)
-        self.block = []
-
-        # add the continuation function def, then the return thunk
-        self.new_block.append(cont_node)
-        self.new_block.append(ret_node)
-        return ast.Name(id=res_name, ctx=ast.Load())
-
+        ''')).body
+        thunk_node.value.body.func.args = [node.func]
+        thunk_node.value.body.args = node.args
+        thunk_node.value.body.keywords = node.keywords
+        continuation_node.body = \
+            [self.cur_stmt] + \
+            CPSTransform().transform_block(self.remaining_stmts)
+        
+        self.remaining_stmts = []
+        self.new_block.extend([continuation_node, thunk_node])
+        return ast.Name(id=result_name, ctx=ast.Load())
+        
     def transform_block(self, block):
-        self.block = [s for s in block]
+        self.remaining_stmts = block
         self.new_block = []
         while True:
-            self.cur_statement = self.block.pop(0)
-            self.visit(self.cur_statement)
-            if len(self.block) == 0:
+            self.cur_stmt = self.remaining_stmts.pop(0)
+            self.cur_stmt = self.visit(self.cur_stmt)
+            self.new_block.append(self.cur_stmt)
+            if len(self.remaining_stmts) == 0:
                 break
-            self.new_block.append(self.cur_statement)
-        return self.new_block
+            
+        block[:] = self.new_block
+        del self.remaining_stmts
+        del self.new_block
+        del self.cur_stmt
+        return block
 
     def visit_If(self, node):
         """
@@ -316,15 +313,14 @@ class CPSTransform(ast.NodeTransformer):
         else:
             <stmts>
         """
-        if_branch = node.body + copy.deepcopy(self.block)
-        else_branch = node.orelse + self.block
+        if_branch = node.body + copy.deepcopy(self.remaining_stmts)
+        else_branch = node.orelse + self.remaining_stmts
         node.body = CPSTransform().transform_block(if_branch)
         node.orelse = CPSTransform().transform_block(else_branch)
-        self.block = []
-        self.new_block.append(node)
+        self.remaining_stmts = []
+        return node
 
     def visit_Return(self, node):
         new_node = ast.parse(f"return lambda : {self.final_continuation_name}(_res)").body[0]
         new_node.value.body.args[0] = node.value
-        self.new_block.append(new_node)
-        self.block = []
+        return new_node
