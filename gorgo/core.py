@@ -1,9 +1,10 @@
-from typing import Sequence, Generic, TypeVar, Any, Callable
+from typing import Sequence, Generic, TypeVar, Any, Callable, Hashable, Tuple
 import math
 import random
 import abc
 import dataclasses
 from gorgo.tools import isclose
+from gorgo.funcutils import cached_property
 
 ############################################
 #  Sampling and observations
@@ -15,7 +16,7 @@ class Distribution(Generic[Element]):
     support: Sequence[Element]
     def log_probability(self, element : Element) -> float:
         pass
-    def sample(self) -> Element:
+    def sample(self, name=None) -> Element:
         pass
     def isclose(self, other: "Distribution") -> bool:
         full_support = set(self.support) | set(other.support)
@@ -29,7 +30,7 @@ class StochasticPrimitive(Distribution):
     @abc.abstractmethod
     def __call__(self, *params, rng=random):
         pass
-    def sample(self, rng=random):
+    def sample(self, rng=random, name=None):
         return self(rng=rng)
 
 class Bernoulli(StochasticPrimitive):
@@ -87,6 +88,9 @@ observe = ObservationStatement()
 #  Program State
 ############################################
 
+from collections import namedtuple
+StackFrame = namedtuple("StackFrame", "func_src lineno locals")
+
 class ProgramState:
     def __init__(
         self,
@@ -112,9 +116,23 @@ class ObserveState(ProgramState):
         self.value = value
 
 class SampleState(ProgramState):
-    def __init__(self, continuation: Callable[[], Callable], distribution: Distribution):
+    def __init__(
+        self,
+        continuation: Callable[[], Callable],
+        distribution: Distribution,
+        name: Hashable,
+        stack: Tuple[StackFrame]
+    ):
         super().__init__(continuation=continuation)
         self.distribution = distribution
+        self.name = name
+        self.stack = stack
+    
+    @cached_property
+    def address(self):
+        if self.name is not None:
+            return self.name
+        return tuple((frame.func_src, frame.lineno) for frame in self.stack)
 
 class ReturnState(ProgramState):
     def __init__(self, value: Any):

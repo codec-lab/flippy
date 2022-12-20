@@ -4,7 +4,7 @@ import inspect
 import textwrap
 from typing import Tuple, Callable
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
-from gorgo.core import StochasticPrimitive, ObservationStatement
+from gorgo.core import StochasticPrimitive, ObservationStatement, StackFrame
 from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform
 from gorgo.funcutils import method_cache
@@ -18,7 +18,10 @@ class CPSInterpreter:
         self.cps_transform = CPSTransform()
 
     def initial_program_state(self, function):
-        interpreted_function = self.interpret(function)
+        interpreted_function = self.interpret(
+            function,
+            stack = ()
+        )
         def return_continuation(value):
             return ReturnState(
                 value=value
@@ -70,7 +73,7 @@ class CPSInterpreter:
         if stack is None:
             cur_stack = None
         else:
-            cur_stack = stack + ((func_src, lineno),)
+            cur_stack = stack + (StackFrame(func_src, lineno, locals_),)
         return cur_stack
 
     @method_cache
@@ -90,10 +93,12 @@ class CPSInterpreter:
         return wrapper_generic
 
     def interpret_sample(self, call):
-        def sample_wrapper(_cont=None, _stack=None):
+        def sample_wrapper(_cont=None, _stack=None, name=None):
             return SampleState(
                 continuation=_cont,
-                distribution=call.__self__
+                distribution=call.__self__,
+                name=name,
+                stack=_stack,
             )
         return sample_wrapper
 
