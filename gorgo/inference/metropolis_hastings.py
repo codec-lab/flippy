@@ -1,6 +1,7 @@
 import random
 import math
 from collections import defaultdict
+from typing import Mapping, Hashable, Callable
 
 from gorgo.core import ReturnState, SampleState, ObserveState
 from gorgo.interpreter import CPSInterpreter
@@ -9,7 +10,18 @@ from collections import namedtuple
 Entry = namedtuple("Entry", "name distribution value log_prob is_sample")
 
 class MetropolisHastings:
-    def __init__(self, function, samples : int, burn_in=0, thinning=1, seed=None):
+    """
+    Single site Metropolis-Hastings as described by van de Meent et al. (2021)
+    Algorithms 6 and 14.
+    """
+    def __init__(
+        self,
+        function : Callable,
+        samples : int,
+        burn_in : int = 0,
+        thinning : int = 1,
+        seed : int = None
+    ):
         self.function = function
         self.samples = samples
         self.seed= seed
@@ -22,13 +34,15 @@ class MetropolisHastings:
         return_counts = defaultdict(int)
         init_ps = CPSInterpreter().initial_program_state(self.function)
         init_ps = init_ps.step(*args, **kws)
-        db, new_db = {}, {}
+        db : Mapping[Hashable, Entry] = {}
+        new_db : Mapping[Hashable, Entry] = {}
         
         for i in range(-1, self.burn_in + self.samples*self.thinning):
             if i > -1:
                 name = rng.sample([e.name for e in db.values() if e.is_sample], k=1)[0]
             ps = init_ps
             while not isinstance(ps, ReturnState):
+                assert ps.name not in new_db, f"Name already in trace: {ps.name}"
                 if isinstance(ps, SampleState):
                     if ps.name in db and ps.name != name:
                         value = db[ps.name].value
@@ -58,10 +72,19 @@ class MetropolisHastings:
         assert sum(return_counts.values()) == self.samples, (sum(return_counts.values()), self.samples)
         return {e: c/self.samples for e, c in return_counts.items()}
     
-    def proposal(self, program_state : SampleState, rng : random.Random):
+    def proposal(
+        self,
+        program_state : SampleState,
+        rng : random.Random
+    ):
         return program_state.distribution.sample(rng=rng)
     
-    def calc_log_acceptance_ratio(self, sample_name, new_db, db):
+    def calc_log_acceptance_ratio(
+        self,
+        sample_name : Hashable,
+        new_db : Mapping[Hashable, Entry],
+        db : Mapping[Hashable, Entry]
+    ):
         # van de Meent et al. (2018), Algorithm 6
         new_db_sampled = {sample_name} | (set(new_db.keys()) - set(db.keys()))
         db_sampled = {sample_name} | (set(db.keys()) - set(new_db.keys()))

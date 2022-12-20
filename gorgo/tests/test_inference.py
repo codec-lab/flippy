@@ -1,7 +1,7 @@
 import math
 from gorgo import _distribution_from_inference
 from gorgo.core import Bernoulli, Distribution
-from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting
+from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, MetropolisHastings
 from gorgo.tools import isclose
 
 def geometric(p):
@@ -53,3 +53,13 @@ def test_likelihood_weighting_and_sample_prior():
     assert lw_exp == prior_exp, 'Should be identical when there are no observe statements'
 
     assert isclose(expected, prior_exp, atol=1e-2), 'Should be somewhat close to expected value'
+
+def test_metropolis_hastings():
+    param = 0.98
+    expected = 1/param
+
+    seed = 13842
+
+    mh_dist = MetropolisHastings(geometric, samples=1000, burn_in=0, thinning=5, seed=seed).run(param)
+    mh_exp = expectation(_distribution_from_inference(mh_dist))
+    assert isclose(expected, mh_exp, atol=1e-2), 'Should be somewhat close to expected value'
