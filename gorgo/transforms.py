@@ -228,7 +228,7 @@ class CPSTransform(ast.NodeTransformer):
 
     def visit_FunctionDef(self, node):
         node = self.add_function_src_to_FunctionDef_body(node)
-        node = self.add_keyword_to_FunctionDef(node, self.stack_name, "None")
+        node = self.add_keyword_to_FunctionDef(node, self.stack_name, "()")
         node = self.add_keyword_to_FunctionDef(node, self.cps_interpreter_name, self.cps_interpreter_name)
         node = self.add_keyword_to_FunctionDef(node, self.final_continuation_name, "lambda val: val")
         node.body = CPSTransform().transform_block(node.body)
