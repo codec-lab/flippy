@@ -103,11 +103,13 @@ class CPSInterpreter:
         return sample_wrapper
 
     def interpret_observation(self, call):
-        def observation_wrapper(distribution, value, _cont=None, _stack=None, **kws):
+        def observation_wrapper(distribution, value, _cont=None, _stack=None, name=None, **kws):
             return ObserveState(
                 continuation=lambda : _cont(None),
                 distribution=distribution,
-                value=value
+                value=value,
+                name=name,
+                stack=_stack
             )
         return observation_wrapper
 

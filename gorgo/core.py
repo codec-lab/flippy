@@ -2,7 +2,6 @@ from typing import Sequence, Generic, TypeVar, Any, Callable, Hashable, Tuple
 import math
 import random
 import abc
-import dataclasses
 from gorgo.tools import isclose
 from gorgo.funcutils import cached_property
 
@@ -95,8 +94,12 @@ class ProgramState:
     def __init__(
         self,
         continuation,
+        name: Hashable = None,
+        stack: Tuple[StackFrame] = None
     ):
         self.continuation = continuation
+        self._name = name
+        self.stack = stack
 
     def step(self, *args, **kws):
         thunk = self.continuation(*args, **kws)
@@ -106,12 +109,31 @@ class ProgramState:
                 return next_
             thunk = next_
 
+    @cached_property
+    def name(self):
+        if self._name is not None:
+            return self._name
+        if self.stack is None:
+            return None
+        return tuple((frame.func_src, frame.lineno) for frame in self.stack)
+
 class InitialState(ProgramState):
     pass
 
 class ObserveState(ProgramState):
-    def __init__(self, continuation: Callable[[], Callable], distribution: Distribution, value: Any):
-        super().__init__(continuation=continuation)
+    def __init__(
+        self,
+        continuation: Callable[[], Callable],
+        distribution: Distribution,
+        value: Any,
+        name: Hashable,
+        stack: Tuple[StackFrame] 
+    ):
+        super().__init__(
+            continuation=continuation,
+            name=name,
+            stack=stack
+        )
         self.distribution = distribution
         self.value = value
 
@@ -123,16 +145,12 @@ class SampleState(ProgramState):
         name: Hashable,
         stack: Tuple[StackFrame]
     ):
-        super().__init__(continuation=continuation)
+        super().__init__(
+            continuation=continuation,
+            name=name,
+            stack=stack
+        )
         self.distribution = distribution
-        self.name = name
-        self.stack = stack
-    
-    @cached_property
-    def address(self):
-        if self.name is not None:
-            return self.name
-        return tuple((frame.func_src, frame.lineno) for frame in self.stack)
 
 class ReturnState(ProgramState):
     def __init__(self, value: Any):
