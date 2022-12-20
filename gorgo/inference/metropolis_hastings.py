@@ -6,7 +6,7 @@ from gorgo.core import ReturnState, SampleState, ObserveState
 from gorgo.interpreter import CPSInterpreter
 
 from collections import namedtuple
-Entry = namedtuple("Entry", "name distribution value log_prob")
+Entry = namedtuple("Entry", "name distribution value log_prob is_sample")
 
 class MetropolisHastings:
     def __init__(self, function, samples : int, burn_in=0, thinning=1, seed=None):
@@ -18,7 +18,6 @@ class MetropolisHastings:
         
     def run(self, *args, **kws):
         # van de Meent et al. (2018), Algorithm 14
-        # TODO: Figure out why this returns biased samples for geometric
         rng = random.Random(self.seed)
         return_counts = defaultdict(int)
         init_ps = CPSInterpreter().initial_program_state(self.function)
@@ -27,7 +26,7 @@ class MetropolisHastings:
         
         for i in range(-1, self.burn_in + self.samples*self.thinning):
             if i > -1:
-                name = rng.sample(list(db.keys()), k=1)[0]
+                name = rng.sample([e.name for e in db.values() if e.is_sample], k=1)[0]
             ps = init_ps
             while not isinstance(ps, ReturnState):
                 if isinstance(ps, SampleState):
@@ -37,13 +36,13 @@ class MetropolisHastings:
                         value = self.proposal(ps, rng)
                     log_prob = ps.distribution.log_probability(value)
                     new_db[ps.name] = Entry(
-                        ps.name, ps.distribution, value, log_prob
+                        ps.name, ps.distribution, value, log_prob, True
                     )
                     ps = ps.step(value)
                 elif isinstance(ps, ObserveState):
                     log_prob = ps.distribution.log_probability(ps.value)
                     new_db[ps.name] = Entry(
-                        ps.name, ps.distribution, ps.value, log_prob
+                        ps.name, ps.distribution, ps.value, log_prob, False
                     )
                     ps = ps.step()
             if i == -1:
@@ -59,7 +58,7 @@ class MetropolisHastings:
         assert sum(return_counts.values()) == self.samples, (sum(return_counts.values()), self.samples)
         return {e: c/self.samples for e, c in return_counts.items()}
     
-    def proposal(self, program_state, rng):
+    def proposal(self, program_state : SampleState, rng : random.Random):
         return program_state.distribution.sample(rng=rng)
     
     def calc_log_acceptance_ratio(self, sample_name, new_db, db):
@@ -74,5 +73,5 @@ class MetropolisHastings:
         for entry in db.values():
             if entry.name in db_sampled:
                 continue
-            log_acceptance_ratio += entry.log_prob
+            log_acceptance_ratio -= entry.log_prob
         return log_acceptance_ratio
