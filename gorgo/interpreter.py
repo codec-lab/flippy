@@ -46,10 +46,13 @@ class CPSInterpreter:
         lineno : int = None,
     ):
         # normal python
-        if isinstance(call, type):
-            cps_call = self.interpret_class(call)
-            return functools.partial(cps_call, _cont=cont)
-        if hasattr(call, '__name__') and getattr(builtins, call.__name__, None) == call:
+        if (
+            ( # is a builtin
+                hasattr(call, '__name__') and \
+                getattr(builtins, call.__name__, None) == call
+            ) or \
+            isinstance(call, type) 
+        ):
             cps_call = self.interpret_builtin(call)
             return functools.partial(cps_call, _cont=cont)
 
@@ -61,13 +64,8 @@ class CPSInterpreter:
 
     def interpret_builtin(self, func):
         def builtin_wrapper(*args, _cont=lambda val: val, **kws):
-            return _cont(func(*args, **kws))
+            return lambda : _cont(func(*args, **kws))
         return builtin_wrapper
-
-    def interpret_class(self, cls):
-        def class_wrapper(*args, _cont=None, **kws):
-            return lambda :  _cont(cls(*args, **kws))
-        return class_wrapper
 
     def update_stack(self, stack, func_src, locals_, lineno):
         if stack is None:
