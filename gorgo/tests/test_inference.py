@@ -1,8 +1,10 @@
 import math
 from gorgo import _distribution_from_inference
-from gorgo.core import Bernoulli, Distribution
-from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting
+from gorgo.core import Bernoulli, Distribution, Multinomial
+from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, MetropolisHastings
+from gorgo.inference.metropolis_hastings import Entry
 from gorgo.tools import isclose
+from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
 
 def geometric(p):
     '''
@@ -53,3 +55,70 @@ def test_likelihood_weighting_and_sample_prior():
     assert lw_exp == prior_exp, 'Should be identical when there are no observe statements'
 
     assert isclose(expected, prior_exp, atol=1e-2), 'Should be somewhat close to expected value'
+
+def test_metropolis_hastings():
+    param = 0.98
+    expected = 1/param
+
+    seed = 13842
+
+    mh_dist = MetropolisHastings(geometric, samples=1000, burn_in=0, thinning=5, seed=seed).run(param)
+    mh_exp = expectation(_distribution_from_inference(mh_dist))
+    assert isclose(expected, mh_exp, atol=1e-2), 'Should be somewhat close to expected value'
+
+def _db_from_trace(func, *, args=(), kwargs={}, trace=[]):
+    ps = CPSInterpreter().initial_program_state(func)
+    ps = ps.step(*args, **kwargs)
+    db = {}
+    lp = 0
+    for dist, value in trace:
+        assert ps.distribution.isclose(dist)
+        if isinstance(ps, SampleState):
+            log_prob = ps.distribution.log_probability(value)
+            lp += log_prob
+            db[ps.name] = Entry(
+                ps.name, ps.distribution, value, log_prob, True
+            )
+            ps = ps.step(value)
+        else:
+            assert False, f'Unexpected state {ps}'
+    assert isinstance(ps, ReturnState)
+    return db, lp
+
+def test_mh_acceptance_ratio():
+    def fn():
+        if Bernoulli(0.5).sample(name='choice'):
+            return Multinomial(range(2)).sample(name='rv')
+        else:
+            return Multinomial(range(3)).sample(name='rv')
+
+    db, lp = _db_from_trace(fn, trace=[
+        (Bernoulli(0.5), 0),
+        (Multinomial(range(3)), 1),
+    ])
+
+    new_db, new_lp = _db_from_trace(fn, trace=[
+        (Bernoulli(0.5), 1),
+        (Multinomial(range(2)), 1),
+    ])
+
+    # Only need score difference since proposal probabilities are the same.
+    # They're the same b/c we have the same # of variables and the resampled variable
+    # is uniform.
+    acceptance_ratio = new_lp - lp
+
+    mh = MetropolisHastings(None, None)
+    assert isclose(mh.calc_log_acceptance_ratio("choice", new_db, db), acceptance_ratio)
+    assert isclose(mh.calc_log_acceptance_ratio("choice", db, new_db), -acceptance_ratio)
+
+def test_single_site_mh():
+    def fn():
+        if Bernoulli(.5).sample(name="choice"):
+            x = Multinomial(['a', 'b'], probabilities=[.5, .5]).sample(name='x')
+        else:
+            x = Multinomial(['c', 'b'], probabilities=[.8, .2]).sample(name='x')
+        return x
+    enum_dist = Enumeration(fn).run()
+    mh_dist = MetropolisHastings(fn, samples=10000, seed=124).run()
+    for e in enum_dist:
+        assert isclose(enum_dist[e], mh_dist[e], atol=1e-2)

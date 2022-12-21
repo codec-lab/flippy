@@ -1,9 +1,9 @@
-from typing import Sequence, Generic, TypeVar, Any, Callable
+from typing import Sequence, Generic, TypeVar, Any, Callable, Hashable, Tuple
 import math
 import random
 import abc
-import dataclasses
 from gorgo.tools import isclose
+from gorgo.funcutils import cached_property
 
 ############################################
 #  Sampling and observations
@@ -15,7 +15,7 @@ class Distribution(Generic[Element]):
     support: Sequence[Element]
     def log_probability(self, element : Element) -> float:
         pass
-    def sample(self) -> Element:
+    def sample(self, name=None) -> Element:
         pass
     def isclose(self, other: "Distribution") -> bool:
         full_support = set(self.support) | set(other.support)
@@ -29,7 +29,7 @@ class StochasticPrimitive(Distribution):
     @abc.abstractmethod
     def __call__(self, *params, rng=random):
         pass
-    def sample(self, rng=random):
+    def sample(self, rng=random, name=None):
         return self(rng=rng)
 
 class Bernoulli(StochasticPrimitive):
@@ -87,12 +87,19 @@ observe = ObservationStatement()
 #  Program State
 ############################################
 
+from collections import namedtuple
+StackFrame = namedtuple("StackFrame", "func_src lineno locals")
+
 class ProgramState:
     def __init__(
         self,
         continuation,
+        name: Hashable = None,
+        stack: Tuple[StackFrame] = None
     ):
         self.continuation = continuation
+        self._name = name
+        self.stack = stack
 
     def step(self, *args, **kws):
         thunk = self.continuation(*args, **kws)
@@ -102,18 +109,47 @@ class ProgramState:
                 return next_
             thunk = next_
 
+    @cached_property
+    def name(self):
+        if self._name is not None:
+            return self._name
+        if self.stack is None:
+            return None
+        return tuple((frame.func_src, frame.lineno) for frame in self.stack)
+
 class InitialState(ProgramState):
     pass
 
 class ObserveState(ProgramState):
-    def __init__(self, continuation: Callable[[], Callable], distribution: Distribution, value: Any):
-        super().__init__(continuation=continuation)
+    def __init__(
+        self,
+        continuation: Callable[[], Callable],
+        distribution: Distribution,
+        value: Any,
+        name: Hashable,
+        stack: Tuple[StackFrame] 
+    ):
+        super().__init__(
+            continuation=continuation,
+            name=name,
+            stack=stack
+        )
         self.distribution = distribution
         self.value = value
 
 class SampleState(ProgramState):
-    def __init__(self, continuation: Callable[[], Callable], distribution: Distribution):
-        super().__init__(continuation=continuation)
+    def __init__(
+        self,
+        continuation: Callable[[], Callable],
+        distribution: Distribution,
+        name: Hashable,
+        stack: Tuple[StackFrame]
+    ):
+        super().__init__(
+            continuation=continuation,
+            name=name,
+            stack=stack
+        )
         self.distribution = distribution
 
 class ReturnState(ProgramState):

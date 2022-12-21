@@ -189,42 +189,6 @@ class DesugaringTransform(ast.NodeTransformer):
     def add_statement(self, node):
         self.new_stmt_stack[-1].append(node)
 
-
-class CallWrap_and_Arg_Transform(ast.NodeTransformer):
-    """
-    Wrap every call with a cps interpreter
-    """
-    context_name = "<root>"
-    call_wrap_name = "_cps.interpret"
-    def __call__(self, rootnode):
-        self.visit(rootnode)
-        return rootnode
-    def visit_Call(self, node):
-        new_address = f"({node.lineno}, )"
-        new_node = ast.parse(f'{self.call_wrap_name}(_func)(_address=_address + {new_address})').body[0].value
-        new_node.func.args = [node.func]
-        new_node.args = node.args
-        new_node.keywords = [
-            *node.keywords,
-            *new_node.keywords
-        ]
-        return new_node
-
-    def visit_FunctionDef(self, node):
-        parent_context_name = self.context_name
-        self.context_name = node.name
-        cur_keywords = [kw.arg for kw in node.args.kwonlyargs + node.args.args]
-        if "_address" not in cur_keywords:
-            # TODO: fix addressing scheme for functions
-            node.args.kwonlyargs.append(ast.arg(arg='_address'))
-            node.args.kw_defaults.append(ast.parse("()").body[0].value)
-        if "_cps" not in cur_keywords:
-            node.args.kwonlyargs.append(ast.arg(arg='_cps'))
-            node.args.kw_defaults.append(ast.parse("_cps").body[0].value)
-        self.generic_visit(node)
-        self.context_name = parent_context_name
-        return node
-
 class SetLineNumbers(ast.NodeTransformer):
     """
     Reset line numbers by statement.
@@ -249,8 +213,11 @@ class CPSTransform(ast.NodeTransformer):
     """
     Convert python to a form of continuation passing style.
     """
-    final_continuation_name = "_cont"
     is_transformed_property = "_cps_transformed"
+    func_src_name = "__func_src"
+    cps_interpreter_name = "_cps"
+    final_continuation_name = "_cont"
+    stack_name = "_stack"
 
     def __call__(self, node):
         return self.visit(node)
@@ -259,52 +226,11 @@ class CPSTransform(ast.NodeTransformer):
     def is_transformed(cls, func):
         return getattr(func, CPSTransform.is_transformed_property, False)
 
-    def transform_block(self, block):
-        self.block = [s for s in block]
-        self.new_block = []
-        while True:
-            self.cur_statement = self.block.pop(0)
-            self.visit(self.cur_statement)
-            if len(self.block) == 0:
-                break
-            self.new_block.append(self.cur_statement)
-        return self.new_block
-
-    def visit_Call(self, node):
-        # construct thunk with trace as arg
-        cont_name = f'_cont_{node.lineno}'
-        node.keywords.append(ast.keyword(
-            arg=self.final_continuation_name,
-            value=ast.parse(cont_name).body[0].value
-        ))
-        ret_node = ast.parse(f'return lambda : _call_()').body[0]
-        ret_node.value.body = node
-
-        # create the continuation, recursively
-        res_name = f'_res_{node.lineno}'
-        cont_node = ast.parse(f"def {cont_name}({res_name}): pass").body[0]
-        cont_node.body = [self.cur_statement]
-        cont_block = CPSTransform().transform_block(self.block)
-        cont_node.body.extend(cont_block)
-        self.block = []
-
-        # add the continuation function def, then the return thunk
-        self.new_block.append(cont_node)
-        self.new_block.append(ret_node)
-        return ast.Name(id=res_name, ctx=ast.Load())
-
-    def visit_Return(self, node):
-        new_node = ast.parse(f"return lambda : {self.final_continuation_name}(_res)").body[0]
-        new_node.value.body.args[0] = node.value
-        self.new_block.append(new_node)
-        self.block = []
-
     def visit_FunctionDef(self, node):
-        node = copy.deepcopy(node)
-        cur_keywords = [kw.arg for kw in node.args.kwonlyargs + node.args.args]
-        if self.final_continuation_name not in cur_keywords:
-            node.args.kwonlyargs.append(ast.arg(arg=self.final_continuation_name))
-            node.args.kw_defaults.append(ast.parse("lambda val: val").body[0].value)
+        node = self.add_function_src_to_FunctionDef_body(node)
+        node = self.add_keyword_to_FunctionDef(node, self.stack_name, "()")
+        node = self.add_keyword_to_FunctionDef(node, self.cps_interpreter_name, self.cps_interpreter_name)
+        node = self.add_keyword_to_FunctionDef(node, self.final_continuation_name, "lambda val: val")
         node.body = CPSTransform().transform_block(node.body)
         decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
 
@@ -317,9 +243,69 @@ class CPSTransform(ast.NodeTransformer):
         # Functions are executed a second time when being evaluted after being CPS-transformed
         # because decorators aren't removed by the transform.
         node.decorator_list.append(decorator)
-
-        self.cur_statement = node
         return node
+    
+    def add_keyword_to_FunctionDef(self, node, key, value):
+        assert isinstance(node, ast.FunctionDef)
+        cur_keywords = [kw.arg for kw in node.args.kwonlyargs + node.args.args]
+        assert key not in cur_keywords
+        node.args.kwonlyargs.append(ast.arg(arg=key))
+        node.args.kw_defaults.append(ast.parse(value).body[0].value)
+        return node
+    
+    def add_function_src_to_FunctionDef_body(self, node):
+        assert isinstance(node, ast.FunctionDef)
+        ctx_id = repr(ast.unparse(node))
+        ctx_id_assn = ast.parse(f"{self.func_src_name} = {ctx_id}").body[0]
+        node.body.insert(0, ctx_id_assn)
+        return node
+
+    def visit_Call(self, node):
+        assert hasattr(self, "cur_stmt")
+        assert hasattr(self, "remaining_stmts")
+        assert hasattr(self, "new_block")
+
+        continuation_name = f"_cont_{node.lineno}"
+        result_name = f"_res_{node.lineno}"
+        continuation_node, thunk_node = ast.parse(textwrap.dedent(f'''
+            def {continuation_name}({result_name}):
+                pass
+            return lambda : {self.cps_interpreter_name}.interpret(
+                _func,
+                cont={continuation_name},
+                stack={self.stack_name}, 
+                func_src={self.func_src_name},
+                locals_=locals(),
+                lineno={node.lineno}
+            )()
+        ''')).body
+        thunk_node.value.body.func.args = [node.func]
+        thunk_node.value.body.args = node.args
+        thunk_node.value.body.keywords = node.keywords
+        continuation_node.body = \
+            [self.cur_stmt] + \
+            CPSTransform().transform_block(self.remaining_stmts)
+        
+        self.remaining_stmts = []
+        self.new_block.extend([continuation_node, thunk_node])
+        return ast.Name(id=result_name, ctx=ast.Load())
+        
+    def transform_block(self, block):
+        self.remaining_stmts = block
+        self.new_block = []
+        while True:
+            self.cur_stmt = self.remaining_stmts.pop(0)
+            # cur_stmt gets added or updated explicitly in visit methods
+            self.visit(self.cur_stmt)  
+            if len(self.remaining_stmts) == 0:
+                break
+            self.new_block.append(self.cur_stmt)
+            
+        block[:] = self.new_block
+        del self.remaining_stmts
+        del self.new_block
+        del self.cur_stmt
+        return block
 
     def visit_If(self, node):
         """
@@ -328,9 +314,22 @@ class CPSTransform(ast.NodeTransformer):
         else:
             <stmts>
         """
-        if_branch = node.body + copy.deepcopy(self.block)
-        else_branch = node.orelse + self.block
+        assert hasattr(self, "cur_stmt")
+        assert hasattr(self, "remaining_stmts")
+        assert hasattr(self, "new_block")
+        
+        if_branch = node.body + copy.deepcopy(self.remaining_stmts)
+        else_branch = node.orelse + self.remaining_stmts
         node.body = CPSTransform().transform_block(if_branch)
         node.orelse = CPSTransform().transform_block(else_branch)
-        self.block = []
+        self.remaining_stmts = []
+        
+        # add node explicitly
         self.new_block.append(node)
+
+    def visit_Return(self, node):
+        new_node = ast.parse(f"return lambda : {self.final_continuation_name}(_res)").body[0]
+        new_node.value.body.args[0] = node.value
+        
+        # add node explicitly
+        self.new_block.append(new_node)
