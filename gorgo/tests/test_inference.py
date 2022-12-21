@@ -110,3 +110,15 @@ def test_mh_acceptance_ratio():
     mh = MetropolisHastings(None, None)
     assert isclose(mh.calc_log_acceptance_ratio("choice", new_db, db), acceptance_ratio)
     assert isclose(mh.calc_log_acceptance_ratio("choice", db, new_db), -acceptance_ratio)
+
+def test_single_site_mh():
+    def fn():
+        if Bernoulli(.5).sample(name="choice"):
+            x = Multinomial(['a', 'b'], probabilities=[.5, .5]).sample(name='x')
+        else:
+            x = Multinomial(['c', 'b'], probabilities=[.8, .2]).sample(name='x')
+        return x
+    enum_dist = Enumeration(fn).run()
+    mh_dist = MetropolisHastings(fn, samples=10000, seed=124).run()
+    for e in enum_dist:
+        assert isclose(enum_dist[e], mh_dist[e], atol=1e-2)
