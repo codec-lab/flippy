@@ -36,9 +36,9 @@ class MetropolisHastings:
         init_ps = init_ps.step(*args, **kws)
         db : Mapping[Hashable, Entry] = {}
         new_db : Mapping[Hashable, Entry] = {}
-        
         for i in range(-1, self.burn_in + self.samples*self.thinning):
-            if i > -1:
+            initial_trace = i == -1
+            if not initial_trace:
                 name = rng.sample([e.name for e in db.values() if e.is_sample], k=1)[0]
             ps = init_ps
             while not isinstance(ps, ReturnState):
@@ -59,7 +59,7 @@ class MetropolisHastings:
                         ps.name, ps.distribution, ps.value, log_prob, False
                     )
                     ps = ps.step()
-            if i == -1:
+            if initial_trace:
                 accept = True
             else:
                 log_acceptance_ratio = self.calc_log_acceptance_ratio(name, new_db, db)
@@ -67,7 +67,7 @@ class MetropolisHastings:
             if accept:
                 db, return_val = new_db, ps.value
             new_db = {}
-            if i > (self.burn_in - 1) and i % self.thinning == 0:
+            if i >= self.burn_in and i % self.thinning == 0:
                 return_counts[return_val] += 1
         assert sum(return_counts.values()) == self.samples, (sum(return_counts.values()), self.samples)
         return {e: c/self.samples for e, c in return_counts.items()}
