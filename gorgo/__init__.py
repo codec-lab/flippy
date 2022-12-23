@@ -1,6 +1,7 @@
 import functools
 from gorgo.transforms import CPSTransform
-from gorgo.inference import Enumeration, _distribution_from_inference
+from gorgo.inference import _distribution_from_inference, \
+    Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
 from gorgo.core import Multinomial, Bernoulli, observe
 
 __all__ = [
@@ -36,6 +37,9 @@ def infer(func=None, method=Enumeration, **kwargs):
     if isinstance(method, str):
         method = {
             'Enumeration': Enumeration,
+            'SamplePrior': SamplePrior,
+            'MetropolisHastings': MetropolisHastings,
+            'LikelihoodWeighting' : LikelihoodWeighting
         }[method]
 
     func = method(func, **kwargs)
