@@ -103,6 +103,42 @@ def test_desugaring_transform():
         node = DesugaringTransform()(node)
         assert compare_ast(node, ast.parse(comp)), src
 
+def compare_sourcecode_to_equivalent_sourcecode(src, exp_src):
+    node = ast.parse(src)
+    targ_node = ast.parse(exp_src)
+    node = DesugaringTransform()(node)
+    targ_node = DesugaringTransform()(targ_node)
+    assert compare_ast(node, targ_node)
+
+    src_context = {}
+    exec(src, src_context)
+    exp_context = {}
+    exec(exp_src, exp_context)
+    for args in [(1, 2, 3), ('b', 'a', ''), (True, False, True)]:
+        assert src_context['f'](*args) == exp_context['f'](*args)
+        
+def test_multiple_and_transform():
+    src = textwrap.dedent("""
+    def f(a, b, c):
+        return a and b and c
+    """)
+    exp_src = textwrap.dedent("""
+    def f(a, b, c):
+        return ((a and b) and c)
+    """)
+    compare_sourcecode_to_equivalent_sourcecode(src, exp_src)
+    
+def test_multiple_or_transform():
+    src = textwrap.dedent("""
+    def f(a, b, c):
+        return a or b or c
+    """)
+    exp_src = textwrap.dedent("""
+    def f(a, b, c):
+        return ((a or b) or c)
+    """)
+    compare_sourcecode_to_equivalent_sourcecode(src, exp_src)
+
 def compare_ast(node1, node2):
     if type(node1) is not type(node2):
         return False

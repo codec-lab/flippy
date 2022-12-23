@@ -78,6 +78,13 @@ class DesugaringTransform(ast.NodeTransformer):
         return node
 
     def visit_BoolOp(self, node):
+        if len(node.values) > 2:
+            leftmost = ast.BoolOp(
+                op=type(node.op)(),
+                values=node.values[:-1]
+            )
+            node.values = [leftmost, node.values[-1]]
+            return self.visit_BoolOp(node)
         test_name = self.generate_name()
         return_name = self.generate_name()
         if isinstance(node.op, ast.And):
