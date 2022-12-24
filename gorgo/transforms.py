@@ -11,9 +11,14 @@ class DesugaringTransform(ast.NodeTransformer):
     - converting lambda expressions to function def
     - converting logical and/or statements to equivalent if/else blocks
     - make None function return explicit
+    - converting branching expressions into function calls
+
+    Currently not implemented desugaring:
+    - de-decorating function definitions
     """
     def __call__(self, rootnode):
         self.new_stmt_stack = []
+        self.in_expression = False
         self.n_temporary_vars = 0
         self.visit(rootnode)
         rootnode = ast.parse(ast.unparse(rootnode)) #HACK: this might be slow
@@ -22,18 +27,53 @@ class DesugaringTransform(ast.NodeTransformer):
     def visit(self, node):
         if isinstance(node, ast.stmt):
             method = "visit_stmt"
-        # elif isinstance(node, ast.expr):
-        #     method = "visit_expr"
+        elif (
+            isinstance(node, ast.expr) and \
+            self.is_branching_expr(node) and \
+            not self.is_assigned_to(node)
+        ):
+            method = "visit_expr"
         else:
             method = 'visit_' + node.__class__.__name__
         visitor = getattr(self, method, self.generic_visit)
         return visitor(node)
-
+    
     def visit_stmt(self, node):
         self.new_stmt_stack.append([])
         node = ast.NodeTransformer.visit(self, node)
         self.add_statement(node)
         return self.new_stmt_stack.pop()
+    
+    def visit_expr(self, node):
+        """
+        Since expressions won't change values in the namespace
+        (aside from side-effects), we
+        wrap *outermost* expression into a thunk to
+        avoid needing to branch in the current function.
+        """
+        if not self.in_expression:
+            self.in_expression = True
+            thunk_node = ast.parse("(lambda : __expr__)()").body[0].value
+            thunk_node.func.body = node
+            node = ast.NodeTransformer.visit(self, thunk_node)
+            self.in_expression = False
+        else:
+            node = ast.NodeTransformer.visit(self, node)
+        return node
+        
+    @classmethod
+    def is_assigned_to(cls, node):
+        return hasattr(node, "ctx") and isinstance(node.ctx, ast.Store)
+
+    
+    @classmethod
+    def is_branching_expr(cls, node):
+        if isinstance(node, (ast.IfExp, ast.BoolOp)):
+            return True
+        for child in ast.iter_child_nodes(node):
+            if cls.is_branching_expr(child):
+                return True
+        return False
 
     def generate_name(self):
         self.n_temporary_vars += 1
@@ -109,6 +149,10 @@ class DesugaringTransform(ast.NodeTransformer):
         raise ValueError("BoolOp is neither And nor Or")
     
     def visit_FunctionDef(self, node):
+        # has_decorators = len(node.decorator_list) > 0
+        # if has_decorators:
+        #     return self.de_decorate_FunctionDef(node)
+            
         node = self.generic_visit(node)
         # make return value of None function explicit
         # Note: this is required for CPSTransform to work
@@ -116,6 +160,16 @@ class DesugaringTransform(ast.NodeTransformer):
             return_none = ast.parse("return None").body[0]
             node.body.append(return_none)
         return node
+    
+    def de_decorate_FunctionDef(self, node):
+        decorator_list, node.decorator_list = node.decorator_list, []
+        new_block = [self.visit(node)]
+        for decorator in decorator_list[::-1]:
+            decorator_stmt = ast.parse(f"{node.name} = __dec__({node.name})").body[0]
+            decorator_stmt.value.func = decorator
+            decorator_stmt = self.visit(decorator_stmt)
+            new_block.append(decorator_stmt)
+        return new_block
 
     def visit_ListComp(self, node):
         '''

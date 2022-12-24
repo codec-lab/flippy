@@ -63,17 +63,20 @@ def test_desugaring_transform():
         (
             "a = g(h(x)) if f(x) else h(g(x))",
             textwrap.dedent("""
-            __v2 = f(x)
-            __v0 = __v2
-            if __v0:
-                __v3 = h(x)
-                __v4 = g(__v3)
-                __v1 = __v4
-            else:
-                __v5 = g(x)
-                __v6 = h(__v5)
-                __v1 = __v6
-            a = __v1
+            def __v0():
+                __v3 = f(x)
+                __v1 = __v3
+                if __v1:
+                    __v4 = h(x)
+                    __v5 = g(__v4)
+                    __v2 = __v5
+                else:
+                    __v6 = g(x)
+                    __v7 = h(__v6)
+                    __v2 = __v7
+                return __v2
+            __v8 = __v0()
+            a = __v8
             """)
         ),
         (
