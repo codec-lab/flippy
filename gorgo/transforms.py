@@ -18,17 +18,20 @@ class DesugaringTransform(ast.NodeTransformer):
         self.visit(rootnode)
         rootnode = ast.parse(ast.unparse(rootnode)) #HACK: this might be slow
         return rootnode
-
-    def generic_visit(self, node):
+    
+    def visit(self, node):
         if isinstance(node, ast.stmt):
-            node = self.visit_stmt(node)
+            method = "visit_stmt"
+        # elif isinstance(node, ast.expr):
+        #     method = "visit_expr"
         else:
-            node = ast.NodeTransformer.generic_visit(self, node)
-        return node
+            method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        return visitor(node)
 
     def visit_stmt(self, node):
         self.new_stmt_stack.append([])
-        node = ast.NodeTransformer.generic_visit(self, node)
+        node = ast.NodeTransformer.visit(self, node)
         self.add_statement(node)
         return self.new_stmt_stack.pop()
 
@@ -106,13 +109,13 @@ class DesugaringTransform(ast.NodeTransformer):
         raise ValueError("BoolOp is neither And nor Or")
     
     def visit_FunctionDef(self, node):
-        node_list = self.generic_visit(node)
+        node = self.generic_visit(node)
         # make return value of None function explicit
         # Note: this is required for CPSTransform to work
-        if not isinstance(node_list[-1].body[-1], ast.Return):
+        if not isinstance(node.body[-1], ast.Return):
             return_none = ast.parse("return None").body[0]
-            node_list[-1].body.append(return_none)
-        return node_list
+            node.body.append(return_none)
+        return node
 
     def visit_ListComp(self, node):
         '''
