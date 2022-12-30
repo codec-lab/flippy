@@ -17,7 +17,7 @@ class DesugaringTransform(ast.NodeTransformer):
     - de-decorating function definitions
     """
     def __call__(self, rootnode):
-        self.new_stmt_stack = []
+        self.new_stmt_stack = [[],]
         self.in_expression = False
         self.n_temporary_vars = 0
         self.visit(rootnode)
