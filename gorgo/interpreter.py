@@ -116,12 +116,12 @@ class CPSInterpreter:
             f'{func.__name__}_{hex(id(func)).removeprefix("0x")}.py',
             self.transform_from_func(func),
         )
-        local_context = {**self.get_closure(func), "_cps": self}
+        context = {**func.__globals__, **self.get_closure(func), "_cps": self}
         try:
-            exec(code, func.__globals__, local_context)
+            exec(code, context)
         except SyntaxError as err :
             raise err
-        trans_func = local_context[func.__name__]
+        trans_func = context[func.__name__]
         def wrapper_generic(*args, _cont=None, _stack=None, **kws):
             return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return wrapper_generic

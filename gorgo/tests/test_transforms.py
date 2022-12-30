@@ -11,12 +11,12 @@ def trampoline(thunk):
 
 def interpret(func, *args, **kwargs):
     interpreter = CPSInterpreter()
-    local_context = {**interpreter.get_closure(func), "_cps": interpreter}
-    print(func.__name__, local_context)
+    context = {**func.__globals__, **interpreter.get_closure(func), "_cps": interpreter}
+    print(func.__name__, context)
     code = interpreter.transform_from_func(func)
     print(code)
-    exec(ast.unparse(code), func.__globals__, local_context)
-    trans_func = local_context[func.__name__]
+    exec(ast.unparse(code), context)
+    trans_func = context[func.__name__]
     return trampoline(trans_func(*args, **kwargs))
 
 def helper_in_module(x):
@@ -44,8 +44,7 @@ def test_x():
     assert interpret(main_in_module_helper_in_closure) == 9
     assert interpret(main_in_module_helper_in_module) == 9
     assert interpret(main_in_function_helper_in_closure) == 9
-    # TODO: fix!
-    # assert interpret(main_in_function_helper_in_function) == 9
+    assert interpret(main_in_function_helper_in_function) == 9
 
 def test_desugaring_transform():
     src_compiled = [
