@@ -93,6 +93,12 @@ def test_builtins():
         probabilities=[1/3, 2/3],
     ))
 
+    @infer
+    def model():
+        mydict = {}
+        return tuple(mydict.items())
+    assert model().isclose(Multinomial([(),]))
+
 def test_cps_map():
     assert cps_map(lambda x: x ** 2, []) == []
     assert cps_map(lambda x: x ** 2, list(range(5))) == [0, 1, 4, 9, 16]
