@@ -9,7 +9,7 @@ from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform
 from gorgo.funcutils import method_cache
 import linecache
-import builtins
+import types
 
 class CPSInterpreter:
     def __init__(self):
@@ -47,10 +47,7 @@ class CPSInterpreter:
     ):
         # normal python
         if (
-            ( # is a builtin
-                hasattr(call, '__name__') and \
-                getattr(builtins, call.__name__, None) == call
-            ) or \
+            isinstance(call, types.BuiltinFunctionType) or \
             isinstance(call, type) 
         ):
             cps_call = self.interpret_builtin(call)
