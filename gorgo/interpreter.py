@@ -136,7 +136,6 @@ class CPSInterpreter:
             source = self.get_lambda_source(func)
         else:
             source = textwrap.dedent(inspect.getsource(func))
-        print(source)
         trans_node = ast.parse(source)
         return self.transform(trans_node)
     
