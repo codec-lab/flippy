@@ -1,6 +1,6 @@
 import math
 from gorgo import _distribution_from_inference
-from gorgo.core import Bernoulli, Distribution, Multinomial
+from gorgo.core import Bernoulli, Distribution, Categorical
 from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, MetropolisHastings
 from gorgo.inference.metropolis_hastings import Entry
 from gorgo.tools import isclose
@@ -88,18 +88,18 @@ def _db_from_trace(func, *, args=(), kwargs={}, trace=[]):
 def test_mh_acceptance_ratio():
     def fn():
         if Bernoulli(0.5).sample(name='choice'):
-            return Multinomial(range(2)).sample(name='rv')
+            return Categorical(range(2)).sample(name='rv')
         else:
-            return Multinomial(range(3)).sample(name='rv')
+            return Categorical(range(3)).sample(name='rv')
 
     db, lp = _db_from_trace(fn, trace=[
         (Bernoulli(0.5), 0),
-        (Multinomial(range(3)), 1),
+        (Categorical(range(3)), 1),
     ])
 
     new_db, new_lp = _db_from_trace(fn, trace=[
         (Bernoulli(0.5), 1),
-        (Multinomial(range(2)), 1),
+        (Categorical(range(2)), 1),
     ])
 
     # Only need score difference since proposal probabilities are the same.
@@ -114,9 +114,9 @@ def test_mh_acceptance_ratio():
 def test_single_site_mh():
     def fn():
         if Bernoulli(.5).sample(name="choice"):
-            x = Multinomial(['a', 'b'], probabilities=[.5, .5]).sample(name='x')
+            x = Categorical(['a', 'b'], probabilities=[.5, .5]).sample(name='x')
         else:
-            x = Multinomial(['c', 'b'], probabilities=[.8, .2]).sample(name='x')
+            x = Categorical(['c', 'b'], probabilities=[.8, .2]).sample(name='x')
         return x
     enum_dist = Enumeration(fn).run()
     mh_dist = MetropolisHastings(fn, samples=10000, seed=124).run()

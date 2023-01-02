@@ -1,10 +1,10 @@
-from gorgo import keep_deterministic, infer, Bernoulli, Multinomial, observe, cps_map, cps_filter, cps_reduce
+from gorgo import keep_deterministic, infer, Bernoulli, Categorical, observe, cps_map, cps_filter, cps_reduce
 
 def algebra():
     def flip():
         return Bernoulli(0.5).sample()
     def NUM():
-        return Multinomial(range(5)).sample()
+        return Categorical(range(5)).sample()
     def OP():
         if flip():
             return '+'
@@ -40,10 +40,10 @@ def test_algebra():
     assert expr_ct == 5 * 2 * 5
 
 def world_prior():
-    return Multinomial(range(4)).sample()
+    return Categorical(range(4)).sample()
 
 def utterance_prior():
-    return Multinomial([
+    return Categorical([
         'some of the people are nice',
         'all of the people are nice',
         'none of the people are nice',
@@ -79,7 +79,7 @@ def listener(utterance):
     return world
 
 def test_scalar_implicature():
-    assert listener('some of the people are nice').isclose(Multinomial(
+    assert listener('some of the people are nice').isclose(Categorical(
         [1, 2, 3],
         probabilities=[4/9, 4/9, 1/9],
     ))
@@ -87,8 +87,8 @@ def test_scalar_implicature():
 def test_builtins():
     @infer
     def model():
-        return abs(Multinomial([-1, 0, 1]).sample())
-    assert model().isclose(Multinomial(
+        return abs(Categorical([-1, 0, 1]).sample())
+    assert model().isclose(Categorical(
         [0, 1],
         probabilities=[1/3, 2/3],
     ))
@@ -97,7 +97,7 @@ def test_builtins():
     def model():
         mydict = {}
         return tuple(mydict.items())
-    assert model().isclose(Multinomial([(),]))
+    assert model().isclose(Categorical([(),]))
 
 def test_cps_map():
     assert cps_map(lambda x: x ** 2, []) == []

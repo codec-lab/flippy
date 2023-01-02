@@ -2,7 +2,7 @@ import functools
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
-from gorgo.core import Multinomial, Bernoulli, observe
+from gorgo.core import Categorical, Bernoulli, observe
 
 __all__ = [
     # Core API
@@ -10,7 +10,7 @@ __all__ = [
     'keep_deterministic',
     'observe',
     # Distributions
-    'Multinomial',
+    'Categorical',
     'Bernoulli',
 ]
 

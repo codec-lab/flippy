@@ -1,4 +1,5 @@
 from typing import Sequence, Generic, TypeVar, Any, Callable, Hashable, Tuple
+from collections import Counter
 import math
 import random
 import abc
@@ -42,11 +43,11 @@ class Bernoulli(StochasticPrimitive):
         return False
     def log_probability(self, element):
         return {
-            True: math.log(self.p),
+            True: math.log(self.p) if self.p != 0.0 else float('-inf'),
             False: math.log(1 - self.p) if self.p != 1.0 else float('-inf')
         }[element]
 
-class Multinomial(StochasticPrimitive):
+class Categorical(StochasticPrimitive):
     def __init__(self, support, *, probabilities=None, weights=None):
         if probabilities is not None:
             assert isclose(sum(probabilities), 1)
@@ -73,6 +74,39 @@ class Multinomial(StochasticPrimitive):
             for s in self.support
         })
 
+class Multinomial(StochasticPrimitive):
+    def __init__(self, categorical_support, trials, *, probabilities=None, weights=None):
+        self.categorical = Categorical(
+            categorical_support, 
+            probabilities=probabilities,
+            weights=weights
+        )
+        self.trials = trials
+
+    def __call__(self, rng=random):
+        samples = rng.choices(
+            self.categorical.support,
+            weights=self.categorical._probabilities,
+            k=self.trials
+        )
+        counts = Counter(samples)
+        return tuple(counts.get(i, 0) for i in range(len(self.categorical.support)))
+
+    @cached_property
+    def support(self):
+        return OrderedIntegerPartitions(
+            total=self.trials, partitions=len(self.categorical.support)
+        )
+    
+    def log_probability(self, vec):
+        if vec in self.support:
+            probs = self.categorical._probabilities
+            num1 = math.gamma(self.trials + 1)
+            num2 = math.prod(p**x for p, x in zip(probs, vec))
+            den = math.prod(math.gamma(x + 1) for x in vec)
+            return math.log((num1*num2)/den)
+        return float('-inf')
+
 class ClosedInterval:
     def __init__(self, start, end):
         self.start = start
@@ -86,10 +120,10 @@ class IntegerInterval(ClosedInterval):
             return self.start <= ele <= self.end
         return False
 
-def beta_function(a, b):
-    num = math.gamma(a)*math.gamma(b)
-    den = math.gamma(a + b)
-    return num/den
+def beta_function(*alphas):
+    num = math.prod(math.gamma(a) for a in alphas)
+    den = math.gamma(sum(alphas))
+    return num/den 
     
 class Gaussian(StochasticPrimitive):
     support = ClosedInterval(float('-inf'), float('inf'))
@@ -138,25 +172,25 @@ class Beta(StochasticPrimitive):
         return float('-inf')
 
 class Binomial(StochasticPrimitive):
-    def __init__(self, n : int, p : float):
-        self.n = n
+    def __init__(self, trials : int, p : float):
+        self.trials = trials
         self.p = p
         assert 0 <= p <= 1
-        self.support = tuple(range(0, self.n + 1))
+        self.support = tuple(range(0, self.trials + 1))
         
     def __call__(self, rng=random):
-        return sum(rng.random() < self.p for _ in range(self.n))
+        return sum(rng.random() < self.p for _ in range(self.trials))
     
     def log_probability(self, element):
         if element in self.support:
             prob = (
-                math.comb(self.n, element)
+                math.comb(self.trials, element)
             )*(
                 self.p**element
             )*(
-                (1 - self.p)**(self.n - element)
+                (1 - self.p)**(self.trials - element)
             )
-            return math.log(prob)
+            return math.log(prob) if prob != 0 else float('-inf')
         return float('-inf')
     
 class Geometric(StochasticPrimitive):
@@ -179,27 +213,99 @@ class Geometric(StochasticPrimitive):
         return float('-inf')
     
 class BetaBinomial(StochasticPrimitive):
-    def __init__(self, n : int, alpha=1, beta=1):
-        self.a = alpha
-        self.b = beta
-        self.n = n
-        self.support = tuple(range(0, self.n + 1))
+    def __init__(self, trials : int, alpha=1, beta=1):
+        self.alpha = alpha
+        self.beta = beta
+        self.trials = trials
+        self.support = tuple(range(0, self.trials + 1))
         
     def __call__(self, rng=random):
-        p = rng.betavariate(self.a, self.b)
-        return sum(rng.random() < p for _ in range(self.n))
+        p = rng.betavariate(self.alpha, self.beta)
+        return sum(rng.random() < p for _ in range(self.trials))
     
     def log_probability(self, element):
         if element in self.support:
-            prob = math.comb(self.n, element)*(
+            prob = math.comb(self.trials, element)*(
                 (
-                    beta_function(element+self.a, self.n - element + self.b)
+                    beta_function(element+self.alpha, self.trials - element + self.beta)
                 )/(
-                    beta_function(self.a, self.b)
+                    beta_function(self.alpha, self.beta)
                 )
             )
             return math.log(prob)
         return float('-inf')
+
+class Simplex:
+    def __init__(self, dimensions):
+        self.dimensions = dimensions
+    def __contains__(self, vec):
+        return (
+            len(vec) == self.dimensions and \
+            isclose(1.0, sum(vec)) and \
+            all(0 <= e <= 1 for e in vec)
+        )
+
+class OrderedIntegerPartitions:
+    # https://en.wikipedia.org/wiki/Composition_(combinatorics)
+    def __init__(self, total, partitions):
+        self.total = total
+        self.partitions = partitions
+    def __contains__(self, vec):
+        return (
+            len(vec) == self.partitions and \
+            sum(vec) == self.total
+        )
+    
+class Dirichlet(StochasticPrimitive):
+    def __init__(self, alphas):
+        self.alphas = alphas
+    
+    @cached_property
+    def support(self):
+        return Simplex(len(self.alphas))
+        
+    def __call__(self, rng=random):
+        e = [rng.gammavariate(a, 1) for a in self.alphas]
+        tot = sum(e)
+        return tuple(ei/tot for ei in e)
+    
+    def log_probability(self, vec):
+        if vec in self.support:
+            num = math.prod(v**(a - 1) for v, a in zip(vec, self.alphas))
+            return math.log(num/beta_function(*self.alphas))
+        return float('-inf')
+
+class DirichletMultinomial(StochasticPrimitive):
+    def __init__(self, trials, alphas):
+        self.alphas = alphas
+        self.trials = trials
+    
+    @cached_property
+    def support(self):
+        return OrderedIntegerPartitions(
+            total=self.trials, partitions=len(self.alphas)
+        )
+
+    @cached_property
+    def dirichlet(self) -> Dirichlet:
+        return Dirichlet(self.alphas)
+        
+    def __call__(self, rng=random):
+        ps = self.dirichlet.sample(rng=rng)
+        samples = rng.choices(range(len(self.alphas)), weights=ps, k=self.n)
+        counts = Counter(samples)
+        return tuple(counts.get(i, 0) for i in range(len(self.alphas)))
+    
+    def log_probability(self, vec):
+        if vec not in self.support:
+            return float('-inf')
+        assert len(vec) == len(self.alphas)
+        num = self.trials*beta_function(sum(self.alphas), self.trials)
+        den = math.prod(
+            x*beta_function(a, x) for a, x in zip(self.alphas, vec)
+            if x > 0
+        )
+        return math.log(num/den)
 
 # TODO: finalize this interface
 class ObservationStatement:

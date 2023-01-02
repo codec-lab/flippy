@@ -1,5 +1,5 @@
 from gorgo import cps_map, cps_filter, cps_reduce
-from gorgo.core import Bernoulli, Multinomial
+from gorgo.core import Bernoulli, Categorical
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
 import ast
@@ -16,9 +16,9 @@ def algebra():
     def flip():
         return Bernoulli(0.5).sample()
     def NUM():
-        return Multinomial(range(5)).sample()
+        return Categorical(range(5)).sample()
     def OP():
-        return Multinomial(['+', '*']).sample()
+        return Categorical(['+', '*']).sample()
     def EQ():
         if flip():
             return NUM()
@@ -53,19 +53,19 @@ def test_interpreter():
 
     check_trace(algebra, [
         (Bernoulli(0.5), 1),
-        (Multinomial(range(5)), 3),
+        (Categorical(range(5)), 3),
     ], return_value=3)
 
     check_trace(algebra, [
         (Bernoulli(0.5), 0),
-        (Multinomial(range(5)), 3),
-        (Multinomial(['+', '*']), '*'),
+        (Categorical(range(5)), 3),
+        (Categorical(['+', '*']), '*'),
         # subtree on right
         (Bernoulli(0.5), 0),
-        (Multinomial(range(5)), 2),
-        (Multinomial(['+', '*']), '+'),
+        (Categorical(range(5)), 2),
+        (Categorical(['+', '*']), '+'),
         (Bernoulli(0.5), 1),
-        (Multinomial(range(5)), 4),
+        (Categorical(range(5)), 4),
     ], return_value=(3, '*', (2, '+', 4)))
 
 def test_cps_map():
@@ -82,16 +82,16 @@ def test_cps_map():
 def test_cps_filter():
     def fn():
         def f(x):
-            return Multinomial([1, 2, 3, 4]).sample()
+            return Categorical([1, 2, 3, 4]).sample()
         def is_even(x):
             return x % 2 == 0
         return sum(cps_filter(is_even, cps_map(f, [None] * 4)))
 
     check_trace(fn, [
-        (Multinomial([1, 2, 3, 4]), 1),
-        (Multinomial([1, 2, 3, 4]), 2),
-        (Multinomial([1, 2, 3, 4]), 3),
-        (Multinomial([1, 2, 3, 4]), 4),
+        (Categorical([1, 2, 3, 4]), 1),
+        (Categorical([1, 2, 3, 4]), 2),
+        (Categorical([1, 2, 3, 4]), 3),
+        (Categorical([1, 2, 3, 4]), 4),
     ], return_value=6)
 
 def test_cps_reduce():
