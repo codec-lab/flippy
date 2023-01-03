@@ -6,13 +6,14 @@ from typing import Tuple, Callable
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
 from gorgo.core import StochasticPrimitive, ObservationStatement, StackFrame
 from gorgo.transforms import DesugaringTransform, \
-    SetLineNumbers, CPSTransform
+    SetLineNumbers, CPSTransform, PythonSubsetValidator
 from gorgo.funcutils import method_cache
 import linecache
 import types
 
 class CPSInterpreter:
     def __init__(self):
+        self.subset_validator = PythonSubsetValidator()
         self.desugaring_transform = DesugaringTransform()
         self.setlines_transform = SetLineNumbers()
         self.cps_transform = CPSTransform()
@@ -124,7 +125,9 @@ class CPSInterpreter:
         return wrapper_generic
 
     def transform_from_func(self, func):
-        trans_node = ast.parse(textwrap.dedent(inspect.getsource(func)))
+        source = textwrap.dedent(inspect.getsource(func))
+        trans_node = ast.parse(source)
+        self.subset_validator(trans_node, source)
         return self.transform(trans_node)
 
     def transform(self, trans_node):
