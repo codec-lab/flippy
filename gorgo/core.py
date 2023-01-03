@@ -211,6 +211,25 @@ class Geometric(StochasticPrimitive):
                 ((1 - self.p)**(element))*self.p
             )
         return float('-inf')
+
+class Poisson(StochasticPrimitive):
+    support = IntegerInterval(0, float('inf'))
+    def __init__(self, rate : float):
+        self.rate = rate
+        assert rate >= 0
+        
+    def __call__(self, rng=random):
+        p, k, L = 1, 0, math.exp(-self.rate)
+        while p > L:
+            k += 1
+            p = rng.random()*p
+        return k - 1
+    
+    def log_probability(self, k):
+        if k not in self.support:
+            return float('-inf')
+        prob = (self.rate**k)*math.exp(-self.rate)/math.factorial(k)
+        return math.log(prob)
     
 class BetaBinomial(StochasticPrimitive):
     def __init__(self, trials : int, alpha=1, beta=1):
@@ -242,7 +261,7 @@ class Simplex:
         return (
             len(vec) == self.dimensions and \
             isclose(1.0, sum(vec)) and \
-            all(0 <= e <= 1 for e in vec)
+            all((not isclose(0.0, e)) and (0 < e <= 1) for e in vec)
         )
 
 class OrderedIntegerPartitions:
