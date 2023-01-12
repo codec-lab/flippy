@@ -96,12 +96,18 @@ def test_desugaring_transform():
                 pass
                 return None
             """)
-        )
+        ),
+        ('x += 123', 'x = x + 123'),
+        ('x.y += 123', 'x.y = x.y + 123'),
+        ('x[0] += 123', 'x[0] = x[0] + 123'),
+        ('x[0].prop += 123', 'x[0].prop = x[0].prop + 123'),
+        ('x: int = 123', 'x = 123'),
+        ('x: int', ''),
     ]
     for src, comp in src_compiled:
         node = ast.parse(src)
         node = DesugaringTransform()(node)
-        assert compare_ast(node, ast.parse(comp)), src
+        assert compare_ast(node, ast.parse(comp)), f'expected:\n{comp}\nfound:\n{ast.unparse(node)}'
 
 def compare_sourcecode_to_equivalent_sourcecode(src, exp_src):
     node = ast.parse(src)
@@ -144,7 +150,7 @@ def compare_ast(node1, node2):
         return False
     if isinstance(node1, ast.AST):
         for k, v in vars(node1).items():
-            if k in ('lineno', 'col_offset', 'ctx', 'end_col_offset', 'end_lineno', '_parent'):
+            if k in ('lineno', 'col_offset', 'end_col_offset', 'end_lineno'):
                 continue
             if not compare_ast(v, getattr(node2, k)):
                 return False
