@@ -2,6 +2,33 @@ import ast
 import textwrap
 import copy
 
+class PythonSubsetValidator(ast.NodeVisitor):
+    def __call__(self, node, source):
+        filename = 'tmp.py'
+        self.errors = []
+        self.visit(node)
+        if self.errors:
+            # HACK For now, we just report the first error.
+            node = self.errors[0]
+            # Subtract 1 b/c node.lineno is 1-indexed
+            code = source.splitlines()[node.lineno - 1]
+            # Add 1 b/c node.col_offset is 0-indexed
+            offset = node.col_offset + 1
+            raise SyntaxError('Found unsupported Python feature.', (filename, node.lineno, offset, code))
+
+    def error(self, node):
+        self.errors.append(node)
+
+    visit_Global = error
+    visit_Nonlocal = error
+    visit_ClassDef = error
+    visit_AsyncFunctionDef = error
+    visit_AsyncFor = error
+    visit_AsyncWith = error
+    visit_Await = error
+    visit_Yield = error
+    visit_YieldFrom = error
+
 class DesugaringTransform(ast.NodeTransformer):
     """
     This "desugars" the AST by
