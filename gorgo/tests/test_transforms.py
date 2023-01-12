@@ -140,6 +140,7 @@ def test_multiple_or_transform():
     compare_sourcecode_to_equivalent_sourcecode(src, exp_src)
 
 def test_cps():
+    # Basic case of CPS.
     check_cps_transform('''
     def fn(x):
         return x
@@ -151,6 +152,7 @@ def test_cps():
         return lambda : _cont(x)
     ''', check_args=[('a',)])
 
+    # Basic test of names defined by function arguments + assignment
     check_cps_transform('''
     def fn(x):
         z = 0
@@ -180,6 +182,7 @@ def test_cps():
         return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals, lineno=4)([1, 2, 3])
     ''', check_args=[(0,), (1,), (2,)])
 
+    # Making sure things still work well in nested continuations.
     check_cps_transform('''
     def fn(y):
         y = sum([y, 1])
@@ -209,6 +212,32 @@ def test_cps():
         return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals, lineno=3)([y, 1])
     ''', check_args=[(0,), (1,)])
 
+    # Testing destructuring.
+    check_cps_transform('''
+    def fn(x):
+        [y, z] = x
+        sum([])
+        return y + z
+    ''', '''
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = 'def fn(x):\\n    [y, z] = x\\n    sum([])\\n    return y + z'
+        [y, z] = x
+        _locals = locals()
+        _scope_4 = {name: _locals[name] for name in ['x', 'y', 'z'] if name in _locals}
+
+        def _cont_4(_res_4):
+            if 'x' in _scope_4:
+                x = _scope_4['x']
+            if 'y' in _scope_4:
+                y = _scope_4['y']
+            if 'z' in _scope_4:
+                z = _scope_4['z']
+            _res_4
+            return lambda : _cont(y + z)
+        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals, lineno=4)([])
+    ''', check_args=[([1, 2],), ([7, 3],)])
 
 def check_cps_transform(src, exp_src, *, check_args=[]):
     src = textwrap.dedent(src)
