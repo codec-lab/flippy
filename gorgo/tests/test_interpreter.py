@@ -200,3 +200,64 @@ def test_control_flow_and():
     check_trace(fn_and, [
         (Bernoulli(0.5), 0),
     ], return_value=0)
+
+def test_conditional_reassign():
+    def fn():
+        x = 0
+        if Bernoulli(0.5).sample():
+            x = 42
+        return x
+
+    check_trace(fn, [(Bernoulli(0.5), 0)], return_value=0)
+    check_trace(fn, [(Bernoulli(0.5), 1)], return_value=42)
+
+def test_load_then_store_in_new_scope():
+    def fn():
+        x = 0
+        z = Bernoulli(0.5).sample()
+        x = x + z
+        return x
+
+    check_trace(fn, [(Bernoulli(0.5), 0)], return_value=0)
+    check_trace(fn, [(Bernoulli(0.5), 1)], return_value=1)
+
+def test_conditionally_defined():
+    # This can break implementations of scope passing that assume
+    # variable lists can be fully statically determined.
+    def fn():
+        z = Bernoulli(0.5).sample()
+
+        if z:
+            y = 42
+
+        if z:
+            return y
+        else:
+            return -1
+
+    check_trace(fn, [(Bernoulli(0.5), 0)], return_value=-1)
+    check_trace(fn, [(Bernoulli(0.5), 1)], return_value=42)
+
+def test_closure_issues():
+    # This case is a bad one -- incorrect semantics.
+    with pytest.raises(AssertionError) as err:
+        def fn():
+            def nested():
+                return x
+            x = 'bad'
+            Bernoulli(0.5).sample() # Arbitrary. To put rest of function in continuation.
+            x = 'good'
+            return nested()
+        check_trace(fn, [(Bernoulli(0.5), 0)], return_value='good')
+    assert "assert 'bad' == 'good'" in str(err)
+
+    # This case isn't quite as bad -- simply fails to run.
+    with pytest.raises(NameError) as err:
+        def fn():
+            def nested():
+                return x
+            Bernoulli(0.5).sample() # Arbitrary. To put rest of function in continuation.
+            x = 'good'
+            return nested()
+        check_trace(fn, [(Bernoulli(0.5), 0)], return_value='good')
+    assert "name 'x' is not defined" in str(err)
