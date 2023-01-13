@@ -1,6 +1,38 @@
 import ast
 import textwrap
 import copy
+import contextlib
+
+class NodeTransformer(ast.NodeTransformer):
+    def generic_visit(self, node):
+        for field, _ in ast.iter_fields(node):
+            self.generic_visit_field(node, field)
+        return node
+
+    def generic_visit_field(self, node, field):
+        # This is the inner loop over fields implemented by `ast.NodeTransformer.generic_visit`.
+        # It's useful when a specific order over fields needs to be guaranteed, so we refactor
+        # it out here.
+        old_value = getattr(node, field)
+        if isinstance(old_value, list):
+            # This case and next one are both copied from original.
+            new_values = []
+            for value in old_value:
+                if isinstance(value, ast.AST):
+                    value = self.visit(value)
+                    if value is None:
+                        continue
+                    elif not isinstance(value, ast.AST):
+                        new_values.extend(value)
+                        continue
+                new_values.append(value)
+            old_value[:] = new_values
+        elif isinstance(old_value, ast.AST):
+            new_node = self.visit(old_value)
+            if new_node is None:
+                delattr(node, field)
+            else:
+                setattr(node, field, new_node)
 
 class PythonSubsetValidator(ast.NodeVisitor):
     def __call__(self, node, source):
@@ -16,18 +48,42 @@ class PythonSubsetValidator(ast.NodeVisitor):
             offset = node.col_offset + 1
             raise SyntaxError('Found unsupported Python feature.', (filename, node.lineno, offset, code))
 
-    def error(self, node):
+    def add_error(self, node):
         self.errors.append(node)
 
-    visit_Global = error
-    visit_Nonlocal = error
-    visit_ClassDef = error
-    visit_AsyncFunctionDef = error
-    visit_AsyncFor = error
-    visit_AsyncWith = error
-    visit_Await = error
-    visit_Yield = error
-    visit_YieldFrom = error
+    def visit_error(self, node):
+        self.add_error(node)
+        super().generic_visit(node)
+
+    visit_Global = visit_error
+    visit_Nonlocal = visit_error
+
+    visit_ClassDef = visit_error
+    visit_AsyncFunctionDef = visit_error
+
+    visit_AsyncFor = visit_error
+    visit_AsyncWith = visit_error
+    visit_With = visit_error
+
+    visit_Match = visit_error
+
+    visit_Try = visit_error
+    visit_TryStar = visit_error
+
+    visit_Import = visit_error
+    visit_ImportFrom = visit_error
+
+    visit_Await = visit_error
+    visit_Yield = visit_error
+    visit_YieldFrom = visit_error
+    visit_NamedExpr = visit_error
+
+    def visit_Attribute(self, node):
+        super().generic_visit(node)
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.add_error(node)
+
+    visit_Subscript = visit_Attribute
 
 class DesugaringTransform(ast.NodeTransformer):
     """
@@ -251,6 +307,30 @@ class DesugaringTransform(ast.NodeTransformer):
 
         return self.visit(new_node)
     
+    def visit_AugAssign(self, node):
+        loadable_target = copy.copy(node.target)
+        loadable_target.ctx = ast.Load()
+
+        return self.visit(ast.Assign(
+            targets=[node.target],
+            value=ast.BinOp(
+                left=loadable_target,
+                op=node.op,
+                right=node.value,
+            ),
+            lineno=node.lineno,
+        ))
+
+    def visit_AnnAssign(self, node):
+        if node.value is None:
+            # In this case, it's just a type annotation.
+            return None
+        return self.visit(ast.Assign(
+            targets=[node.target],
+            value=node.value,
+            lineno=node.lineno,
+        ))
+
     def desugar_to_IfElse_block(
         self,
         test_expr,
@@ -300,7 +380,7 @@ class SetLineNumbers(ast.NodeTransformer):
         ast.NodeTransformer.generic_visit(self, node)
         return node
 
-class CPSTransform(ast.NodeTransformer):
+class CPSTransform(NodeTransformer):
     """
     Convert python to a form of continuation passing style.
     """
@@ -310,19 +390,34 @@ class CPSTransform(ast.NodeTransformer):
     final_continuation_name = "_cont"
     stack_name = "_stack"
 
+    def __init__(self):
+        self.scopes = []
+        self.remaining_stmts = None
+        self.new_block = None
+        self.cur_stmt = None
+
     def __call__(self, node):
-        return self.visit(node)
+        with self.in_scope():
+            return self.visit(node)
 
     @classmethod
     def is_transformed(cls, func):
         return getattr(func, CPSTransform.is_transformed_property, False)
+
+    def visit_Lambda(self, node):
+        # Most lambdas are desugared, so this only has to handle the ones we generate,
+        # like the default value for _cont of lambda val: val.
+        with self.in_scope():
+            return self.generic_visit(node)
 
     def visit_FunctionDef(self, node):
         node = self.add_function_src_to_FunctionDef_body(node)
         node = self.add_keyword_to_FunctionDef(node, self.stack_name, "()")
         node = self.add_keyword_to_FunctionDef(node, self.cps_interpreter_name, self.cps_interpreter_name)
         node = self.add_keyword_to_FunctionDef(node, self.final_continuation_name, "lambda val: val")
-        node.body = CPSTransform().transform_block(node.body)
+        with self.in_scope():
+            self.visit(node.args)
+            node.body = self.transform_block(node.body)
         decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
 
         # This decorator position makes it the last decorator called.
@@ -351,37 +446,81 @@ class CPSTransform(ast.NodeTransformer):
         node.body.insert(0, ctx_id_assn)
         return node
 
-    def visit_Call(self, node):
-        assert hasattr(self, "cur_stmt")
-        assert hasattr(self, "remaining_stmts")
-        assert hasattr(self, "new_block")
+    @contextlib.contextmanager
+    def in_scope(self):
+        self.scopes.append(set())
+        try:
+            yield
+        finally:
+            self.scopes.pop()
 
+    def add_name_to_scope(self, name):
+        if name in [
+            CPSTransform.func_src_name,
+            CPSTransform.cps_interpreter_name,
+            CPSTransform.final_continuation_name,
+            CPSTransform.stack_name,
+        ]:
+            return
+        self.scopes[-1].add(name)
+
+    def visit_arg(self, node):
+        self.add_name_to_scope(node.arg)
+        return node
+
+    def visit_Name(self, node):
+        if type(node.ctx) == ast.Store:
+            self.add_name_to_scope(node.id)
+        return node
+
+    def visit_Assign(self, node):
+        # We make sure to visit values first.
+        self.generic_visit_field(node, 'value')
+        # Then we visit targets.
+        self.generic_visit_field(node, 'targets')
+        return node
+
+    def visit_Call(self, node):
         continuation_name = f"_cont_{node.lineno}"
         result_name = f"_res_{node.lineno}"
-        continuation_node, thunk_node = ast.parse(textwrap.dedent(f'''
+        scope_name = f"_scope_{node.lineno}"
+        locals_name = f"_locals_{node.lineno}"
+        names = sorted(self.scopes[-1])
+        unpack = '\n'.join(f'''
+                if "{name}" in {scope_name}:
+                    {name} = {scope_name}["{name}"]
+        ''' for name in names) or 'pass'
+        code = ast.parse(textwrap.dedent(f'''
+            # We capture locals before we enter any other scope (like a lambda or list comprehension)
+            {locals_name} = locals()
+            {scope_name} = {{name: {locals_name}[name] for name in {names} if name in {locals_name}}}
             def {continuation_name}({result_name}):
-                pass
+                {unpack}
             return lambda : {self.cps_interpreter_name}.interpret(
                 _func,
                 cont={continuation_name},
                 stack={self.stack_name}, 
                 func_src={self.func_src_name},
-                locals_=locals(),
+                locals_={locals_name},
                 lineno={node.lineno}
             )()
         ''')).body
+        continuation_node, thunk_node = code[-2:]
         thunk_node.value.body.func.args = [node.func]
         thunk_node.value.body.args = node.args
         thunk_node.value.body.keywords = node.keywords
-        continuation_node.body = \
+        continuation_node.body += \
             [self.cur_stmt] + \
-            CPSTransform().transform_block(self.remaining_stmts)
+            self.transform_block(self.remaining_stmts)
         
         self.remaining_stmts = []
-        self.new_block.extend([continuation_node, thunk_node])
+        self.new_block.extend(code)
         return ast.Name(id=result_name, ctx=ast.Load())
         
     def transform_block(self, block):
+        # Store current state, so we can recursively transform.
+        previous = self.remaining_stmts, self.new_block, self.cur_stmt
+
         self.remaining_stmts = block
         self.new_block = []
         while True:
@@ -393,9 +532,10 @@ class CPSTransform(ast.NodeTransformer):
             self.new_block.append(self.cur_stmt)
             
         block[:] = self.new_block
-        del self.remaining_stmts
-        del self.new_block
-        del self.cur_stmt
+
+        # Restore previous state.
+        self.remaining_stmts, self.new_block, self.cur_stmt = previous
+
         return block
 
     def visit_If(self, node):
@@ -405,14 +545,10 @@ class CPSTransform(ast.NodeTransformer):
         else:
             <stmts>
         """
-        assert hasattr(self, "cur_stmt")
-        assert hasattr(self, "remaining_stmts")
-        assert hasattr(self, "new_block")
-        
         if_branch = node.body + copy.deepcopy(self.remaining_stmts)
         else_branch = node.orelse + self.remaining_stmts
-        node.body = CPSTransform().transform_block(if_branch)
-        node.orelse = CPSTransform().transform_block(else_branch)
+        node.body = self.transform_block(if_branch)
+        node.orelse = self.transform_block(else_branch)
         self.remaining_stmts = []
         
         # add node explicitly

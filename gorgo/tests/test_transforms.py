@@ -98,12 +98,18 @@ def test_desugaring_transform():
                 pass
                 return None
             """)
-        )
+        ),
+        ('x += 123', 'x = x + 123'),
+        ('x.y += 123', 'x.y = x.y + 123'),
+        ('x[0] += 123', 'x[0] = x[0] + 123'),
+        ('x[0].prop += 123', 'x[0].prop = x[0].prop + 123'),
+        ('x: int = 123', 'x = 123'),
+        ('x: int', ''),
     ]
     for src, comp in src_compiled:
         node = ast.parse(src)
         node = DesugaringTransform()(node)
-        assert compare_ast(node, ast.parse(comp)), src
+        assert compare_ast(node, ast.parse(comp)), f'expected:\n{comp}\nfound:\n{ast.unparse(node)}'
 
 def compare_sourcecode_to_equivalent_sourcecode(src, exp_src):
     node = ast.parse(src)
@@ -141,12 +147,141 @@ def test_multiple_or_transform():
     """)
     compare_sourcecode_to_equivalent_sourcecode(src, exp_src)
 
+def test_cps():
+    # Basic case of CPS.
+    check_cps_transform('''
+    def fn(x):
+        return x
+    ''', '''
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = 'def fn(x):\\n    return x'
+        return lambda : _cont(x)
+    ''', check_args=[('a',)])
+
+    # Basic test of names defined by function arguments + assignment
+    check_cps_transform('''
+    def fn(x):
+        z = 0
+        y = sum([1, 2, 3])
+        x = x + 1
+        z = z + 1
+        return x + y + z
+    ''', '''
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = 'def fn(x):\\n    z = 0\\n    y = sum([1, 2, 3])\\n    x = x + 1\\n    z = z + 1\\n    return x + y + z'
+        z = 0
+        _locals_4 = locals()
+        _scope_4 = {name: _locals_4[name] for name in ['x', 'z'] if name in _locals_4}
+
+        def _cont_4(_res_4):
+            if 'x' in _scope_4:
+                x = _scope_4['x']
+            if 'z' in _scope_4:
+                z = _scope_4['z']
+
+            y = _res_4
+            x = x + 1
+            z = z + 1
+            return lambda : _cont(x + y + z)
+        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([1, 2, 3])
+    ''', check_args=[(0,), (1,), (2,)])
+
+    # Making sure things still work well in nested continuations.
+    check_cps_transform('''
+    def fn(y):
+        y = sum([y, 1])
+        y = sum([y, 2])
+        return y
+    ''', '''
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    def fn(y, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = 'def fn(y):\\n    y = sum([y, 1])\\n    y = sum([y, 2])\\n    return y'
+        _locals_3 = locals()
+        _scope_3 = {name: _locals_3[name] for name in ['y'] if name in _locals_3}
+
+        def _cont_3(_res_3):
+            if 'y' in _scope_3:
+                y = _scope_3['y']
+            y = _res_3
+            _locals_4 = locals()
+            _scope_4 = {name: _locals_4[name] for name in ['y'] if name in _locals_4}
+
+            def _cont_4(_res_4):
+                if 'y' in _scope_4:
+                    y = _scope_4['y']
+                y = _res_4
+                return lambda : _cont(y)
+            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([y, 2])
+        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=3)([y, 1])
+    ''', check_args=[(0,), (1,)])
+
+    # Testing destructuring.
+    check_cps_transform('''
+    def fn(x):
+        [y, z] = x
+        sum([])
+        return y + z
+    ''', '''
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = 'def fn(x):\\n    [y, z] = x\\n    sum([])\\n    return y + z'
+        [y, z] = x
+        _locals_4 = locals()
+        _scope_4 = {name: _locals_4[name] for name in ['x', 'y', 'z'] if name in _locals_4}
+
+        def _cont_4(_res_4):
+            if 'x' in _scope_4:
+                x = _scope_4['x']
+            if 'y' in _scope_4:
+                y = _scope_4['y']
+            if 'z' in _scope_4:
+                z = _scope_4['z']
+            _res_4
+            return lambda : _cont(y + z)
+        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([])
+    ''', check_args=[([1, 2],), ([7, 3],)])
+
+def check_cps_transform(src, exp_src, *, check_args=[]):
+    src = textwrap.dedent(src)
+    node = ast.parse(src)
+    node = CPSTransform()(node)
+
+    exp_src = textwrap.dedent(exp_src)
+    exp_node = ast.parse(exp_src)
+
+    assert compare_ast(node, exp_node), f'Difference between transformed source and expected.\nExpected:\n{ast.unparse(exp_node)}\nTransformed:\n{ast.unparse(node)}'
+
+    assert (
+        isinstance(node, ast.Module) and
+        len(node.body) == 1 and
+        isinstance(node.body[0], ast.FunctionDef)
+    )
+    fn_name = node.body[0].name
+
+    src_context = {}
+    exec(src, src_context)
+
+    exp_context = {}
+    interpreter = CPSInterpreter()
+    exp_context[CPSTransform.cps_interpreter_name] = interpreter
+    exec(exp_src, exp_context)
+
+    for args in check_args:
+        # We execute using only a simple trampoline, so this implementation can't handle stochastic primitives.
+        assert src_context[fn_name](*args) == trampoline(exp_context[fn_name](*args))
+
 def compare_ast(node1, node2):
     if type(node1) is not type(node2):
         return False
     if isinstance(node1, ast.AST):
         for k, v in vars(node1).items():
-            if k in ('lineno', 'col_offset', 'ctx', 'end_col_offset', 'end_lineno', '_parent'):
+            if k in ('lineno', 'col_offset', 'end_col_offset', 'end_lineno'):
                 continue
             if not compare_ast(v, getattr(node2, k)):
                 return False
