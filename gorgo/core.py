@@ -16,6 +16,8 @@ class Distribution(Generic[Element]):
     support: Sequence[Element]
     def log_probability(self, element : Element) -> float:
         pass
+    def prob(self, element : Element):
+        return math.exp(self.log_probability(element))
     def sample(self, name=None) -> Element:
         pass
     def isclose(self, other: "Distribution") -> bool:
@@ -73,6 +75,9 @@ class Categorical(StochasticPrimitive):
             s: self.log_probability(s)
             for s in self.support
         })
+    
+    def items(self):
+        yield from zip(self.support, self._probabilities)
 
 class Multinomial(StochasticPrimitive):
     def __init__(self, categorical_support, trials, *, probabilities=None, weights=None):
@@ -168,7 +173,8 @@ class Beta(StochasticPrimitive):
     def log_probability(self, element):
         if element in self.support:
             num = (element**(self.a - 1))*(1 - element)**(self.b - 1)
-            return math.log(num/beta_function(self.a, self.b))
+            prob = num/beta_function(self.a, self.b)
+            return math.log(prob) if prob != 0 else float('-inf')
         return float('-inf')
 
 class Binomial(StochasticPrimitive):

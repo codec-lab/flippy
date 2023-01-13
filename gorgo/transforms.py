@@ -94,26 +94,70 @@ class DesugaringTransform(ast.NodeTransformer):
     - converting lambda expressions to function def
     - converting logical and/or statements to equivalent if/else blocks
     - make None function return explicit
+    - converting branching expressions into function calls
+
+    Currently not implemented desugaring:
+    - de-decorating function definitions
     """
     def __call__(self, rootnode):
-        self.new_stmt_stack = []
+        self.new_stmt_stack = [[],]
+        self.in_expression = False
         self.n_temporary_vars = 0
         self.visit(rootnode)
         rootnode = ast.parse(ast.unparse(rootnode)) #HACK: this might be slow
         return rootnode
 
-    def generic_visit(self, node):
+    def visit(self, node):
         if isinstance(node, ast.stmt):
-            node = self.visit_stmt(node)
+            method = "visit_stmt"
+        elif (
+            isinstance(node, ast.expr) and \
+            self.is_branching_expr(node) and \
+            not self.is_assigned_to(node)
+        ):
+            method = "visit_expr"
         else:
-            node = ast.NodeTransformer.generic_visit(self, node)
-        return node
+            method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        return visitor(node)
 
     def visit_stmt(self, node):
         self.new_stmt_stack.append([])
-        node = ast.NodeTransformer.generic_visit(self, node)
-        self.add_statement(node)
+        node = ast.NodeTransformer.visit(self, node)
+        if node is not None:
+            self.add_statement(node)
         return self.new_stmt_stack.pop()
+
+    def visit_expr(self, node):
+        """
+        Since expressions won't change values in the namespace
+        (aside from side-effects), we
+        wrap *outermost* expression into a thunk to
+        avoid needing to branch in the current function.
+        """
+        if not self.in_expression:
+            self.in_expression = True
+            thunk_node = ast.parse("(lambda : __expr__)()").body[0].value
+            thunk_node.func.body = node
+            node = ast.NodeTransformer.visit(self, thunk_node)
+            self.in_expression = False
+        else:
+            node = ast.NodeTransformer.visit(self, node)
+        return node
+
+    @classmethod
+    def is_assigned_to(cls, node):
+        return hasattr(node, "ctx") and isinstance(node.ctx, ast.Store)
+
+
+    @classmethod
+    def is_branching_expr(cls, node):
+        if isinstance(node, (ast.IfExp, ast.BoolOp)):
+            return True
+        for child in ast.iter_child_nodes(node):
+            if cls.is_branching_expr(child):
+                return True
+        return False
 
     def generate_name(self):
         self.n_temporary_vars += 1
@@ -153,7 +197,7 @@ class DesugaringTransform(ast.NodeTransformer):
         def_node = ast.NodeTransformer.generic_visit(self, def_node)
         self.add_statement(def_node)
         return ast.Name(id=def_name, ctx=ast.Load())
-    
+
     def visit_Return(self, node):
         if node.value is None:
             node.value = ast.Constant(value=None)
@@ -187,15 +231,29 @@ class DesugaringTransform(ast.NodeTransformer):
                 return_name=return_name
             )
         raise ValueError("BoolOp is neither And nor Or")
-    
+
     def visit_FunctionDef(self, node):
-        node_list = self.generic_visit(node)
+        # has_decorators = len(node.decorator_list) > 0
+        # if has_decorators:
+        #     return self.de_decorate_FunctionDef(node)
+
+        node = self.generic_visit(node)
         # make return value of None function explicit
         # Note: this is required for CPSTransform to work
-        if not isinstance(node_list[-1].body[-1], ast.Return):
+        if not isinstance(node.body[-1], ast.Return):
             return_none = ast.parse("return None").body[0]
-            node_list[-1].body.append(return_none)
-        return node_list
+            node.body.append(return_none)
+        return node
+
+    def de_decorate_FunctionDef(self, node):
+        decorator_list, node.decorator_list = node.decorator_list, []
+        new_block = [self.visit(node)]
+        for decorator in decorator_list[::-1]:
+            decorator_stmt = ast.parse(f"{node.name} = __dec__({node.name})").body[0]
+            decorator_stmt.value.func = decorator
+            decorator_stmt = self.visit(decorator_stmt)
+            new_block.append(decorator_stmt)
+        return new_block
 
     def visit_ListComp(self, node):
         '''
@@ -249,7 +307,7 @@ class DesugaringTransform(ast.NodeTransformer):
             nested = new_node
 
         return self.visit(new_node)
-    
+
     def visit_AugAssign(self, node):
         loadable_target = copy.copy(node.target)
         loadable_target.ctx = ast.Load()
@@ -373,7 +431,7 @@ class CPSTransform(NodeTransformer):
         # because decorators aren't removed by the transform.
         node.decorator_list.append(decorator)
         return node
-    
+
     def add_keyword_to_FunctionDef(self, node, key, value):
         assert isinstance(node, ast.FunctionDef)
         cur_keywords = [kw.arg for kw in node.args.kwonlyargs + node.args.args]
@@ -381,7 +439,7 @@ class CPSTransform(NodeTransformer):
         node.args.kwonlyargs.append(ast.arg(arg=key))
         node.args.kw_defaults.append(ast.parse(value).body[0].value)
         return node
-    
+
     def add_function_src_to_FunctionDef_body(self, node):
         assert isinstance(node, ast.FunctionDef)
         ctx_id = repr(ast.unparse(node))
@@ -442,7 +500,7 @@ class CPSTransform(NodeTransformer):
             return lambda : {self.cps_interpreter_name}.interpret(
                 _func,
                 cont={continuation_name},
-                stack={self.stack_name}, 
+                stack={self.stack_name},
                 func_src={self.func_src_name},
                 locals_={locals_name},
                 lineno={node.lineno}
@@ -455,11 +513,11 @@ class CPSTransform(NodeTransformer):
         continuation_node.body += \
             [self.cur_stmt] + \
             self.transform_block(self.remaining_stmts)
-        
+
         self.remaining_stmts = []
         self.new_block.extend(code)
         return ast.Name(id=result_name, ctx=ast.Load())
-        
+
     def transform_block(self, block):
         # Store current state, so we can recursively transform.
         previous = self.remaining_stmts, self.new_block, self.cur_stmt
@@ -469,11 +527,11 @@ class CPSTransform(NodeTransformer):
         while True:
             self.cur_stmt = self.remaining_stmts.pop(0)
             # cur_stmt gets added or updated explicitly in visit methods
-            self.visit(self.cur_stmt)  
+            self.visit(self.cur_stmt)
             if len(self.remaining_stmts) == 0:
                 break
             self.new_block.append(self.cur_stmt)
-            
+
         block[:] = self.new_block
 
         # Restore previous state.
@@ -493,13 +551,13 @@ class CPSTransform(NodeTransformer):
         node.body = self.transform_block(if_branch)
         node.orelse = self.transform_block(else_branch)
         self.remaining_stmts = []
-        
+
         # add node explicitly
         self.new_block.append(node)
 
     def visit_Return(self, node):
         new_node = ast.parse(f"return lambda : {self.final_continuation_name}(_res)").body[0]
         new_node.value.body.args[0] = node.value
-        
+
         # add node explicitly
         self.new_block.append(new_node)

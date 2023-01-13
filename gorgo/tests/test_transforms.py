@@ -11,12 +11,12 @@ def trampoline(thunk):
 
 def interpret(func, *args, **kwargs):
     interpreter = CPSInterpreter()
-    local_context = {**interpreter.get_closure(func), "_cps": interpreter}
-    print(func.__name__, local_context)
+    context = {**func.__globals__, **interpreter.get_closure(func), "_cps": interpreter}
+    print(func.__name__, context)
     code = interpreter.transform_from_func(func)
     print(code)
-    exec(ast.unparse(code), func.__globals__, local_context)
-    trans_func = local_context[func.__name__]
+    exec(ast.unparse(code), context)
+    trans_func = context[func.__name__]
     return trampoline(trans_func(*args, **kwargs))
 
 def helper_in_module(x):
@@ -44,8 +44,7 @@ def test_x():
     assert interpret(main_in_module_helper_in_closure) == 9
     assert interpret(main_in_module_helper_in_module) == 9
     assert interpret(main_in_function_helper_in_closure) == 9
-    # TODO: fix!
-    # assert interpret(main_in_function_helper_in_function) == 9
+    assert interpret(main_in_function_helper_in_function) == 9
 
 def test_desugaring_transform():
     src_compiled = [
@@ -63,17 +62,20 @@ def test_desugaring_transform():
         (
             "a = g(h(x)) if f(x) else h(g(x))",
             textwrap.dedent("""
-            __v2 = f(x)
-            __v0 = __v2
-            if __v0:
-                __v3 = h(x)
-                __v4 = g(__v3)
-                __v1 = __v4
-            else:
-                __v5 = g(x)
-                __v6 = h(__v5)
-                __v1 = __v6
-            a = __v1
+            def __v0():
+                __v3 = f(x)
+                __v1 = __v3
+                if __v1:
+                    __v4 = h(x)
+                    __v5 = g(__v4)
+                    __v2 = __v5
+                else:
+                    __v6 = g(x)
+                    __v7 = h(__v6)
+                    __v2 = __v7
+                return __v2
+            __v8 = __v0()
+            a = __v8
             """)
         ),
         (

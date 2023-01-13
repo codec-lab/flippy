@@ -2,6 +2,7 @@ import ast
 import functools
 import inspect
 import textwrap
+import types
 from typing import Tuple, Callable
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
 from gorgo.core import StochasticPrimitive, ObservationStatement, StackFrame
@@ -40,8 +41,8 @@ class CPSInterpreter:
     def interpret(
         self,
         call,
-        cont : Callable = None, 
-        stack : Tuple = None, 
+        cont : Callable = None,
+        stack : Tuple = None,
         func_src : str = None,
         locals_ = None,
         lineno : int = None,
@@ -49,7 +50,7 @@ class CPSInterpreter:
         # normal python
         if (
             isinstance(call, types.BuiltinFunctionType) or \
-            isinstance(call, type) 
+            isinstance(call, type)
         ):
             cps_call = self.interpret_builtin(call)
             return functools.partial(cps_call, _cont=cont)
@@ -114,13 +115,13 @@ class CPSInterpreter:
             f'{func.__name__}_{hex(id(func)).removeprefix("0x")}.py',
             self.transform_from_func(func),
         )
-        local_context = {**self.get_closure(func), "_cps": self}
+        context = {**func.__globals__, **self.get_closure(func), "_cps": self}
         try:
-            exec(code, func.__globals__, local_context)
+            exec(code, context)
         except SyntaxError as err :
             raise err
-        trans_func = local_context[func.__name__]
-        def wrapper_generic(*args, _cont=None, _stack=None, **kws):
+        trans_func = context[func.__name__]
+        def wrapper_generic(*args, _cont=lambda v: v, _stack=None, **kws):
             return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return wrapper_generic
 
