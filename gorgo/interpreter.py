@@ -13,7 +13,6 @@ import linecache
 import types
 
 class CPSInterpreter:
-    lambda_func_name = "__lambda_func__"
     def __init__(self):
         self.subset_validator = PythonSubsetValidator()
         self.desugaring_transform = DesugaringTransform()
@@ -42,8 +41,8 @@ class CPSInterpreter:
     def interpret(
         self,
         call,
-        cont : Callable = None, 
-        stack : Tuple = None, 
+        cont : Callable = None,
+        stack : Tuple = None,
         func_src : str = None,
         locals_ = None,
         lineno : int = None,
@@ -51,7 +50,7 @@ class CPSInterpreter:
         # normal python
         if (
             isinstance(call, types.BuiltinFunctionType) or \
-            isinstance(call, type) 
+            isinstance(call, type)
         ):
             cps_call = self.interpret_builtin(call)
             return functools.partial(cps_call, _cont=cont)
@@ -121,73 +120,16 @@ class CPSInterpreter:
             exec(code, context)
         except SyntaxError as err :
             raise err
-        if self.is_lambda_function(func):
-            trans_func = context[self.lambda_func_name]
-        else:
-            trans_func = context[func.__name__]
+        trans_func = context[func.__name__]
         def wrapper_generic(*args, _cont=lambda v: v, _stack=None, **kws):
             return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return wrapper_generic
 
     def transform_from_func(self, func):
-        if self.is_lambda_function(func):
-            source = self.get_lambda_source(func)
-        else:
-            source = textwrap.dedent(inspect.getsource(func))
+        source = textwrap.dedent(inspect.getsource(func))
         trans_node = ast.parse(source)
         self.subset_validator(trans_node, source)
         return self.transform(trans_node)
-    
-    @classmethod
-    def get_lambda_source(cls, func):
-        # Based on http://xion.io/post/code/python-get-lambda-code.html
-        # We get all lambda functions defined in the source and then
-        # compare the bytecode length of each if there are multiple
-        
-        full_src = textwrap.dedent(inspect.getsource(func))
-        src = full_src[full_src.find("lambda"):]
-        while True:
-            if len(src) <= 0:
-                raise ParsingError(f"Unable to parse:\n{full_src}")
-            try:
-                trans_node = ast.parse(src)
-                break
-            except SyntaxError:
-                src = src[:-1]
-        lambda_nodes = FindLambdaNodes()(trans_node)
-        
-        if len(lambda_nodes) == 1:
-            lambda_src = ast.unparse(lambda_nodes[0])
-            return f"{cls.lambda_func_name} = {lambda_src}"
-        
-        # HACK: we can try to see which lambda expression matches
-        # the function by comparing bytecode and other function
-        # meta-data, but it might not be unique
-        def get_lambda_hash(fn):
-            return (
-                len(fn.__code__.co_code),
-                fn.__code__.co_varnames,
-                fn.__code__.co_argcount,
-                fn.__code__.co_posonlyargcount,
-                fn.__code__.co_kwonlyargcount,
-            )
-        true_lambda_hash = get_lambda_hash(func)
-        lambda_hash_to_src = {}
-        for lambda_node in lambda_nodes:
-            lambda_src = ast.unparse(lambda_node)
-            new_lambda = eval(lambda_src)
-            lambda_hash = get_lambda_hash(new_lambda)
-            if lambda_hash == true_lambda_hash and lambda_hash in lambda_hash_to_src:
-                raise ParsingError(f"Unable to uniquely parse lambda from source:\n{full_src}")
-            lambda_hash_to_src[lambda_hash] = lambda_src
-        if true_lambda_hash in lambda_hash_to_src:
-            lambda_src = lambda_hash_to_src[true_lambda_hash]
-            return f"{cls.lambda_func_name} = {lambda_src}"
-        raise ParsingError(f"Unable to parse lambda from source:\n{full_src}")
-    
-    @classmethod
-    def is_lambda_function(cls, func):
-        return isinstance(func, types.LambdaType) and func.__name__ == "<lambda>"
 
     def transform(self, trans_node):
         trans_node = self.desugaring_transform(trans_node)
@@ -215,15 +157,3 @@ class CPSInterpreter:
             return dict(zip(closure_keys, closure_values))
         else:
             return {}
-
-class FindLambdaNodes(ast.NodeVisitor):
-    def __call__(self, node):
-        self.lambda_nodes = []
-        self.visit(node)
-        return self.lambda_nodes
-    
-    def visit_Lambda(self, node):
-        self.lambda_nodes.append(node)
-        self.generic_visit(node)
-
-class ParsingError(Exception): pass

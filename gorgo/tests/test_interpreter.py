@@ -1,7 +1,7 @@
 from gorgo import cps_map, cps_filter, cps_reduce
 from gorgo.core import Bernoulli, Categorical
 from gorgo.core import SampleState, ReturnState
-from gorgo.interpreter import CPSInterpreter, ParsingError
+from gorgo.interpreter import CPSInterpreter
 import ast
 import pytest
 import traceback
@@ -200,36 +200,6 @@ def test_control_flow_and():
     check_trace(fn_and, [
         (Bernoulli(0.5), 0),
     ], return_value=0)
-
-def test_interpreting_lambda_as_model():
-    model = lambda : 10
-    assert CPSInterpreter().interpret(model)(_cont=lambda v: v)() == 10
-
-    model = (lambda : lambda : 123)()
-    assert CPSInterpreter().interpret(model)(_cont=lambda v: v)() == 123
-
-    model = (lambda p : lambda : 123)(1)
-    assert CPSInterpreter().interpret(model)(_cont=lambda v: v)() == 123
-
-    # cases where identifying the source of the lambda is impossible
-    # should be caught
-    with pytest.raises(ParsingError):
-        model1, model2 = lambda : Bernoulli(.1).sample(), lambda : Bernoulli(.9).sample()
-        CPSInterpreter().interpret(model1)
-    
-    # inspect.getsource is sensitive to what line a lambda is defined on
-    # so this works
-    model1, model2 = (
-        lambda : Bernoulli(.1).sample(),
-        lambda : Bernoulli(.9).sample()
-    )
-    CPSInterpreter().interpret(model1)
-
-    # bytecode for inner and outer lambda are actually the same length
-    # here, so we need to compare arguments
-    model_maker = lambda p : lambda : Bernoulli(p).sample()
-    model = model_maker(.5)
-    CPSInterpreter().interpret(model)
 
 def test_conditional_reassign():
     def fn():
