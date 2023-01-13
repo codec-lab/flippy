@@ -5,8 +5,9 @@ import pytest
 
 def test_scope_analysis():
     def _analyze(src):
-        node = ast.parse(textwrap.dedent(src))
-        ScopeAnalysis()(node)
+        src = textwrap.dedent(src)
+        node = ast.parse(src)
+        ClosureScopeAnalysis()(node, src)
 
     # Defined before
     _analyze('''
@@ -18,7 +19,7 @@ def test_scope_analysis():
     ''')
 
     # Defined after
-    with pytest.raises(AssertionError) as err:
+    with pytest.raises(SyntaxError) as err:
         _analyze('''
         def fn():
             def inner():
@@ -40,7 +41,7 @@ def test_scope_analysis():
     ''')
 
     # Defined after, nested
-    with pytest.raises(AssertionError) as err:
+    with pytest.raises(SyntaxError) as err:
         _analyze('''
         def fn():
             def outer():
@@ -63,7 +64,7 @@ def test_scope_analysis():
     ''')
 
     # Defined before, mutated after
-    with pytest.raises(AssertionError) as err:
+    with pytest.raises(SyntaxError) as err:
         _analyze('''
         def fn():
             x = 3
@@ -75,7 +76,7 @@ def test_scope_analysis():
     assert 'immutable' in str(err)
 
     # Defined after, mutated after
-    with pytest.raises(AssertionError) as err:
+    with pytest.raises(SyntaxError) as err:
         _analyze('''
         def fn():
             def inner():
