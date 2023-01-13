@@ -2,6 +2,130 @@ import ast
 import textwrap
 import copy
 import contextlib
+import collections
+import dataclasses
+
+@dataclasses.dataclass
+class ScopedVar:
+    node: ast.AST
+    parent: 'ScopedVar'
+    ns: dict[str, int] = dataclasses.field(default_factory=collections.Counter)
+
+    def resolve(self, name):
+        scope = self
+        while scope is not None:
+            if name in scope.ns:
+                return scope
+            scope = scope.parent
+
+class ScopeAnalysis(ast.NodeVisitor):
+    def_pass = 'def_pass'
+    use_pass = 'use_pass'
+
+    def __call__(self, node):
+        self.scopes = []
+        self.scope_map = {}
+        self.analysis_pass = __class__.def_pass
+        with self.in_scope(node):
+            self.visit(node)
+        # The main difference in this second pass is that we validate loaded
+        # variables against statically-determined scopes to ensure closure
+        # vars are immutable. We still keep the definition machinery to validate
+        # that variables are defined before closures, in order to avoid issues
+        # with CPS.
+        self.write_counts = dict(self.scope_map)
+        self.analysis_pass = __class__.use_pass
+        with self.in_scope(node):
+            self.visit(node)
+
+    def generic_visit(self, node):
+        # Refactored from ASTVisitor
+        for field, value in ast.iter_fields(node):
+            self.generic_visit_field(value)
+
+    def generic_visit_field(self, value):
+        # Refactored from ASTVisitor
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, ast.AST):
+                    self.visit(item)
+        elif isinstance(value, ast.AST):
+            self.visit(value)
+
+    def visit_Lambda(self, node):
+        with self.in_scope(node):
+            return self.generic_visit(node)
+
+    def visit_FunctionDef(self, node):
+        self.generic_visit_field(node.decorator_list)
+        with self.in_scope(node):
+            self.generic_visit_field(node.args)
+            self.generic_visit_field(node.body)
+
+    @contextlib.contextmanager
+    def in_scope(self, node):
+        self.scopes.append(ScopedVar(
+            node=node,
+            parent=self.scopes[-1] if len(self.scopes) else None,
+        ))
+        self.scope_map[node] = self.scopes[-1]
+        try:
+            yield
+        finally:
+            self.scopes.pop()
+
+    def add_name_to_scope(self, name):
+        self.scopes[-1].ns[name] += 1
+
+    def visit_Assign(self, node):
+        # We make sure to visit values first.
+        self.generic_visit_field(node.value)
+        # Then we visit targets.
+        self.generic_visit_field(node.targets)
+        return node
+
+    def visit_arg(self, node):
+        self.add_name_to_scope(node.arg)
+        return node
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Store):
+            self.add_name_to_scope(node.id)
+
+        elif self.analysis_pass == __class__.use_pass:
+            if isinstance(node.ctx, ast.Load):
+                local_scope = self.write_counts[self.scopes[-1].node]
+                scope = local_scope.resolve(node.id)
+                is_global = scope is None
+                is_local = scope == local_scope
+                if not is_global and not is_local:
+                    write_count = scope.ns[node.id]
+                    assert write_count == 1, 'variable from outer scope must be immutable'
+                    assert node.id in self.scope_map[scope.node].ns, 'variable from outer scope must be defined before being referenced'
+        return node
+
+    # We only
+    # https://realpython.com/python-scope-legb-rule/
+    # TODO: exactly what we prohibit will depend on the pipeline stage we run this at
+
+    def not_implemented(self, node):
+        raise NotImplementedError()
+
+    visit_Global = not_implemented
+    visit_Nonlocal = not_implemented
+
+    visit_AugAssign = not_implemented
+    visit_AnnAssign = not_implemented
+
+    visit_Try = not_implemented
+    visit_TryStar = not_implemented
+    visit_Class = not_implemented
+
+    visit_NamedExpr = not_implemented
+    visit_ListComp = not_implemented
+    visit_SetComp = not_implemented
+    visit_DictComp = not_implemented
+    visit_GeneratorExp = not_implemented
 
 class NodeTransformer(ast.NodeTransformer):
     def generic_visit(self, node):
