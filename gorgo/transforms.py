@@ -16,18 +16,42 @@ class PythonSubsetValidator(ast.NodeVisitor):
             offset = node.col_offset + 1
             raise SyntaxError('Found unsupported Python feature.', (filename, node.lineno, offset, code))
 
-    def error(self, node):
+    def add_error(self, node):
         self.errors.append(node)
 
-    visit_Global = error
-    visit_Nonlocal = error
-    visit_ClassDef = error
-    visit_AsyncFunctionDef = error
-    visit_AsyncFor = error
-    visit_AsyncWith = error
-    visit_Await = error
-    visit_Yield = error
-    visit_YieldFrom = error
+    def visit_error(self, node):
+        self.add_error(node)
+        super().generic_visit(node)
+
+    visit_Global = visit_error
+    visit_Nonlocal = visit_error
+
+    visit_ClassDef = visit_error
+    visit_AsyncFunctionDef = visit_error
+
+    visit_AsyncFor = visit_error
+    visit_AsyncWith = visit_error
+    visit_With = visit_error
+
+    visit_Match = visit_error
+
+    visit_Try = visit_error
+    visit_TryStar = visit_error
+
+    visit_Import = visit_error
+    visit_ImportFrom = visit_error
+
+    visit_Await = visit_error
+    visit_Yield = visit_error
+    visit_YieldFrom = visit_error
+    visit_NamedExpr = visit_error
+
+    def visit_Attribute(self, node):
+        super().generic_visit(node)
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.add_error(node)
+
+    visit_Subscript = visit_Attribute
 
 class DesugaringTransform(ast.NodeTransformer):
     """
@@ -194,6 +218,30 @@ class DesugaringTransform(ast.NodeTransformer):
 
         return self.visit(new_node)
     
+    def visit_AugAssign(self, node):
+        loadable_target = copy.copy(node.target)
+        loadable_target.ctx = ast.Load()
+
+        return self.visit(ast.Assign(
+            targets=[node.target],
+            value=ast.BinOp(
+                left=loadable_target,
+                op=node.op,
+                right=node.value,
+            ),
+            lineno=node.lineno,
+        ))
+
+    def visit_AnnAssign(self, node):
+        if node.value is None:
+            # In this case, it's just a type annotation.
+            return None
+        return self.visit(ast.Assign(
+            targets=[node.target],
+            value=node.value,
+            lineno=node.lineno,
+        ))
+
     def desugar_to_IfElse_block(
         self,
         test_expr,
