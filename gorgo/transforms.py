@@ -379,6 +379,7 @@ class CPSTransform(NodeTransformer):
         continuation_name = f"_cont_{node.lineno}"
         result_name = f"_res_{node.lineno}"
         scope_name = f"_scope_{node.lineno}"
+        locals_name = f"_locals_{node.lineno}"
         names = sorted(self.scopes[-1])
         unpack = '\n'.join(f'''
                 if "{name}" in {scope_name}:
@@ -386,8 +387,8 @@ class CPSTransform(NodeTransformer):
         ''' for name in names) or 'pass'
         code = ast.parse(textwrap.dedent(f'''
             # We capture locals before we enter any other scope (like a lambda or list comprehension)
-            _locals = locals()
-            {scope_name} = {{name: _locals[name] for name in {names} if name in _locals}}
+            {locals_name} = locals()
+            {scope_name} = {{name: {locals_name}[name] for name in {names} if name in {locals_name}}}
             def {continuation_name}({result_name}):
                 {unpack}
             return lambda : {self.cps_interpreter_name}.interpret(
@@ -395,7 +396,7 @@ class CPSTransform(NodeTransformer):
                 cont={continuation_name},
                 stack={self.stack_name}, 
                 func_src={self.func_src_name},
-                locals_=_locals,
+                locals_={locals_name},
                 lineno={node.lineno}
             )()
         ''')).body

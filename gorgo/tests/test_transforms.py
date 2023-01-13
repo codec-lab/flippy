@@ -166,8 +166,8 @@ def test_cps():
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    z = 0\\n    y = sum([1, 2, 3])\\n    x = x + 1\\n    z = z + 1\\n    return x + y + z'
         z = 0
-        _locals = locals()
-        _scope_4 = {name: _locals[name] for name in ['x', 'z'] if name in _locals}
+        _locals_4 = locals()
+        _scope_4 = {name: _locals_4[name] for name in ['x', 'z'] if name in _locals_4}
 
         def _cont_4(_res_4):
             if 'x' in _scope_4:
@@ -179,7 +179,7 @@ def test_cps():
             x = x + 1
             z = z + 1
             return lambda : _cont(x + y + z)
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals, lineno=4)([1, 2, 3])
+        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([1, 2, 3])
     ''', check_args=[(0,), (1,), (2,)])
 
     # Making sure things still work well in nested continuations.
@@ -193,23 +193,23 @@ def test_cps():
     @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
     def fn(y, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(y):\\n    y = sum([y, 1])\\n    y = sum([y, 2])\\n    return y'
-        _locals = locals()
-        _scope_3 = {name: _locals[name] for name in ['y'] if name in _locals}
+        _locals_3 = locals()
+        _scope_3 = {name: _locals_3[name] for name in ['y'] if name in _locals_3}
 
         def _cont_3(_res_3):
             if 'y' in _scope_3:
                 y = _scope_3['y']
             y = _res_3
-            _locals = locals()
-            _scope_4 = {name: _locals[name] for name in ['y'] if name in _locals}
+            _locals_4 = locals()
+            _scope_4 = {name: _locals_4[name] for name in ['y'] if name in _locals_4}
 
             def _cont_4(_res_4):
                 if 'y' in _scope_4:
                     y = _scope_4['y']
                 y = _res_4
                 return lambda : _cont(y)
-            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals, lineno=4)([y, 2])
-        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals, lineno=3)([y, 1])
+            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([y, 2])
+        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=3)([y, 1])
     ''', check_args=[(0,), (1,)])
 
     # Testing destructuring.
@@ -224,8 +224,8 @@ def test_cps():
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    [y, z] = x\\n    sum([])\\n    return y + z'
         [y, z] = x
-        _locals = locals()
-        _scope_4 = {name: _locals[name] for name in ['x', 'y', 'z'] if name in _locals}
+        _locals_4 = locals()
+        _scope_4 = {name: _locals_4[name] for name in ['x', 'y', 'z'] if name in _locals_4}
 
         def _cont_4(_res_4):
             if 'x' in _scope_4:
@@ -236,7 +236,7 @@ def test_cps():
                 z = _scope_4['z']
             _res_4
             return lambda : _cont(y + z)
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals, lineno=4)([])
+        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([])
     ''', check_args=[([1, 2],), ([7, 3],)])
 
 def check_cps_transform(src, exp_src, *, check_args=[]):
