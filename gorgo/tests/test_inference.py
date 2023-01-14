@@ -1,6 +1,6 @@
 import math
 from gorgo import _distribution_from_inference
-from gorgo.core import Bernoulli, Distribution, Categorical
+from gorgo.distributions import Bernoulli, Distribution, Categorical
 from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, MetropolisHastings
 from gorgo.inference.metropolis_hastings import Entry
 from gorgo.tools import isclose

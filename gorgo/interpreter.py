@@ -4,8 +4,9 @@ import inspect
 import textwrap
 import types
 from typing import Tuple, Callable
-from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
-from gorgo.core import StochasticPrimitive, ObservationStatement, StackFrame
+from gorgo.core import ReturnState, SampleState, ObserveState, InitialState, \
+    ObservationStatement, StackFrame
+from gorgo.distributions import Distribution
 from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator
 from gorgo.funcutils import method_cache
@@ -78,7 +79,7 @@ class CPSInterpreter:
         if CPSTransform.is_transformed(call):
             return self.interpret_transformed(call)
         if hasattr(call, "__self__"):
-            if isinstance(call.__self__, StochasticPrimitive) and call.__name__ == "sample":
+            if isinstance(call.__self__, Distribution) and call.__name__ == "sample":
                 return self.interpret_sample(call)
         if isinstance(call, ObservationStatement):
             return self.interpret_observation(call)

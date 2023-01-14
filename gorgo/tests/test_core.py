@@ -1,7 +1,7 @@
 import math
 import random
 from itertools import product
-from gorgo.core import Categorical, Bernoulli, Multinomial, DirichletMultinomial
+from gorgo.distributions import Categorical, Bernoulli, Multinomial, DirichletMultinomial
 from gorgo.tools import isclose
 
 def test_distribution_isclose():
@@ -44,7 +44,7 @@ def test_Multinomial_pdf():
         dist = Multinomial(categorical_support=range(bins), trials=balls)
         tot = sum([math.exp(dist.log_probability(v)) for v in support])
         assert isclose(1.0, tot)
-        
+
 def test_DirichletMultinomial_pdf():
     balls_bins = [
         (5, 6), (1, 5), (3, 3)

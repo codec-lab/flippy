@@ -2,7 +2,8 @@ import functools
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
-from gorgo.core import Categorical, Bernoulli, observe
+from gorgo.core import observe
+from gorgo.distributions import Categorical, Bernoulli
 
 __all__ = [
     # Core API

@@ -1,5 +1,5 @@
 from gorgo import cps_map, cps_filter, cps_reduce
-from gorgo.core import Bernoulli, Categorical
+from gorgo.distributions import Bernoulli, Categorical
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
 import ast
