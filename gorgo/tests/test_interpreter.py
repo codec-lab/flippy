@@ -239,8 +239,10 @@ def test_conditionally_defined():
     check_trace(fn, [(Bernoulli(0.5), 1)], return_value=42)
 
 def test_closure_issues():
-    # This case is a bad one -- incorrect semantics.
-    with pytest.raises(AssertionError) as err:
+    # Making sure we throw for important closure issues.
+
+    # If incorrect, this returns 'bad'.
+    with pytest.raises(SyntaxError) as err:
         def fn():
             def nested():
                 return x
@@ -249,10 +251,10 @@ def test_closure_issues():
             x = 'good'
             return nested()
         check_trace(fn, [(Bernoulli(0.5), 0)], return_value='good')
-    assert "assert 'bad' == 'good'" in str(err)
+    assert 'must be immutable' in str(err)
 
-    # This case isn't quite as bad -- simply fails to run.
-    with pytest.raises(NameError) as err:
+    # If incorrect, this fails to run with NameError.
+    with pytest.raises(SyntaxError) as err:
         def fn():
             def nested():
                 return x
@@ -260,4 +262,4 @@ def test_closure_issues():
             x = 'good'
             return nested()
         check_trace(fn, [(Bernoulli(0.5), 0)], return_value='good')
-    assert "name 'x' is not defined" in str(err)
+    assert 'must be defined before' in str(err)

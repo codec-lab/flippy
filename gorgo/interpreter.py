@@ -8,7 +8,7 @@ from gorgo.core import ReturnState, SampleState, ObserveState, InitialState, \
     ObservationStatement, StackFrame
 from gorgo.distributions import Distribution
 from gorgo.transforms import DesugaringTransform, \
-    SetLineNumbers, CPSTransform, PythonSubsetValidator
+    SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis
 from gorgo.funcutils import method_cache
 import linecache
 import types
@@ -17,6 +17,7 @@ class CPSInterpreter:
     def __init__(self):
         self.subset_validator = PythonSubsetValidator()
         self.desugaring_transform = DesugaringTransform()
+        self.closure_scope_analysis = ClosureScopeAnalysis()
         self.setlines_transform = SetLineNumbers()
         self.cps_transform = CPSTransform()
 
@@ -134,6 +135,7 @@ class CPSInterpreter:
 
     def transform(self, trans_node):
         trans_node = self.desugaring_transform(trans_node)
+        self.closure_scope_analysis(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
         return trans_node

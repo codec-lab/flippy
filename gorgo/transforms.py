@@ -2,6 +2,147 @@ import ast
 import textwrap
 import copy
 import contextlib
+import collections
+import dataclasses
+
+@dataclasses.dataclass
+class Scope:
+    node: ast.AST
+    parent: 'Scope'
+    ns: dict[str, int] = dataclasses.field(default_factory=collections.Counter)
+
+    def resolve(self, name):
+        scope = self
+        while scope is not None:
+            if name in scope.ns:
+                return scope
+            scope = scope.parent
+
+class ClosureScopeAnalysis(ast.NodeVisitor):
+    def_pass = 'def_pass'
+    use_pass = 'use_pass'
+
+    def __call__(self, node, source=None):
+        self.node = node
+        self._source = source
+        self.scopes = []
+        self.scope_map = {}
+        '''
+        We analyze code in two passes. The first pass tracks all stores to
+        variables in order to establish scopes. We hold onto those fully
+        analyzed scopes in `complete_scope_map`.
+        '''
+        self.analysis_pass = __class__.def_pass
+        with self.in_scope(node):
+            self.visit(node)
+        self.complete_scope_map = dict(self.scope_map)
+        '''
+        The main difference in this second pass is that we validate loaded
+        variables against statically-determined scopes to ensure closure
+        vars are immutable. We still keep the definition machinery to validate
+        that variables are defined before closures, in order to avoid issues
+        with CPS.
+        '''
+        self.analysis_pass = __class__.use_pass
+        with self.in_scope(node):
+            self.visit(node)
+
+    @property
+    def source(self):
+        if self._source is None:
+            return ast.unparse(self.node)
+        return self._source
+
+    def generic_visit(self, node):
+        # Refactored from ASTVisitor
+        for field, value in ast.iter_fields(node):
+            self.generic_visit_field(value)
+
+    def generic_visit_field(self, value):
+        # Refactored from ASTVisitor
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, ast.AST):
+                    self.visit(item)
+        elif isinstance(value, ast.AST):
+            self.visit(value)
+
+    def visit_Lambda(self, node):
+        with self.in_scope(node):
+            return self.generic_visit(node)
+
+    def visit_FunctionDef(self, node):
+        self.generic_visit_field(node.decorator_list)
+        with self.in_scope(node):
+            self.generic_visit_field(node.args)
+            self.generic_visit_field(node.body)
+
+    @contextlib.contextmanager
+    def in_scope(self, node):
+        self.scopes.append(Scope(
+            node=node,
+            parent=self.scopes[-1] if len(self.scopes) else None,
+        ))
+        self.scope_map[node] = self.scopes[-1]
+        try:
+            yield
+        finally:
+            self.scopes.pop()
+
+    def add_name_to_scope(self, name):
+        self.scopes[-1].ns[name] += 1
+
+    def visit_Assign(self, node):
+        # We make sure to visit values first.
+        self.generic_visit_field(node.value)
+        # Then we visit targets.
+        self.generic_visit_field(node.targets)
+
+    def visit_arg(self, node):
+        self.add_name_to_scope(node.arg)
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Store):
+            self.add_name_to_scope(node.id)
+
+        elif self.analysis_pass == __class__.use_pass:
+            if isinstance(node.ctx, ast.Load):
+                local_scope = self.complete_scope_map[self.scopes[-1].node]
+                scope = local_scope.resolve(node.id)
+                is_global = scope is None
+                is_local = scope == local_scope
+                if not is_global and not is_local:
+                    write_count = scope.ns[node.id]
+                    if write_count > 1:
+                        raise _error_at_node('Variable from outer scope must be immutable.', node, self.source)
+                    if node.id not in self.scope_map[scope.node].ns:
+                        raise _error_at_node('Variable from outer scope must be defined before being referenced.', node, self.source)
+
+    # We block unhandled cases that change scope or bind names.
+    # https://realpython.com/python-scope-legb-rule/
+
+    def not_implemented(self, node):
+        raise NotImplementedError()
+
+    # Blocked because they make outer scopes mutable.
+    visit_Global = not_implemented
+    visit_Nonlocal = not_implemented
+
+    # Blocked because we assume they were desugared.
+    visit_AugAssign = not_implemented
+    visit_AnnAssign = not_implemented
+
+    # Blocked because they bind names.
+    visit_Try = not_implemented
+    visit_TryStar = not_implemented
+    visit_NamedExpr = not_implemented
+
+    # Blocked because they cause new scopes.
+    visit_Class = not_implemented
+    visit_ListComp = not_implemented
+    visit_SetComp = not_implemented
+    visit_DictComp = not_implemented
+    visit_GeneratorExp = not_implemented
 
 class NodeTransformer(ast.NodeTransformer):
     def generic_visit(self, node):
@@ -34,19 +175,21 @@ class NodeTransformer(ast.NodeTransformer):
             else:
                 setattr(node, field, new_node)
 
+def _error_at_node(msg, node, source, *, filename='tmp.py'):
+    # Subtract 1 b/c node.lineno is 1-indexed
+    code = source.splitlines()[node.lineno - 1]
+    # Add 1 b/c node.col_offset is 0-indexed
+    offset = node.col_offset + 1
+    return SyntaxError(msg, (filename, node.lineno, offset, code))
+
 class PythonSubsetValidator(ast.NodeVisitor):
     def __call__(self, node, source):
-        filename = 'tmp.py'
         self.errors = []
         self.visit(node)
         if self.errors:
             # HACK For now, we just report the first error.
             node = self.errors[0]
-            # Subtract 1 b/c node.lineno is 1-indexed
-            code = source.splitlines()[node.lineno - 1]
-            # Add 1 b/c node.col_offset is 0-indexed
-            offset = node.col_offset + 1
-            raise SyntaxError('Found unsupported Python feature.', (filename, node.lineno, offset, code))
+            raise _error_at_node('Found unsupported Python feature.', node, source)
 
     def add_error(self, node):
         self.errors.append(node)
