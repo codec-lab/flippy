@@ -23,6 +23,9 @@ class Distribution(Generic[Element]):
     def __call__(self, *params, rng=random) -> Element:
         pass
 
+    def expected_value(self, func: Callable[[Element], Any] = lambda v : v) -> Any:
+        raise NotImplementedError
+
 
 class FiniteDistribution(Distribution):
     support: Sequence[Element]
@@ -41,6 +44,11 @@ class FiniteDistribution(Distribution):
     def items(self):
         yield from zip(self.support, self.probabilities)
 
+    def expected_value(self, func: Callable[[Element], Any] = lambda v : v) -> Any:
+        return sum(
+            p*func(s)
+            for s, p in self.items()
+        )
 
 class Bernoulli(FiniteDistribution):
     support = (True, False)
