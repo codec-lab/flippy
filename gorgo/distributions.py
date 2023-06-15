@@ -5,22 +5,20 @@ import math
 import random
 import abc
 from gorgo.tools import isclose
-from gorgo.funcutils import cached_property
+from functools import cached_property
 
 Element = TypeVar("Element")
 
 class Distribution(Generic[Element]):
-    def log_probability(self, element : Element) -> float:
-        pass
-
     def prob(self, element : Element):
         return math.exp(self.log_probability(element))
 
+    @abc.abstractmethod
     def sample(self, rng=random, name=None) -> Element:
-        return self(rng=rng)
+        pass
 
     @abc.abstractmethod
-    def __call__(self, *params, rng=random) -> Element:
+    def log_probability(self, element : Element) -> float:
         pass
 
     def expected_value(self, func: Callable[[Element], Any] = lambda v : v) -> Any:
@@ -54,7 +52,7 @@ class Bernoulli(FiniteDistribution):
     support = (True, False)
     def __init__(self, p=.5):
         self.p = p
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> bool:
         if rng.random() <= self.p:
             return True
         return False
@@ -81,7 +79,7 @@ class Categorical(FiniteDistribution):
     def probabilities(self):
         return self._probabilities
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> Element:
         return rng.choices(self.support, weights=self._probabilities, k=1)[0]
 
     def log_probability(self, element):
@@ -106,14 +104,14 @@ class Multinomial(FiniteDistribution):
         )
         self.trials = trials
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> Tuple[int, ...]:
         samples = rng.choices(
             self.categorical.support,
             weights=self.categorical._probabilities,
             k=self.trials
         )
         counts = Counter(samples)
-        return tuple(counts.get(i, 0) for i in range(len(self.categorical.support)))
+        return tuple(counts.get(i, 0) for i in self.categorical.support)
 
     @cached_property
     def support(self):
@@ -154,7 +152,7 @@ class Gaussian(Distribution):
         self.mean = mean
         self.sd = sd
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> float:
         return rng.gauss(self.mean, self.sd)
 
     def log_probability(self, element):
@@ -171,7 +169,7 @@ class Uniform(Distribution):
         self.end = end
         self.support = ClosedInterval(start, end)
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> float:
         return rng.uniform(self.start, self.end)
 
     def log_probability(self, element):
@@ -185,7 +183,7 @@ class Beta(Distribution):
         self.a = alpha
         self.b = beta
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> float:
         return rng.betavariate(self.a, self.b)
 
     def log_probability(self, element):
@@ -202,7 +200,7 @@ class Binomial(Distribution):
         assert 0 <= p <= 1
         self.support = tuple(range(0, self.trials + 1))
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> int:
         return sum(rng.random() < self.p for _ in range(self.trials))
 
     def log_probability(self, element):
@@ -223,7 +221,7 @@ class Geometric(Distribution):
         self.p = p
         assert 0 <= p <= 1
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> int:
         i = 0
         while rng.random() >= self.p:
             i += 1
@@ -242,7 +240,7 @@ class Poisson(Distribution):
         self.rate = rate
         assert rate >= 0
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> int:
         p, k, L = 1, 0, math.exp(-self.rate)
         while p > L:
             k += 1
@@ -262,7 +260,7 @@ class BetaBinomial(FiniteDistribution):
         self.trials = trials
         self.support = tuple(range(0, self.trials + 1))
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> int:
         p = rng.betavariate(self.alpha, self.beta)
         return sum(rng.random() < p for _ in range(self.trials))
 
@@ -321,7 +319,7 @@ class Dirichlet(Distribution):
     def support(self):
         return Simplex(len(self.alphas))
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> Tuple[float, ...]:
         e = [rng.gammavariate(a, 1) for a in self.alphas]
         tot = sum(e)
         return tuple(ei/tot for ei in e)
@@ -338,7 +336,7 @@ class DirichletMultinomial(FiniteDistribution):
         self.trials = trials
 
     @cached_property
-    def support(self):
+    def support(self) -> OrderedIntegerPartitions:
         return OrderedIntegerPartitions(
             total=self.trials, partitions=len(self.alphas)
         )
@@ -347,7 +345,7 @@ class DirichletMultinomial(FiniteDistribution):
     def dirichlet(self) -> Dirichlet:
         return Dirichlet(self.alphas)
 
-    def __call__(self, rng=random):
+    def sample(self, rng=random, name=None) -> Tuple[int, ...]:
         ps = self.dirichlet.sample(rng=rng)
         samples = rng.choices(range(len(self.alphas)), weights=ps, k=self.n)
         counts = Counter(samples)
