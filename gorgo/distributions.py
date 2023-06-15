@@ -21,7 +21,7 @@ class Distribution(Generic[Element]):
     def log_probability(self, element : Element) -> float:
         pass
 
-    def expected_value(self, func: Callable[[Element], Any] = lambda v : v) -> Any:
+    def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
         raise NotImplementedError
 
 
