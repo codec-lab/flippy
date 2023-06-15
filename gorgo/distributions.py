@@ -18,10 +18,17 @@ class Distribution(Generic[Element]):
         pass
 
     @abc.abstractmethod
+    def observe(self, value) -> None:
+        pass
+
+    @abc.abstractmethod
     def log_probability(self, element : Element) -> float:
         pass
 
     def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
+        raise NotImplementedError
+
+    def isclose(self, other: "Distribution") -> bool:
         raise NotImplementedError
 
 
@@ -90,7 +97,7 @@ class Categorical(FiniteDistribution):
 
     def __repr__(self):
         return repr({
-            s: self.log_probability(s)
+            s: self.prob(s)
             for s in self.support
         })
 

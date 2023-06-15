@@ -1,15 +1,14 @@
 import functools
+from typing import Callable
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
-from gorgo.core import observe
-from gorgo.distributions import Categorical, Bernoulli
+from gorgo.distributions import Categorical, Bernoulli, Distribution
 
 __all__ = [
     # Core API
     'infer',
     'keep_deterministic',
-    'observe',
     # Distributions
     'Categorical',
     'Bernoulli',
@@ -25,7 +24,7 @@ def keep_deterministic(fn):
     setattr(wrapped, CPSTransform.is_transformed_property, True)
     return wrapped
 
-def infer(func=None, method=Enumeration, **kwargs):
+def infer(func=None, method=Enumeration, **kwargs) -> Callable[..., Distribution]:
     if func is None:
         return functools.partial(infer, **kwargs)
 

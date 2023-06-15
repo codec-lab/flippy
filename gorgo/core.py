@@ -2,16 +2,6 @@ from typing import Any, Callable, Hashable, Tuple
 from gorgo.distributions import Distribution
 from gorgo.funcutils import cached_property
 
-# TODO: finalize this interface
-class ObservationStatement:
-    def __call__(
-        self,
-        distribution,
-        value,
-    ):
-        pass
-observe = ObservationStatement()
-
 ############################################
 #  Program State
 ############################################

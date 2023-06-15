@@ -5,7 +5,7 @@ import textwrap
 import types
 from typing import Tuple, Callable
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState, \
-    ObservationStatement, StackFrame
+    StackFrame
 from gorgo.distributions import Distribution
 from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis
@@ -79,11 +79,11 @@ class CPSInterpreter:
     def interpret_cps(self, call):
         if CPSTransform.is_transformed(call):
             return self.interpret_transformed(call)
-        if hasattr(call, "__self__"):
-            if isinstance(call.__self__, Distribution) and call.__name__ == "sample":
+        if hasattr(call, "__self__") and isinstance(call.__self__, Distribution):
+            if call.__name__ == "sample":
                 return self.interpret_sample(call)
-        if isinstance(call, ObservationStatement):
-            return self.interpret_observation(call)
+            elif call.__name__ == "observe":
+                return self.interpret_observation(call)
         return self.interpret_generic(call)
 
     def interpret_transformed(self, func):
@@ -102,10 +102,10 @@ class CPSInterpreter:
         return sample_wrapper
 
     def interpret_observation(self, call):
-        def observation_wrapper(distribution, value, _cont=None, _stack=None, name=None, **kws):
+        def observation_wrapper(value, _cont=None, _stack=None, name=None, **kws):
             return ObserveState(
                 continuation=lambda : _cont(None),
-                distribution=distribution,
+                distribution=call.__self__,
                 value=value,
                 name=name,
                 stack=_stack

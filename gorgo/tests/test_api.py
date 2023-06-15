@@ -1,4 +1,4 @@
-from gorgo import keep_deterministic, infer, Bernoulli, Categorical, observe, cps_map, cps_filter, cps_reduce
+from gorgo import infer, Bernoulli, Categorical, cps_map, cps_filter, cps_reduce
 
 def algebra():
     def flip():
@@ -61,21 +61,21 @@ def meaning(utt, world):
 def literal_listener(utterance):
     world = world_prior()
     m = meaning(utterance, world)
-    observe(Bernoulli(1.0), m)
+    Bernoulli(1.0).observe(m)
     return world
 
 @infer
-def speaker(world):
+def speaker(world) -> str:
     utterance = utterance_prior()
     L = literal_listener(utterance)
-    observe(L, world)
+    L.observe(world)
     return utterance
 
 @infer
 def listener(utterance):
     world = world_prior()
     S = speaker(world)
-    observe(S, utterance)
+    S.observe(utterance)
     return world
 
 def test_scalar_implicature():
