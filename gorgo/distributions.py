@@ -17,7 +17,6 @@ class Distribution(Generic[Element]):
     def sample(self, rng=random, name=None) -> Element:
         pass
 
-    @abc.abstractmethod
     def observe(self, value) -> None:
         pass
 
@@ -55,6 +54,27 @@ class FiniteDistribution(Distribution):
             for s, p in self.items()
         )
 
+    def __getitem__(self, element):
+        return self.prob(element)
+
+    def as_dict(self):
+        return dict(zip(self.support, self.probabilities))
+
+    def __len__(self):
+        return self.n_nonzero
+
+    def keys(self):
+        yield from self.support
+
+    def values(self):
+        yield from self.probabilities
+
+    def items(self):
+        yield from zip(self.support, self.probabilities)
+
+    def __iter__(self):
+        yield from self.support
+
 class Bernoulli(FiniteDistribution):
     support = (True, False)
     def __init__(self, p=.5):
@@ -75,12 +95,18 @@ class Categorical(FiniteDistribution):
         if probabilities is not None:
             assert isclose(sum(probabilities), 1)
         elif weights is not None:
-            probabilities = [w / sum(weights) for w in weights]
+            total_weight = sum(weights)
+            probabilities = [w / total_weight for w in weights]
             del weights
         else:
             probabilities = [1/len(support) for _ in support]
         self.support = support
         self._probabilities = probabilities
+
+    @classmethod
+    def from_dict(cls, d):
+        support, probs = zip(*d.items())
+        return cls(support=support, probabilities=probs)
 
     @property
     def probabilities(self):
@@ -96,11 +122,33 @@ class Categorical(FiniteDistribution):
             return float('-inf')
 
     def __repr__(self):
-        return repr({
-            s: self.prob(s)
-            for s in self.support
-        })
+        return f"Categorical(support={self.support}, probabilities={self.probabilities})"
 
+    def _repr_html_(self):
+        format_prob = lambda p: f"{p:.3f}" if p > 0.001 else f"{p:.2e}"
+        return ''.join([
+            "<table>",
+            "<thead><tr><th></th><th>Element</th><th>Probability</th></tr></thead>",
+            "<tbody>",
+            *(
+                [
+                    f"<tr><td><b>{i}</b></td><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
+                    for i, s in enumerate(self.support)
+                ] if len(self.support) < 10 else (
+                    [
+                        f"<tr><td><b>{i}</b></td><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
+                        for i, s in enumerate(self.support[:5])
+                    ] + [
+                        "<tr><td>...</td><td>...</td><td>...</td></tr>"
+                    ] + [
+                        f"<tr><td><b>{i}</b></td><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
+                        for i, s in zip(range(len(self.support), len(self.support) - 5, -1),self.support[-5:])
+                    ]
+                )
+            ),
+            "</tbody>",
+            "</table>"
+        ])
 
 class Multinomial(FiniteDistribution):
     def __init__(self, categorical_support, trials, *, probabilities=None, weights=None):

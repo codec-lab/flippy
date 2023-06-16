@@ -2,6 +2,7 @@ import random
 from collections import defaultdict
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
+from gorgo.distributions import Categorical
 
 class SamplePrior:
     """Sample from the prior and ignore observation statements"""
@@ -27,4 +28,4 @@ class SamplePrior:
             return_counts[ps.value] += 1
         total_prob = sum(return_counts.values())
         return_probs = {e: p/total_prob for e, p in return_counts.items()}
-        return return_probs
+        return Categorical.from_dict(return_probs)

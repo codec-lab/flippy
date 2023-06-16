@@ -34,7 +34,7 @@ def test_enumeration_geometric():
     assert isclose(expectation(d), expected)
 
     assert len(rv) == 100
-    assert rv.keys() == set(range(1, 101))
+    assert set(rv.keys()) == set(range(1, 101)), set(rv.keys()) - set(range(1, 101))
     for k, sampled_prob in rv.items():
         pmf = (1-param) ** (k - 1) * param
         # This will only be true when executions is high enough, since
