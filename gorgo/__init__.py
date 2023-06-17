@@ -4,6 +4,7 @@ from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
 from gorgo.distributions import Categorical, Bernoulli, Distribution
+from gorgo.core import global_store
 
 __all__ = [
     # Core API
@@ -13,6 +14,7 @@ __all__ = [
     'condition',
     'flip',
     'draw',
+    'mem',
     # Distributions
     'Categorical',
     'Bernoulli',
@@ -98,3 +100,14 @@ def flip(p=.5):
 
 def draw_from(n):
     return Categorical(range(n)).sample()
+
+def mem(fn):
+    def wrapped(*args, **kws):
+        key = (fn, args, tuple(kws.items()))
+        if global_store.includes(key):
+            return global_store.read(key)
+        else:
+            value = fn(*args, **kws)
+            global_store.write(key, value)
+            return value
+    return wrapped
