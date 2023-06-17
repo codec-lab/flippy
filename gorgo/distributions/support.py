@@ -8,6 +8,8 @@ class ClosedInterval:
         self.end = end
     def __contains__(self, ele):
         return self.start <= ele <= self.end
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.start}, {self.end})"
 
 
 class IntegerInterval(ClosedInterval):
@@ -15,6 +17,8 @@ class IntegerInterval(ClosedInterval):
         if ele == int(ele):
             return self.start <= ele <= self.end
         return False
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.start}, {self.end})"
 
 
 class Simplex:
@@ -26,6 +30,8 @@ class Simplex:
             isclose(1.0, sum(vec)) and \
             all((not isclose(0.0, e)) and (0 < e <= 1) for e in vec)
         )
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.dimensions})"
 
 
 class OrderedIntegerPartitions:
@@ -52,3 +58,6 @@ class OrderedIntegerPartitions:
 
     def __iter__(self):
         yield from self._enumerated_partitions
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(total={self.total}, partitions={self.partitions})"
