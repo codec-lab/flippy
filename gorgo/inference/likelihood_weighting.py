@@ -4,7 +4,7 @@ from collections import defaultdict
 
 from gorgo.core import ReturnState, SampleState, ObserveState
 from gorgo.interpreter import CPSInterpreter
-from gorgo.distributions import Categorical
+from gorgo.distributions import Categorical, RandomNumberGenerator
 
 class LikelihoodWeighting:
     def __init__(self, function, samples : int, seed=None):
@@ -13,7 +13,7 @@ class LikelihoodWeighting:
         self.seed= seed
 
     def run(self, *args, **kws):
-        rng = random.Random(self.seed)
+        rng = RandomNumberGenerator(self.seed)
         return_counts = defaultdict(float)
         init_ps = CPSInterpreter().initial_program_state(self.function)
         for _ in range(self.samples):

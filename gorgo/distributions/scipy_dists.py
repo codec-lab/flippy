@@ -7,24 +7,17 @@ from functools import cached_property
 
 from gorgo.distributions.base import Distribution, Element
 from gorgo.distributions.support import ClosedInterval
+from gorgo.distributions.random import RandomNumberGenerator, default_rng
 
 from scipy.stats import rv_continuous, rv_discrete
 from scipy.stats import norm, uniform, beta, gamma, poisson
 
-
-class RandomNumberGenerator(random.Random):
-    def __init__(self, x=None):
-        super().__init__(x)
-        self.np = np.random.Generator(np.random.PCG64(self.randint(0, 2**32)))
-
-    def fork(self, n : int):
-        return [RandomNumberGenerator(self.randint(0, int(1e100))) for _ in range(n)]
-
-    def new_seed(self):
-        return self.randint(0, int(1e100))
-
-default_rng = RandomNumberGenerator(None)
-
+__all__ = [
+    "Normal",
+    "Uniform",
+    "Gamma",
+    "Beta",
+]
 
 class ScipyContinuousDistribution(Distribution):
     loc = 0
