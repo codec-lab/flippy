@@ -22,6 +22,7 @@ __all__ = [
 class ScipyContinuousDistribution(Distribution):
     loc = 0
     scale = 1
+    size = 1
     args = ()
 
     @property
@@ -36,10 +37,11 @@ class ScipyContinuousDistribution(Distribution):
         name : str,
     ):
         class NewDistribution(cls):
-            def __init__(self, *args, loc=0, scale=1):
+            def __init__(self, *args, loc=0, scale=1, size=1):
                 self.loc = loc
                 self.scale = scale
                 self.args = args
+                self.size = size
 
             @property
             def base_distribution(self):
@@ -54,8 +56,6 @@ class ScipyContinuousDistribution(Distribution):
 
     def sample(
         self,
-        shape : Union[int, Tuple] = 1,
-        *,
         rng : RandomNumberGenerator = default_rng,
         name=None
     ) -> Sequence[Element]:
@@ -63,10 +63,10 @@ class ScipyContinuousDistribution(Distribution):
             *self.args,
             loc=self.loc,
             scale=self.scale,
-            size=shape,
+            size=self.size,
             random_state=rng.np
         )
-        if shape == 1:
+        if self.size == 1:
             return sample[0]
         return sample
 
@@ -111,35 +111,39 @@ class ScipyContinuousDistribution(Distribution):
 
 class Normal(ScipyContinuousDistribution):
     base_distribution = norm
-    def __init__(self, mean=0, sd=1):
+    def __init__(self, mean=0, sd=1, size=1):
         self.loc = self.mean = mean
         self.scale = self.sd = sd
+        self.size = size
     def __repr__(self) -> str:
         return f"Normal(mean={self.loc}, sd={self.scale})"
 
 class Uniform(ScipyContinuousDistribution):
     base_distribution = uniform
-    def __init__(self, low=0, high=1):
+    def __init__(self, low=0, high=1, size=1):
         self.loc = self.low = low
         self.scale = self.high = high
+        self.size = size
     def __repr__(self) -> str:
         return f"Uniform(low={self.loc}, high={self.scale})"
 
 class Gamma(ScipyContinuousDistribution):
     base_distribution = gamma
-    def __init__(self, shape=1, rate=1):
+    def __init__(self, shape=1, rate=1, size=1):
         self.scale = 1/rate
         self.args = (shape,)
         self.shape = shape
         self.rate = rate
+        self.size = size
     def __repr__(self) -> str:
         return f"Gamma(shape={self.shape}, rate={self.rate})"
 
 class Beta(ScipyContinuousDistribution):
     base_distribution = beta
-    def __init__(self, alpha=1, beta=1):
+    def __init__(self, alpha=1, beta=1, size=1):
         self.args = (alpha, beta)
         self.alpha = alpha
         self.beta = beta
+        self.size = size
     def __repr__(self) -> str:
         return f"Beta(alpha={self.alpha}, beta={self.beta})"

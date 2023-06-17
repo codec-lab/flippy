@@ -9,6 +9,7 @@ from gorgo.core import ReturnState, SampleState, ObserveState, InitialState, \
 from gorgo.distributions import Distribution
 from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis
+from gorgo.core import GlobalStore, GlobalStoreRead, GlobalStoreWrite, GlobalStoreIncludes
 from gorgo.funcutils import method_cache
 import linecache
 import types
@@ -84,7 +85,39 @@ class CPSInterpreter:
                 return self.interpret_sample(call)
             elif call.__name__ == "observe":
                 return self.interpret_observation(call)
+            else:
+                raise NotImplementedError(f"Only sample and observe are supported for {call.__self__.__class__.__name__}")
+        elif hasattr(call, "__self__") and isinstance(call.__self__, GlobalStore):
+            return self.interpret_global_store(call)
+        elif hasattr(call, "__self__"):
+            raise NotImplementedError(f"CPSInterpreter does not support methods for {call.__self__.__class__.__name__}")
         return self.interpret_generic(call)
+
+    def interpret_global_store(self, call):
+        if call.__name__ == "read":
+            def read_wrapper(key, _cont=None, _stack=None, **kws):
+                return GlobalStoreRead(
+                    continuation=_cont,
+                    key=key
+                )
+            return read_wrapper
+        elif call.__name__ == "write":
+            def write_wrapper(key, value, _cont=None, _stack=None, **kws):
+                return GlobalStoreWrite(
+                    continuation=_cont,
+                    key=key,
+                    value=value
+                )
+            return write_wrapper
+        elif call.__name__ == "includes":
+            def includes_wrapper(key, _cont=None, _stack=None, **kws):
+                return GlobalStoreIncludes(
+                    continuation=_cont,
+                    key=key
+                )
+            return includes_wrapper
+        else:
+            raise NotImplementedError(f"Only read and write are supported for {call.__self__.__class__.__name__}")
 
     def interpret_transformed(self, func):
         def wrapper_generic(*args, _cont=None, _stack=None, **kws):

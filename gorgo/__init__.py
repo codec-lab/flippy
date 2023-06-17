@@ -9,6 +9,10 @@ __all__ = [
     # Core API
     'infer',
     'keep_deterministic',
+    'factor',
+    'condition',
+    'flip',
+    'draw',
     # Distributions
     'Categorical',
     'Bernoulli',
@@ -69,3 +73,28 @@ def cps_reduce(fn, iter, initializer):
     if len(iter) == 0:
         return initializer
     return cps_reduce(fn, iter[1:], fn(initializer, iter[0]))
+
+class FactorDistribution(Distribution):
+    def __init__(self):
+        pass
+
+    def sample(self, rng, name):
+        pass
+
+    def log_probability(self, element : float) -> float:
+        #workaround for arbitrary scores
+        return element
+
+factor_dist = FactorDistribution()
+
+def factor(score):
+    factor_dist.observe(score)
+
+def condition(cond):
+    factor_dist.observe(0 if cond else -float("inf"))
+
+def flip(p=.5):
+    return Bernoulli(p).sample()
+
+def draw_from(n):
+    return Categorical(range(n)).sample()
