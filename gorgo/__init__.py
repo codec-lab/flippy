@@ -26,7 +26,7 @@ def keep_deterministic(fn):
 
 def infer(func=None, method=Enumeration, **kwargs) -> Callable[..., Distribution]:
     if func is None:
-        return functools.partial(infer, **kwargs)
+        return functools.partial(infer, method=method, **kwargs)
 
     # After the wrapped function is CPS transformed, it will be evaluated.
     # If it is decorated with this function, the CPS-transformed function
