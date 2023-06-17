@@ -61,7 +61,7 @@ class FiniteDistribution(Distribution):
         return dict(zip(self.support, self.probabilities))
 
     def __len__(self):
-        return self.n_nonzero
+        return len(self.support)
 
     def keys(self):
         yield from self.support
