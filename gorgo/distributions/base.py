@@ -1,0 +1,75 @@
+from typing import Sequence, Generic, TypeVar, Any, Callable, Hashable, Tuple
+import math
+import random
+import abc
+from gorgo.tools import isclose
+from functools import cached_property
+
+Element = TypeVar("Element")
+
+class Distribution(Generic[Element]):
+    def prob(self, element : Element):
+        return math.exp(self.log_probability(element))
+
+    @abc.abstractmethod
+    def sample(self, rng=random, name=None) -> Element:
+        pass
+
+    def observe(self, value) -> None:
+        pass
+
+    @abc.abstractmethod
+    def log_probability(self, element : Element) -> float:
+        pass
+
+    def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
+        raise NotImplementedError
+
+    def isclose(self, other: "Distribution") -> bool:
+        raise NotImplementedError
+
+
+class FiniteDistribution(Distribution):
+    support: Sequence[Element]
+
+    @cached_property
+    def probabilities(self):
+        return tuple(self.prob(e) for e in self.support)
+
+    def isclose(self, other: "FiniteDistribution") -> bool:
+        full_support = set(self.support) | set(other.support)
+        return all(
+            isclose(self.log_probability(s), other.log_probability(s))
+            for s in full_support
+        )
+
+    def items(self):
+        yield from zip(self.support, self.probabilities)
+
+    def expected_value(self, func: Callable[[Element], Any] = lambda v : v) -> Any:
+        return sum(
+            p*func(s)
+            for s, p in self.items()
+        )
+
+    def __getitem__(self, element):
+        return self.prob(element)
+
+    def as_dict(self):
+        return dict(zip(self.support, self.probabilities))
+
+    def __len__(self):
+        return len(self.support)
+
+    def keys(self):
+        yield from self.support
+
+    def values(self):
+        yield from self.probabilities
+
+    def items(self):
+        yield from zip(self.support, self.probabilities)
+
+    def __iter__(self):
+        yield from self.support
+
