@@ -107,6 +107,14 @@ class Categorical(FiniteDistribution):
             "</table>"
         ])
 
+    def plot(self, ax=None, bins=100, **kwargs):
+        assert all(isinstance(s, (int, float)) for s in self.support)
+        import matplotlib.pyplot as plt
+        if ax is None:
+            fig, ax = plt.subplots()
+        ax.hist(self.support, weights=self.probabilities, bins=bins, **kwargs)
+        return ax
+
 class Multinomial(FiniteDistribution):
     def __init__(self, categorical_support, trials, *, probabilities=None, weights=None):
         self.categorical = Categorical(

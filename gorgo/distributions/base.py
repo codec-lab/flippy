@@ -28,6 +28,9 @@ class Distribution(Generic[Element]):
     def isclose(self, other: "Distribution") -> bool:
         raise NotImplementedError
 
+    def plot(self, ax=None, **kws):
+        raise NotImplementedError
+
 
 class FiniteDistribution(Distribution):
     support: Sequence[Element]
