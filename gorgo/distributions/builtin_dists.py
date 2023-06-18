@@ -323,7 +323,7 @@ class DirichletMultinomial(FiniteDistribution):
 
     def sample(self, rng=default_rng, name=None) -> Tuple[int, ...]:
         ps = self.dirichlet.sample(rng=rng)
-        samples = rng.choices(range(len(self.alphas)), weights=ps, k=self.n)
+        samples = rng.choices(range(len(self.alphas)), weights=ps, k=self.trials)
         counts = Counter(samples)
         return tuple(counts.get(i, 0) for i in range(len(self.alphas)))
 
