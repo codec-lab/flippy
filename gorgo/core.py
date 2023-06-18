@@ -25,21 +25,25 @@ class ProgramState:
         self.global_store = None
 
     def step(self, *args, **kws):
-        thunk = self.continuation(*args, **kws)
+        next_ = self.continuation(*args, **kws)
         global_store = {**self.global_store} if self.global_store is not None else {}
         while True:
-            next_ = thunk()
-            if isinstance(next_, ProgramState):
+            if callable(next_):
+                next_ = next_()
+            elif isinstance(next_, ProgramState):
                 next_.global_store = global_store
                 return next_
-            elif isinstance(next_, GlobalStoreIncludes):
-                next_ = next_.continuation(next_.key in global_store)
-            elif isinstance(next_, GlobalStoreRead):
-                next_ = next_.continuation(global_store.get(next_.key))
-            elif isinstance(next_, GlobalStoreWrite):
-                global_store[next_.key] = next_.value
-                next_ = (lambda last_next_ : (lambda : last_next_.continuation(None)))(next_)
-            thunk = next_
+            elif isinstance(next_, GlobalStoreEvent):
+                if isinstance(next_, GlobalStoreIncludes):
+                    next_ = next_.continuation(next_.key in global_store)
+                elif isinstance(next_, GlobalStoreRead):
+                    next_ = next_.continuation(global_store.get(next_.key))
+                elif isinstance(next_, GlobalStoreWrite):
+                    global_store[next_.key] = next_.value
+                    next_ = (lambda last_next_ : (lambda : last_next_.continuation(None)))(next_)
+            else:
+                raise TypeError(f"Unknown type {type(next_)}")
+            # thunk = next_
 
     @cached_property
     def name(self):
@@ -49,18 +53,21 @@ class ProgramState:
             return None
         return tuple((frame.func_src, frame.lineno) for frame in self.stack)
 
-class GlobalStoreRead(dict):
+class GlobalStoreEvent:
+    pass
+
+class GlobalStoreRead(GlobalStoreEvent):
     def __init__(self, continuation : Continuation, key : Hashable):
         self.continuation = continuation
         self.key = key
 
-class GlobalStoreWrite(dict):
+class GlobalStoreWrite(GlobalStoreEvent):
     def __init__(self, continuation : Continuation, key : Hashable, value : Any):
         self.continuation = continuation
         self.key = key
         self.value = value
 
-class GlobalStoreIncludes:
+class GlobalStoreIncludes(GlobalStoreEvent):
     def __init__(self, continuation : Continuation, key : Hashable):
         self.continuation = continuation
         self.key = key
