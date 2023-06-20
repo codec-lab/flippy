@@ -1,4 +1,4 @@
-from gorgo import infer, Bernoulli, Categorical, cps_map, cps_filter, cps_reduce
+from gorgo import infer, Bernoulli, Categorical, recursive_map, recursive_filter, recursive_reduce
 
 def algebra():
     def flip():
@@ -100,19 +100,19 @@ def test_builtins():
     assert model().isclose(Categorical([(),]))
 
 def test_cps_map():
-    assert cps_map(lambda x: x ** 2, []) == []
-    assert cps_map(lambda x: x ** 2, list(range(5))) == [0, 1, 4, 9, 16]
+    assert recursive_map(lambda x: x ** 2, []) == []
+    assert recursive_map(lambda x: x ** 2, list(range(5))) == [0, 1, 4, 9, 16]
 
 def test_cps_filter():
-    assert cps_filter(lambda x: x % 2 == 0, []) == []
-    assert cps_filter(lambda x: x % 2 == 0, list(range(5))) == [0, 2, 4]
+    assert recursive_filter(lambda x: x % 2 == 0, []) == []
+    assert recursive_filter(lambda x: x % 2 == 0, list(range(5))) == [0, 2, 4]
 
-def test_cps_reduce():
+def test_recursive_reduce():
     sumfn = lambda acc, el: acc + el
 
-    assert cps_reduce(sumfn, [], 0) == 0
-    assert cps_reduce(sumfn, [1], 0) == 1
-    assert cps_reduce(sumfn, [1, 2], 0) == 3
-    assert cps_reduce(sumfn, [1, 2, 3], 0) == 6
+    assert recursive_reduce(sumfn, [], 0) == 0
+    assert recursive_reduce(sumfn, [1], 0) == 1
+    assert recursive_reduce(sumfn, [1, 2], 0) == 3
+    assert recursive_reduce(sumfn, [1, 2, 3], 0) == 6
 
-    assert cps_reduce(sumfn, [[3, 4], [5]], []) == [3, 4, 5]
+    assert recursive_reduce(sumfn, [[3, 4], [5]], []) == [3, 4, 5]

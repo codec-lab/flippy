@@ -1,4 +1,4 @@
-from gorgo import cps_map, cps_filter, cps_reduce
+from gorgo import recursive_map, recursive_filter, recursive_reduce
 from gorgo.distributions import Bernoulli, Categorical
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
@@ -72,7 +72,7 @@ def test_cps_map():
     def fn():
         def f(x):
             return Bernoulli(x).sample()
-        return sum(cps_map(f, [.1, .2]))
+        return sum(recursive_map(f, [.1, .2]))
 
     check_trace(fn, [
         (Bernoulli(0.1), 1),
@@ -85,7 +85,7 @@ def test_cps_filter():
             return Categorical([1, 2, 3, 4]).sample()
         def is_even(x):
             return x % 2 == 0
-        return sum(cps_filter(is_even, cps_map(f, [None] * 4)))
+        return sum(recursive_filter(is_even, recursive_map(f, [None] * 4)))
 
     check_trace(fn, [
         (Categorical([1, 2, 3, 4]), 1),
@@ -94,9 +94,9 @@ def test_cps_filter():
         (Categorical([1, 2, 3, 4]), 4),
     ], return_value=6)
 
-def test_cps_reduce():
+def test_recursive_reduce():
     def fn():
-        return cps_reduce(lambda acc, x: acc + Bernoulli(x).sample(), [.1, .2], 0)
+        return recursive_reduce(lambda acc, x: acc + Bernoulli(x).sample(), [.1, .2], 0)
 
     check_trace(fn, [
         (Bernoulli(0.1), 1),
@@ -138,6 +138,26 @@ def test_list_comprehension():
             [y for y in range(x+1)]
             for x in range(3)
         ]
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Set comprehensions
+    expected = {0, 1, 4, 9}
+    def fn():
+        return {
+            x**2
+            for x in [-3, -2, -1, 0, 1, 2, 3]
+        }
+    assert fn() == expected
+    check_trace(fn, [], return_value=expected)
+
+    # Dict comprehensions
+    expected = {0: 0, 1: 1, 2: 4, 3: 9}
+    def fn():
+        return {
+            x: x**2
+            for x in range(4)
+        }
     assert fn() == expected
     check_trace(fn, [], return_value=expected)
 

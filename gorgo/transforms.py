@@ -5,6 +5,38 @@ import contextlib
 import collections
 import dataclasses
 
+class Placeholder(ast.NodeTransformer):
+    '''
+    Use this class to add placeholders in code constructed by string, so that
+    placeholders can later be filled by AST instances.
+    '''
+    prefix = '__PLACEHOLDER_'
+    def __init__(self, replacement_map, *, skip_missing=False):
+        self.replacement_map = replacement_map
+        self.skip_missing = skip_missing
+
+    @classmethod
+    def new(cls, tag):
+        return f'{cls.prefix}{tag}'
+    @classmethod
+    def fill(cls, node, replacement_map, **kwargs):
+        return cls(replacement_map, **kwargs).visit(node)
+
+    def visit_Name(self, node):
+        if node.id.startswith(__class__.prefix):
+            tag = node.id[len(__class__.prefix):]
+            if tag in self.replacement_map:
+                return self.replacement_map[tag]
+            elif not self.skip_missing:
+                assert tag in self.replacement_map, f'Could not find tag {tag} in replacement map.'
+        return self.generic_visit(node)
+    def visit_Expr(self, node):
+        new_node = self.generic_visit(node)
+        if not isinstance(new_node.value, ast.expr):
+            return new_node.value
+        return new_node
+
+
 @dataclasses.dataclass
 class Scope:
     node: ast.AST
@@ -398,10 +430,10 @@ class DesugaringTransform(ast.NodeTransformer):
             new_block.append(decorator_stmt)
         return new_block
 
-    def visit_ListComp(self, node):
+    def visit_comprehension(self, node):
         '''
-        Convert list comprehensions into cps_reduce calls. Later generators correspond to
-        nested cps_reduce calls. For the following example input:
+        Convert comprehensions into recursive_reduce calls. Later generators correspond to
+        nested recursive_reduce calls. For the following example input:
 
         ```
         [
@@ -416,9 +448,9 @@ class DesugaringTransform(ast.NodeTransformer):
         We transform code into the following:
 
         ```
-        cps_reduce(
+        recursive_reduce(
             lambda __acc, x: (
-                __acc + cps_reduce(
+                __acc + recursive_reduce(
                     lambda __acc, y: (
                         __acc + [(x, y)] if all([x + y < 3]) else __acc
                     ),
@@ -431,25 +463,55 @@ class DesugaringTransform(ast.NodeTransformer):
         )
         ```
 
+        This function can also handle set and dictionary comprehensions.
         '''
+        self.add_statement(ast.parse('from gorgo import recursive_reduce').body[0])
 
-        nested = ast.List(elts=[node.elt], ctx=ast.Load())
+        if isinstance(node, ast.ListComp):
+            op = '+'
+            initial = '[]'
+            nested = ast.List(elts=[node.elt])
+        elif isinstance(node, ast.SetComp):
+            op = '|'
+            initial = 'set()'
+            nested = ast.Set(elts=[node.elt])
+        else:
+            assert isinstance(node, ast.DictComp)
+            op = '|'
+            initial = '{}'
+            nested = ast.Dict(keys=[node.key], values=[node.value])
 
         for g in node.generators[::-1]:
             assert isinstance(g.target, ast.Name) and isinstance(g.target.ctx, ast.Store), 'Only simple targets are supported.'
             target = g.target.id
 
-            new_node = ast.parse(textwrap.dedent(f'''
-            cps_reduce(lambda __acc, {target}: __acc + None if all([]) else __acc, None, [])
-            ''')).body[0].value
+            base_expr = f'''__acc {op} {Placeholder.new('nested')}'''
+            if len(g.ifs) == 0:
+                test = None
+                expr = base_expr
+            else:
+                if len(g.ifs) == 1:
+                    test = g.ifs[0]
+                else:
+                    test = ast.BoolOp(op=ast.And(), values=g.ifs)
+                expr = f'''{base_expr} if {Placeholder.new('test')} else __acc'''
 
-            new_node.args[0].body.body.right = nested
-            new_node.args[0].body.test.args[0].elts = g.ifs
-            new_node.args[1] = g.iter
+            new_node = ast.parse(textwrap.dedent(f'''
+            recursive_reduce(lambda __acc, {target}: {expr}, {Placeholder.new('iter')}, {initial})
+            ''')).body[0].value
+            Placeholder.fill(new_node, dict(
+                iter=g.iter,
+                nested=nested,
+                test=test,
+            ))
 
             nested = new_node
 
         return self.visit(new_node)
+
+    visit_ListComp = visit_comprehension
+    visit_SetComp = visit_comprehension
+    visit_DictComp = visit_comprehension
 
     def visit_AugAssign(self, node):
         loadable_target = copy.copy(node.target)
