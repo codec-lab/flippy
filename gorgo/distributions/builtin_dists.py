@@ -1,6 +1,6 @@
-from typing import Tuple
+from typing import Tuple, Sequence, Union, Any, Callable
 from itertools import combinations_with_replacement
-from collections import Counter
+from collections import Counter, defaultdict
 import math
 from gorgo.tools import isclose
 from functools import cached_property
@@ -114,6 +114,12 @@ class Categorical(FiniteDistribution):
             fig, ax = plt.subplots()
         ax.hist(self.support, weights=self.probabilities, bins=bins, **kwargs)
         return ax
+
+    def marginalize(self, projection: Callable[[Element], Any]):
+        d = defaultdict(float)
+        for s, p in zip(self.support, self.probabilities):
+            d[projection(s)] += p
+        return Categorical.from_dict(d)
 
 class Multinomial(FiniteDistribution):
     def __init__(self, categorical_support, trials, *, probabilities=None, weights=None):

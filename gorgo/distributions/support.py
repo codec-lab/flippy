@@ -1,6 +1,9 @@
+from typing import Sequence, Set, Union
 from itertools import combinations_with_replacement
 from gorgo.tools import isclose
 from functools import cached_property
+
+Support = Union[Sequence, Set, 'ClosedInterval', 'IntegerInterval', 'Simplex', 'OrderedIntegerPartitions']
 
 class ClosedInterval:
     def __init__(self, start, end):
