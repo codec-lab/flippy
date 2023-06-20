@@ -5,9 +5,12 @@ import abc
 from gorgo.tools import isclose
 from functools import cached_property
 
+from gorgo.distributions.support import Support
+
 Element = TypeVar("Element")
 
 class Distribution(Generic[Element]):
+    support : Support
     def prob(self, element : Element):
         return math.exp(self.log_probability(element))
 
