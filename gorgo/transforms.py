@@ -32,9 +32,15 @@ class Placeholder(ast.NodeTransformer):
         return self.generic_visit(node)
     def visit_Expr(self, node):
         new_node = self.generic_visit(node)
-        if not isinstance(new_node.value, ast.expr):
-            return new_node.value
-        return new_node
+        if hasattr(new_node, 'value'):
+            if isinstance(new_node.value, ast.expr):
+                return new_node
+            else:
+                # This case is when replacement of var was a statement
+                return new_node.value
+        else:
+            # When replacement of var was None, this node should be deleted.
+            return None
 
 
 @dataclasses.dataclass
@@ -448,64 +454,73 @@ class DesugaringTransform(ast.NodeTransformer):
         We transform code into the following:
 
         ```
-        recursive_reduce(
-            lambda __acc, x: (
-                __acc + recursive_reduce(
-                    lambda __acc, y: (
-                        __acc + [(x, y)] if all([x + y < 3]) else __acc
-                    ),
-                    range(5),
-                    [],
-                ) if all([x % 2 == 0]) else __acc
-            ),
-            range(4),
-            [],
-        )
+        def __v0(_acc, x):
+            def __v1(_acc, y):
+                return __acc + [(x, y)] if all([x + y < 3]) else __acc
+            return __acc + recursive_reduce(__v1, range(5), []) if all([x % 2 == 0]) else __acc
+        recursive_reduce(__v0, range(4), [])
         ```
 
         This function can also handle set and dictionary comprehensions.
         '''
         self.add_statement(ast.parse('from gorgo import recursive_reduce').body[0])
 
+        nested_cb = None
         if isinstance(node, ast.ListComp):
             op = '+'
             initial = '[]'
-            nested = ast.List(elts=[node.elt])
+            nested_comp = ast.List(elts=[node.elt])
         elif isinstance(node, ast.SetComp):
             op = '|'
             initial = 'set()'
-            nested = ast.Set(elts=[node.elt])
+            nested_comp = ast.Set(elts=[node.elt])
         else:
             assert isinstance(node, ast.DictComp)
             op = '|'
             initial = '{}'
-            nested = ast.Dict(keys=[node.key], values=[node.value])
+            nested_comp = ast.Dict(keys=[node.key], values=[node.value])
 
         for g in node.generators[::-1]:
-            assert isinstance(g.target, ast.Name) and isinstance(g.target.ctx, ast.Store), 'Only simple targets are supported.'
-            target = g.target.id
-
-            base_expr = f'''__acc {op} {Placeholder.new('nested')}'''
+            # We make sure to specialize the function body based on whether tests were provided.
+            base_expr = f'''__acc {op} {Placeholder.new('nested_comp')}'''
             if len(g.ifs) == 0:
                 test = None
                 expr = base_expr
             else:
+                # We separately handle the common case (one test) from the less common case of multiple tests.
                 if len(g.ifs) == 1:
                     test = g.ifs[0]
                 else:
                     test = ast.BoolOp(op=ast.And(), values=g.ifs)
                 expr = f'''{base_expr} if {Placeholder.new('test')} else __acc'''
 
-            new_node = ast.parse(textwrap.dedent(f'''
-            recursive_reduce(lambda __acc, {target}: {expr}, {Placeholder.new('iter')}, {initial})
-            ''')).body[0].value
-            Placeholder.fill(new_node, dict(
-                iter=g.iter,
-                nested=nested,
+            # We add a nested callback so that we can destructure more complex targets. This is particularly useful
+            # for dictionary comprehensions. Previously, we only had nested lambdas, which prevented supporting complex targets.
+            cb_name = self.generate_name()
+            cb = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+            def {cb_name}(__acc, __target):
+                {Placeholder.new('target')} = __target
+                {Placeholder.new('nested_cb')}
+                return {expr}
+            ''')), dict(
+                # In the innermost loop, this CB is None, so the expression is just deleted.
+                nested_cb=nested_cb,
+                nested_comp=nested_comp,
                 test=test,
-            ))
+                target=g.target
+            )).body[0]
 
-            nested = new_node
+            new_node = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+            recursive_reduce({cb_name}, {Placeholder.new('iter')}, {initial})
+            ''')), dict(
+                iter=g.iter,
+            )).body[0].value
+
+            nested_cb = cb
+            nested_comp = new_node
+
+        # We need to add the outermost CB as a statement to the program.
+        self.add_statement(self.visit(cb))
 
         return self.visit(new_node)
 
