@@ -3,7 +3,7 @@ from typing import Callable
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
-from gorgo.distributions import Categorical, Bernoulli, Distribution
+from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform
 from gorgo.core import global_store
 
 __all__ = [
@@ -13,8 +13,9 @@ __all__ = [
     'factor',
     'condition',
     'flip',
-    'draw',
+    'draw_from',
     'mem',
+    'uniform',
     # Distributions
     'Categorical',
     'Bernoulli',
@@ -99,7 +100,9 @@ def flip(p=.5):
     return Bernoulli(p).sample()
 
 def draw_from(n):
-    return Categorical(range(n)).sample()
+    if isinstance(n, int):
+        return Categorical(range(n)).sample()
+    return Categorical(n).sample()
 
 def mem(fn):
     def wrapped(*args, **kws):
@@ -111,3 +114,7 @@ def mem(fn):
             global_store.write(key, value)
             return value
     return wrapped
+
+_uniform = Uniform()
+def uniform():
+    return _uniform.sample()
