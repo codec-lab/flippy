@@ -35,6 +35,19 @@ def test_distribution_isclose():
     assert a.isclose(b)
     assert b.isclose(a)
 
+    # Matched with an absolute tolerance
+    a = Bernoulli(0.5 + 1e-10)
+    b = Bernoulli(0.5)
+    assert a.isclose(b)
+
+    # Tolerance can be changed
+    a = Bernoulli(0.50001)
+    b = Bernoulli(0.5)
+    assert not a.isclose(b)
+    assert not a.isclose(b, atol=1e-5)
+    assert a.isclose(b, atol=1e-4)
+    assert a.isclose(b, atol=1e-3)
+
 def test_Multinomial_pdf():
     balls_bins = [
         (5, 6), (1, 5), (3, 3)

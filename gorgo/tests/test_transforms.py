@@ -99,13 +99,141 @@ def test_desugaring_transform():
                 return None
             """)
         ),
+
+        # Various cases for assignment
         ('x += 123', 'x = x + 123'),
         ('x.y += 123', 'x.y = x.y + 123'),
         ('x[0] += 123', 'x[0] = x[0] + 123'),
         ('x[0].prop += 123', 'x[0].prop = x[0].prop + 123'),
         ('x: int = 123', 'x = 123'),
         ('x: int', ''),
+
+        # List Comprehensions
+        (
+            '[x for x in range(3)]',
+            textwrap.dedent('''
+            from gorgo import recursive_reduce
+            def __v0(__acc, __target):
+                x = __target
+                return __acc + [x]
+            __v1 = range(3)
+            __v2 = recursive_reduce(__v0, __v1, [])
+            __v2
+            '''),
+        ),
+        (
+            # Only one test
+            '[x for x in range(3) if x]',
+            textwrap.dedent('''
+            from gorgo import recursive_reduce
+            def __v0(__acc, __target):
+                x = __target
+                def __v1():
+                    __v2 = x
+                    if __v2:
+                        __v3 = __acc + [x]
+                    else:
+                        __v3 = __acc
+                    return __v3
+                __v4 = __v1()
+                return __v4
+            __v5 = range(3)
+            __v6 = recursive_reduce(__v0, __v5, [])
+            __v6
+            '''),
+        ),
+        (
+            # Two tests
+            '[x for x in range(3) if x if x**2]',
+            textwrap.dedent('''
+            from gorgo import recursive_reduce
+            def __v0(__acc, __target):
+                x = __target
+                def __v1():
+                    __v4 = x
+                    if __v4:
+                        __v5 = x ** 2
+                    else:
+                        __v5 = __v4
+                    __v2 = __v5
+                    if __v2:
+                        __v3 = __acc + [x]
+                    else:
+                        __v3 = __acc
+                    return __v3
+                __v6 = __v1()
+                return __v6
+            __v7 = range(3)
+            __v8 = recursive_reduce(__v0, __v7, [])
+            __v8
+            '''),
+        ),
+        (
+            '[(x, y) for x in range(3) if x for y in range(4)]',
+            textwrap.dedent('''
+            from gorgo import recursive_reduce
+            def __v1(__acc, __target):
+                x = __target
+                def __v0(__acc, __target):
+                    y = __target
+                    return __acc + [(x, y)]
+                def __v2():
+                    __v3 = x
+                    if __v3:
+                        __v5 = range(4)
+                        __v6 = recursive_reduce(__v0, __v5, [])
+                        __v4 = __acc + __v6
+                    else:
+                        __v4 = __acc
+                    return __v4
+                __v7 = __v2()
+                return __v7
+            __v8 = range(3)
+            __v9 = recursive_reduce(__v1, __v8, [])
+            __v9
+            '''),
+        ),
+
+        # Set/Dict Comprehensions
+        (
+            '{x for x in range(3)}',
+            textwrap.dedent('''
+            from gorgo import recursive_reduce
+            def __v0(__acc, __target):
+                x = __target
+                return __acc | {x}
+            __v1 = range(3)
+            __v2 = set()
+            __v3 = recursive_reduce(__v0, __v1, __v2)
+            __v3
+            '''),
+        ),
+        (
+            '{x: x**2 for x in range(3)}',
+            textwrap.dedent('''
+            from gorgo import recursive_reduce
+            def __v0(__acc, __target):
+                x = __target
+                return __acc | {x: x**2}
+            __v1 = range(3)
+            __v2 = recursive_reduce(__v0, __v1, {})
+            __v2
+            '''),
+        ),
+        (
+            '{x: y**2 for x, y in {}.items()}',
+            textwrap.dedent('''
+            from gorgo import recursive_reduce
+            def __v0(__acc, __target):
+                (x, y) = __target
+                return __acc | {x: y**2}
+            __v1 = {}.items()
+            __v2 = recursive_reduce(__v0, __v1, {})
+            __v2
+            '''),
+        ),
     ]
+
     for src, comp in src_compiled:
         node = ast.parse(src)
         node = DesugaringTransform()(node)
@@ -124,7 +252,7 @@ def compare_sourcecode_to_equivalent_sourcecode(src, exp_src):
     exec(exp_src, exp_context)
     for args in [(1, 2, 3), ('b', 'a', ''), (True, False, True)]:
         assert src_context['f'](*args) == exp_context['f'](*args)
-        
+
 def test_multiple_and_transform():
     src = textwrap.dedent("""
     def f(a, b, c):
@@ -135,7 +263,7 @@ def test_multiple_and_transform():
         return ((a and b) and c)
     """)
     compare_sourcecode_to_equivalent_sourcecode(src, exp_src)
-    
+
 def test_multiple_or_transform():
     src = textwrap.dedent("""
     def f(a, b, c):
