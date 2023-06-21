@@ -2,7 +2,9 @@ from typing import Tuple, Sequence, Union, Any, Callable
 from itertools import combinations_with_replacement
 from collections import Counter, defaultdict
 import math
-from gorgo.tools import isclose
+import random
+import abc
+from gorgo.tools import isclose, ISCLOSE_ATOL, ISCLOSE_RTOL
 from functools import cached_property
 from gorgo.distributions.base import Distribution, FiniteDistribution, Element
 from gorgo.distributions.support import \
