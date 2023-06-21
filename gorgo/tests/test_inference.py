@@ -5,6 +5,8 @@ from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, Metro
 from gorgo.inference.metropolis_hastings import Entry
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
+from gorgo.inference.metropolis_hastings import Mapping, Hashable
+import dataclasses
 
 def geometric(p):
     '''
@@ -66,24 +68,154 @@ def test_metropolis_hastings():
     mh_exp = expectation(_distribution_from_inference(mh_dist))
     assert isclose(expected, mh_exp, atol=1e-2), 'Should be somewhat close to expected value'
 
+def test_observations():
+    def model_simple():
+        rv = Categorical(range(3)).sample()
+        Bernoulli(2**(-rv)).observe(True)
+        return rv
+
+    def model_branching():
+        if Bernoulli(0.5).sample(name='choice'):
+            Bernoulli(.2).observe(True, name='obs')
+            return Categorical(range(2)).sample(name='rv')
+        else:
+            return Categorical(range(3)).sample(name='rv')
+
+    seed = 13842
+    samples = 5000
+
+    for model, expected_dist in [
+        (
+            model_simple,
+            Categorical(range(3), probabilities=[4/7, 2/7, 1/7]),
+        ),
+        (
+            model_branching,
+            Categorical(range(3), probabilities=[
+                1/6 * 1/2 + 5/6 * 1/3,
+                1/6 * 1/2 + 5/6 * 1/3,
+                5/6 * 1/3,
+            ]),
+        ),
+    ]:
+        print('model', model)
+
+        dist = _distribution_from_inference(Enumeration(model).run())
+        print('Enumeration', dist)
+        assert dist.isclose(expected_dist)
+
+        dist = _distribution_from_inference(LikelihoodWeighting(model, samples=samples, seed=seed).run())
+        print('LikelihoodWeighting', dist)
+        assert dist.isclose(expected_dist, atol=1e-1)
+
+        dist = _distribution_from_inference(MetropolisHastings(model, samples=samples, seed=seed).run())
+        print('MetropolisHastings', dist)
+        assert dist.isclose(expected_dist, atol=1e-1)
+
+@dataclasses.dataclass
+class DBResult:
+    db: Mapping[Hashable, Entry]
+    @property
+    def sample_count(self):
+        return sum(1 for entry in self.db.values() if entry.is_sample)
+    @property
+    def log_prior(self):
+        return sum(entry.log_prob for entry in self.db.values() if entry.is_sample)
+    @property
+    def log_likelihood(self):
+        return sum(entry.log_prob for entry in self.db.values() if not entry.is_sample)
+    def log_proposal(self, new: 'DBResult', sample_name: str):
+        '''
+        Log probability of proposing `new`, when starting from `self`.
+        '''
+        log_prior = 0
+        for new_name in (new.db.keys() - self.db.keys()) | {sample_name}:
+            new_entry = new.db[new_name]
+            if new_entry.is_sample:
+                log_prior += new_entry.log_prob
+        return math.log(1/self.sample_count) + log_prior
+    def acceptance_ratio(self, new_db: 'DBResult', proposal_name: str):
+        '''
+        This is a verbosely-computed acceptance ratio, assuming `new_db` is proposed
+        from the `self` DB.
+        '''
+        log_proposal_to_new = self.log_proposal(new_db, proposal_name)
+        log_proposal_to_old = new_db.log_proposal(self, proposal_name)
+        # These are unnormalized, but that is fine because we return a ratio
+        log_probability_new = new_db.log_prior + new_db.log_likelihood
+        log_probability_old = self.log_prior + self.log_likelihood
+        return (
+            log_probability_new + log_proposal_to_old
+            - (log_probability_old + log_proposal_to_new)
+        )
+
 def _db_from_trace(func, *, args=(), kwargs={}, trace=[]):
-    ps = CPSInterpreter().initial_program_state(func)
-    ps = ps.step(*args, **kwargs)
+    ps = CPSInterpreter().initial_program_state(func).step(*args, **kwargs)
     db = {}
-    lp = 0
     for dist, value in trace:
         assert ps.distribution.isclose(dist)
-        if isinstance(ps, SampleState):
+        if isinstance(ps, (SampleState, ObserveState)):
+            is_sample = isinstance(ps, SampleState)
+            if not is_sample:
+                assert isclose(ps.value, value)
             log_prob = ps.distribution.log_probability(value)
-            lp += log_prob
-            db[ps.name] = Entry(
-                ps.name, ps.distribution, value, log_prob, True
-            )
-            ps = ps.step(value)
+            db[ps.name] = Entry(ps.name, ps.distribution, value, log_prob, is_sample)
+            ps = ps.step(value) if is_sample else ps.step()
         else:
             assert False, f'Unexpected state {ps}'
-    assert isinstance(ps, ReturnState)
-    return db, lp
+    assert isinstance(ps, ReturnState), f'Did not terminate in return state, instead: {ps}'
+    return DBResult(db)
+
+def test_db_result():
+    mh = MetropolisHastings(None, None)
+
+    def fn():
+        if Bernoulli(0.5).sample(name='choice'):
+            return Categorical(range(2)).sample(name='rv')
+        else:
+            Bernoulli(.8).observe(True)
+            return Categorical(range(3)).sample(name='rv')
+
+    def _test_acceptance(new_db, db, sample_name, expected_ratio):
+        assert isclose(db.acceptance_ratio(new_db, sample_name), expected_ratio)
+        assert isclose(new_db.acceptance_ratio(db, sample_name), -expected_ratio)
+        assert isclose(mh.calc_log_acceptance_ratio(sample_name, new_db.db, db.db), expected_ratio)
+        assert isclose(mh.calc_log_acceptance_ratio(sample_name, db.db, new_db.db), -expected_ratio)
+
+    db_result = _db_from_trace(fn, trace=[
+        (Bernoulli(0.5), 0),
+        (Bernoulli(.8), True),
+        (Categorical(range(3)), 1),
+    ])
+
+    assert db_result.sample_count == 2
+    assert db_result.log_prior == math.log(1/2 * 1/3)
+    assert db_result.log_likelihood == math.log(.8)
+    # Probabilities are: 1) choice among variables, then 2) choice among options for variable.
+    assert db_result.log_proposal(db_result, 'choice') == math.log(1/2) + math.log(1/2)
+    assert db_result.log_proposal(db_result, 'rv') == math.log(1/2) + math.log(1/3)
+    _test_acceptance(db_result, db_result, 'rv', 0)
+
+    # Trying a resampling of `rv`
+    new_db_result = _db_from_trace(fn, trace=[
+        (Bernoulli(0.5), 0),
+        (Bernoulli(.8), True),
+        (Categorical(range(3)), 2),
+    ])
+    # This probability is similar to above.
+    assert db_result.log_proposal(new_db_result, 'rv') == math.log(1/2) + math.log(1/3)
+    _test_acceptance(new_db_result, db_result, 'rv', 0)
+
+    # Trying a resampling of `choice`
+    new_db_result = _db_from_trace(fn, trace=[
+        (Bernoulli(0.5), 1),
+        (Categorical(range(2)), 1),
+    ])
+    # This probability is similar to above.
+    assert db_result.log_proposal(new_db_result, 'choice') == math.log(1/2) + math.log(1/2)
+    # Likelihood ratio. New trace at left, old trace at right.
+    ratio = math.log(1/2) - (math.log(1/3) + math.log(.8))
+    _test_acceptance(new_db_result, db_result, 'choice', ratio)
 
 def test_mh_acceptance_ratio():
     def fn():
@@ -92,12 +224,12 @@ def test_mh_acceptance_ratio():
         else:
             return Categorical(range(3)).sample(name='rv')
 
-    db, lp = _db_from_trace(fn, trace=[
+    db_result = _db_from_trace(fn, trace=[
         (Bernoulli(0.5), 0),
         (Categorical(range(3)), 1),
     ])
 
-    new_db, new_lp = _db_from_trace(fn, trace=[
+    new_db_result = _db_from_trace(fn, trace=[
         (Bernoulli(0.5), 1),
         (Categorical(range(2)), 1),
     ])
@@ -105,11 +237,43 @@ def test_mh_acceptance_ratio():
     # Only need score difference since proposal probabilities are the same.
     # They're the same b/c we have the same # of variables and the resampled variable
     # is uniform.
-    acceptance_ratio = new_lp - lp
+    acceptance_ratio = new_db_result.log_prior - db_result.log_prior
+    assert isclose(acceptance_ratio, math.log((1/2) / (1/3)))
+    assert isclose(acceptance_ratio, db_result.acceptance_ratio(new_db_result, 'choice'))
 
     mh = MetropolisHastings(None, None)
-    assert isclose(mh.calc_log_acceptance_ratio("choice", new_db, db), acceptance_ratio)
-    assert isclose(mh.calc_log_acceptance_ratio("choice", db, new_db), -acceptance_ratio)
+    assert isclose(mh.calc_log_acceptance_ratio("choice", new_db_result.db, db_result.db), acceptance_ratio)
+    assert isclose(mh.calc_log_acceptance_ratio("choice", db_result.db, new_db_result.db), -acceptance_ratio)
+
+    #
+    # An example with observations in different branches
+    #
+
+    def fn():
+        if Bernoulli(0.5).sample(name='choice'):
+            return Categorical(range(2)).sample(name='rv')
+        else:
+            Bernoulli(.8).observe(True, name='obs')
+            return Categorical(range(3)).sample(name='rv')
+
+    db_result = _db_from_trace(fn, trace=[
+        (Bernoulli(0.5), 0),
+        (Bernoulli(0.8), True),
+        (Categorical(range(3)), 1),
+    ])
+
+    new_db_result = _db_from_trace(fn, trace=[
+        (Bernoulli(0.5), 1),
+        (Categorical(range(2)), 1),
+    ])
+
+    acceptance_ratio = db_result.acceptance_ratio(new_db_result, 'choice')
+    # Likelihood ratio. Left term is new DB, right term is old DB (including observe probability).
+    assert isclose(acceptance_ratio, math.log(1/2) - (math.log(1/3) + math.log(.8)))
+
+    assert isclose(mh.calc_log_acceptance_ratio("choice", new_db_result.db, db_result.db), acceptance_ratio)
+    assert isclose(mh.calc_log_acceptance_ratio("choice", db_result.db, new_db_result.db), -acceptance_ratio)
+
 
 def test_single_site_mh():
     def fn():

@@ -26,8 +26,8 @@ class MetropolisHastings:
         self.samples = samples
         self.seed= seed
         self.burn_in = burn_in
-        self.thinning = thinning 
-        
+        self.thinning = thinning
+
     def run(self, *args, **kws):
         # van de Meent et al. (2018), Algorithm 14
         rng = random.Random(self.seed)
@@ -71,14 +71,14 @@ class MetropolisHastings:
                 return_counts[return_val] += 1
         assert sum(return_counts.values()) == self.samples, (sum(return_counts.values()), self.samples)
         return {e: c/self.samples for e, c in return_counts.items()}
-    
+
     def proposal(
         self,
         program_state : SampleState,
         rng : random.Random
     ):
         return program_state.distribution.sample(rng=rng)
-    
+
     def calc_log_acceptance_ratio(
         self,
         sample_name : Hashable,
@@ -86,9 +86,24 @@ class MetropolisHastings:
         db : Mapping[Hashable, Entry]
     ):
         # van de Meent et al. (2018), Algorithm 6
-        new_db_sampled = {sample_name} | (set(new_db.keys()) - set(db.keys()))
-        db_sampled = {sample_name} | (set(db.keys()) - set(new_db.keys()))
-        log_acceptance_ratio = math.log(len(db)) - math.log(len(new_db))
+
+        # We first identify sample states. It's important to ensure we only
+        # filter out sample states, since observations must always be
+        # included. This is more explicit in Equation 4.21 than Algorithm 6.
+        new_db_sample_states = {k for k, e in new_db.items() if e.is_sample}
+        db_sample_states = {k for k, e in db.items() if e.is_sample}
+
+        # We filter sample states to those sampled by the proposal, which
+        # are the entries unique to each DB.
+        new_db_sampled = {sample_name} | (new_db_sample_states - db_sample_states)
+        db_sampled = {sample_name} | (db_sample_states - new_db_sample_states)
+
+        # The proposal starts by randomly sampling a name. This is the ratio for the proposals.
+        log_acceptance_ratio = math.log(len(db_sample_states)) - math.log(len(new_db_sample_states))
+
+        # For every entry, we incorporate the log probability from samples and observations, filtering
+        # out those that were sampled in the proposal, since the term from the log probability and
+        # proposal would cancel out.
         for entry in new_db.values():
             if entry.name in new_db_sampled:
                 continue
