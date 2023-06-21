@@ -116,7 +116,7 @@ class Normal(ScipyContinuousDistribution):
         self.scale = self.sd = sd
         self.size = size
     def __repr__(self) -> str:
-        return f"Normal(mean={self.loc}, sd={self.scale})"
+        return f"Normal(mean={self.loc}, sd={self.scale}, size={self.size}))"
 
 class Uniform(ScipyContinuousDistribution):
     base_distribution = uniform
@@ -125,7 +125,7 @@ class Uniform(ScipyContinuousDistribution):
         self.scale = self.high = high
         self.size = size
     def __repr__(self) -> str:
-        return f"Uniform(low={self.loc}, high={self.scale})"
+        return f"Uniform(low={self.loc}, high={self.scale}, size={self.size})"
 
 class Gamma(ScipyContinuousDistribution):
     base_distribution = gamma
@@ -136,7 +136,7 @@ class Gamma(ScipyContinuousDistribution):
         self.rate = rate
         self.size = size
     def __repr__(self) -> str:
-        return f"Gamma(shape={self.shape}, rate={self.rate})"
+        return f"Gamma(shape={self.shape}, rate={self.rate}, size={self.size})"
 
 class Beta(ScipyContinuousDistribution):
     base_distribution = beta
@@ -146,4 +146,4 @@ class Beta(ScipyContinuousDistribution):
         self.beta = beta
         self.size = size
     def __repr__(self) -> str:
-        return f"Beta(alpha={self.alpha}, beta={self.beta})"
+        return f"Beta(alpha={self.alpha}, beta={self.beta}, size={self.size})"
