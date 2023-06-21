@@ -1,65 +1,40 @@
-from typing import Sequence, Generic, TypeVar, Any, Callable, Hashable, Tuple
+from typing import Tuple, Sequence, Union, Any, Callable
 from itertools import combinations_with_replacement
-from collections import Counter
+from collections import Counter, defaultdict
 import math
-import random
-import abc
 from gorgo.tools import isclose, ISCLOSE_ATOL, ISCLOSE_RTOL
 from functools import cached_property
+from gorgo.distributions.base import Distribution, FiniteDistribution, Element
+from gorgo.distributions.support import \
+    ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions
+from gorgo.distributions.random import default_rng
 
-Element = TypeVar("Element")
+__all__ = [
+    "Bernoulli",
+    "Categorical",
+    "Multinomial",
+    "Gaussian",
+    "Uniform",
+    "Beta",
+    "Binomial",
+    "Geometric",
+    "Poisson",
+    "BetaBinomial",
+    "Dirichlet",
+    "DirichletMultinomial",
+]
 
-class Distribution(Generic[Element]):
-    def prob(self, element : Element):
-        return math.exp(self.log_probability(element))
+def beta_function(*alphas):
+    num = math.prod(math.gamma(a) for a in alphas)
+    den = math.gamma(sum(alphas))
+    return num/den
 
-    @abc.abstractmethod
-    def sample(self, rng=random, name=None) -> Element:
-        pass
-
-    @abc.abstractmethod
-    def observe(self, value) -> None:
-        pass
-
-    @abc.abstractmethod
-    def log_probability(self, element : Element) -> float:
-        pass
-
-    def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
-        raise NotImplementedError
-
-    def isclose(self, other: "Distribution", *, rtol: float=ISCLOSE_RTOL, atol: float=ISCLOSE_ATOL) -> bool:
-        raise NotImplementedError
-
-
-class FiniteDistribution(Distribution):
-    support: Sequence[Element]
-
-    @cached_property
-    def probabilities(self):
-        return tuple(self.prob(e) for e in self.support)
-
-    def isclose(self, other: "FiniteDistribution", *, rtol: float=ISCLOSE_RTOL, atol: float=ISCLOSE_ATOL) -> bool:
-        full_support = set(self.support) | set(other.support)
-        return all(
-            isclose(self.log_probability(s), other.log_probability(s), rtol=rtol, atol=atol)
-            for s in full_support
-        )
-
-    def items(self):
-        yield from zip(self.support, self.probabilities)
-
-    def expected_value(self, func: Callable[[Element], Any] = lambda v : v) -> Any:
-        return sum(
-            p*func(s)
-            for s, p in self.items()
-        )
 
 class Bernoulli(FiniteDistribution):
     support = (True, False)
     def __init__(self, p=.5):
         self.p = p
-    def sample(self, rng=random, name=None) -> bool:
+    def sample(self, rng=default_rng, name=None) -> bool:
         if rng.random() <= self.p:
             return True
         return False
@@ -68,25 +43,33 @@ class Bernoulli(FiniteDistribution):
             True: math.log(self.p) if self.p != 0.0 else float('-inf'),
             False: math.log(1 - self.p) if self.p != 1.0 else float('-inf')
         }[element]
+    def __repr__(self):
+        return f"Bernoulli(p={self.p})"
 
 
 class Categorical(FiniteDistribution):
     def __init__(self, support, *, probabilities=None, weights=None):
         if probabilities is not None:
-            assert isclose(sum(probabilities), 1)
+            assert isclose(sum(probabilities), 1, atol=ISCLOSE_ATOL, rtol=ISCLOSE_RTOL)
         elif weights is not None:
-            probabilities = [w / sum(weights) for w in weights]
+            total_weight = sum(weights)
+            probabilities = [w / total_weight for w in weights]
             del weights
         else:
             probabilities = [1/len(support) for _ in support]
         self.support = support
         self._probabilities = probabilities
 
+    @classmethod
+    def from_dict(cls, d):
+        support, probs = zip(*d.items())
+        return cls(support=support, probabilities=probs)
+
     @property
     def probabilities(self):
         return self._probabilities
 
-    def sample(self, rng=random, name=None) -> Element:
+    def sample(self, rng=default_rng, name=None) -> Element:
         return rng.choices(self.support, weights=self._probabilities, k=1)[0]
 
     def log_probability(self, element):
@@ -96,11 +79,47 @@ class Categorical(FiniteDistribution):
             return float('-inf')
 
     def __repr__(self):
-        return repr({
-            s: self.prob(s)
-            for s in self.support
-        })
+        return f"Categorical(support={self.support}, probabilities={self.probabilities})"
 
+    def _repr_html_(self):
+        format_prob = lambda p: f"{p:.3f}" if p > 0.001 else f"{p:.2e}"
+        return ''.join([
+            "<table>",
+            "<thead><tr><th></th><th>Element</th><th>Probability</th></tr></thead>",
+            "<tbody>",
+            *(
+                [
+                    f"<tr><td><b>{i}</b></td><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
+                    for i, s in enumerate(self.support)
+                ] if len(self.support) < 10 else (
+                    [
+                        f"<tr><td><b>{i}</b></td><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
+                        for i, s in enumerate(self.support[:5])
+                    ] + [
+                        "<tr><td>...</td><td>...</td><td>...</td></tr>"
+                    ] + [
+                        f"<tr><td><b>{i}</b></td><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
+                        for i, s in zip(range(len(self.support), len(self.support) - 5, -1),self.support[-5:])
+                    ]
+                )
+            ),
+            "</tbody>",
+            "</table>"
+        ])
+
+    def plot(self, ax=None, bins=100, **kwargs):
+        assert all(isinstance(s, (int, float)) for s in self.support)
+        import matplotlib.pyplot as plt
+        if ax is None:
+            fig, ax = plt.subplots()
+        ax.hist(self.support, weights=self.probabilities, bins=bins, **kwargs)
+        return ax
+
+    def marginalize(self, projection: Callable[[Element], Any]):
+        d = defaultdict(float)
+        for s, p in zip(self.support, self.probabilities):
+            d[projection(s)] += p
+        return Categorical.from_dict(d)
 
 class Multinomial(FiniteDistribution):
     def __init__(self, categorical_support, trials, *, probabilities=None, weights=None):
@@ -111,7 +130,7 @@ class Multinomial(FiniteDistribution):
         )
         self.trials = trials
 
-    def sample(self, rng=random, name=None) -> Tuple[int, ...]:
+    def sample(self, rng=default_rng, name=None) -> Tuple[int, ...]:
         samples = rng.choices(
             self.categorical.support,
             weights=self.categorical._probabilities,
@@ -135,23 +154,6 @@ class Multinomial(FiniteDistribution):
             return math.log((num1*num2)/den)
         return float('-inf')
 
-class ClosedInterval:
-    def __init__(self, start, end):
-        self.start = start
-        self.end = end
-    def __contains__(self, ele):
-        return self.start <= ele <= self.end
-
-class IntegerInterval(ClosedInterval):
-    def __contains__(self, ele):
-        if ele == int(ele):
-            return self.start <= ele <= self.end
-        return False
-
-def beta_function(*alphas):
-    num = math.prod(math.gamma(a) for a in alphas)
-    den = math.gamma(sum(alphas))
-    return num/den
 
 class Gaussian(Distribution):
     support = ClosedInterval(float('-inf'), float('inf'))
@@ -159,7 +161,7 @@ class Gaussian(Distribution):
         self.mean = mean
         self.sd = sd
 
-    def sample(self, rng=random, name=None) -> float:
+    def sample(self, rng=default_rng, name=None) -> float:
         return rng.gauss(self.mean, self.sd)
 
     def log_probability(self, element):
@@ -170,13 +172,14 @@ class Gaussian(Distribution):
         )
         return math.log(prob) if prob > 0. else float('-inf')
 
+
 class Uniform(Distribution):
     def __init__(self, start=0, end=1):
         self.start = start
         self.end = end
         self.support = ClosedInterval(start, end)
 
-    def sample(self, rng=random, name=None) -> float:
+    def sample(self, rng=default_rng, name=None) -> float:
         return rng.uniform(self.start, self.end)
 
     def log_probability(self, element):
@@ -184,13 +187,14 @@ class Uniform(Distribution):
             return math.log(1/(self.end - self.start))
         return float('-inf')
 
+
 class Beta(Distribution):
     support = ClosedInterval(0, 1)
     def __init__(self, alpha=1, beta=1):
         self.a = alpha
         self.b = beta
 
-    def sample(self, rng=random, name=None) -> float:
+    def sample(self, rng=default_rng, name=None) -> float:
         return rng.betavariate(self.a, self.b)
 
     def log_probability(self, element):
@@ -200,6 +204,7 @@ class Beta(Distribution):
             return math.log(prob) if prob != 0 else float('-inf')
         return float('-inf')
 
+
 class Binomial(Distribution):
     def __init__(self, trials : int, p : float):
         self.trials = trials
@@ -207,7 +212,7 @@ class Binomial(Distribution):
         assert 0 <= p <= 1
         self.support = tuple(range(0, self.trials + 1))
 
-    def sample(self, rng=random, name=None) -> int:
+    def sample(self, rng=default_rng, name=None) -> int:
         return sum(rng.random() < self.p for _ in range(self.trials))
 
     def log_probability(self, element):
@@ -222,13 +227,14 @@ class Binomial(Distribution):
             return math.log(prob) if prob != 0 else float('-inf')
         return float('-inf')
 
+
 class Geometric(Distribution):
     support = IntegerInterval(0, float('inf'))
     def __init__(self, p : float):
         self.p = p
         assert 0 <= p <= 1
 
-    def sample(self, rng=random, name=None) -> int:
+    def sample(self, rng=default_rng, name=None) -> int:
         i = 0
         while rng.random() >= self.p:
             i += 1
@@ -241,13 +247,14 @@ class Geometric(Distribution):
             )
         return float('-inf')
 
+
 class Poisson(Distribution):
     support = IntegerInterval(0, float('inf'))
     def __init__(self, rate : float):
         self.rate = rate
         assert rate >= 0
 
-    def sample(self, rng=random, name=None) -> int:
+    def sample(self, rng=default_rng, name=None) -> int:
         p, k, L = 1, 0, math.exp(-self.rate)
         while p > L:
             k += 1
@@ -260,6 +267,7 @@ class Poisson(Distribution):
         prob = (self.rate**k)*math.exp(-self.rate)/math.factorial(k)
         return math.log(prob)
 
+
 class BetaBinomial(FiniteDistribution):
     def __init__(self, trials : int, alpha=1, beta=1):
         self.alpha = alpha
@@ -267,7 +275,7 @@ class BetaBinomial(FiniteDistribution):
         self.trials = trials
         self.support = tuple(range(0, self.trials + 1))
 
-    def sample(self, rng=random, name=None) -> int:
+    def sample(self, rng=default_rng, name=None) -> int:
         p = rng.betavariate(self.alpha, self.beta)
         return sum(rng.random() < p for _ in range(self.trials))
 
@@ -283,40 +291,6 @@ class BetaBinomial(FiniteDistribution):
             return math.log(prob)
         return float('-inf')
 
-class Simplex:
-    def __init__(self, dimensions):
-        self.dimensions = dimensions
-    def __contains__(self, vec):
-        return (
-            len(vec) == self.dimensions and \
-            isclose(1.0, sum(vec)) and \
-            all((not isclose(0.0, e)) and (0 < e <= 1) for e in vec)
-        )
-
-class OrderedIntegerPartitions:
-    # https://en.wikipedia.org/wiki/Composition_(combinatorics)
-    def __init__(self, total, partitions):
-        self.total = total
-        self.partitions = partitions
-
-    def __contains__(self, vec):
-        return (
-            len(vec) == self.partitions and \
-            sum(vec) == self.total
-        )
-
-    @cached_property
-    def _enumerated_partitions(self):
-        all_partitions = []
-        for bins in combinations_with_replacement(range(self.total + 1), self.partitions - 1):
-            partition = []
-            for left, right in zip((0, ) + bins, bins + (self.total,)):
-                partition.append(right - left)
-            all_partitions.append(tuple(partition))
-        return tuple(all_partitions)
-
-    def __iter__(self):
-        yield from self._enumerated_partitions
 
 class Dirichlet(Distribution):
     def __init__(self, alphas):
@@ -326,7 +300,7 @@ class Dirichlet(Distribution):
     def support(self):
         return Simplex(len(self.alphas))
 
-    def sample(self, rng=random, name=None) -> Tuple[float, ...]:
+    def sample(self, rng=default_rng, name=None) -> Tuple[float, ...]:
         e = [rng.gammavariate(a, 1) for a in self.alphas]
         tot = sum(e)
         return tuple(ei/tot for ei in e)
@@ -336,6 +310,7 @@ class Dirichlet(Distribution):
             num = math.prod(v**(a - 1) for v, a in zip(vec, self.alphas))
             return math.log(num/beta_function(*self.alphas))
         return float('-inf')
+
 
 class DirichletMultinomial(FiniteDistribution):
     def __init__(self, trials, alphas):
@@ -352,9 +327,9 @@ class DirichletMultinomial(FiniteDistribution):
     def dirichlet(self) -> Dirichlet:
         return Dirichlet(self.alphas)
 
-    def sample(self, rng=random, name=None) -> Tuple[int, ...]:
+    def sample(self, rng=default_rng, name=None) -> Tuple[int, ...]:
         ps = self.dirichlet.sample(rng=rng)
-        samples = rng.choices(range(len(self.alphas)), weights=ps, k=self.n)
+        samples = rng.choices(range(len(self.alphas)), weights=ps, k=self.trials)
         counts = Counter(samples)
         return tuple(counts.get(i, 0) for i in range(len(self.alphas)))
 

@@ -6,6 +6,7 @@ from typing import Any
 
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
+from gorgo.distributions import Categorical
 
 @dataclasses.dataclass(order=True)
 class PrioritizedItem:
@@ -53,4 +54,4 @@ class Enumeration:
                 raise ValueError("Unrecognized program state message")
         total_prob = sum(return_probs.values())
         return_probs = {e: p/total_prob for e, p in return_probs.items()}
-        return return_probs
+        return Categorical.from_dict(return_probs)

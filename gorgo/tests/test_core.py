@@ -2,6 +2,7 @@ import math
 import random
 from itertools import product
 from gorgo.distributions import Categorical, Bernoulli, Multinomial, DirichletMultinomial
+from gorgo.distributions.random import RandomNumberGenerator
 from gorgo.tools import isclose
 
 def test_distribution_isclose():
@@ -71,3 +72,21 @@ def test_DirichletMultinomial_pdf():
         prob = lambda v : math.exp(dist.log_probability(v))
         tot = sum([prob(v) for v in support])
         assert isclose(1.0, tot), (tot, (balls, bins))
+
+def test_random_number_generation():
+    rng1a = RandomNumberGenerator(20)
+    rng1b = RandomNumberGenerator(20)
+    rng1c = RandomNumberGenerator(20)
+    assert rng1a.randint(0, 100) == rng1b.randint(0, 100)
+    assert rng1a != rng1b != rng1c
+    assert rng1a.randint(0, 100) != rng1c.randint(0, 100)
+    rng2 = RandomNumberGenerator(30)
+    rng3 = RandomNumberGenerator(40)
+    assert rng2.randint(0, 100) != rng3.randint(0, 100)
+
+def test_random_number_numpy():
+    rng1 = RandomNumberGenerator(30)
+    rng2 = RandomNumberGenerator(30)
+    rng3 = RandomNumberGenerator(40)
+    assert rng1.np.random() == rng2.np.random()
+    assert rng1.np.random() != rng3.np.random()

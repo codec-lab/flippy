@@ -1,10 +1,10 @@
-import random
 import math
 from collections import defaultdict
 from typing import Mapping, Hashable, Callable
 
 from gorgo.core import ReturnState, SampleState, ObserveState
 from gorgo.interpreter import CPSInterpreter
+from gorgo.distributions import Categorical, RandomNumberGenerator
 
 from collections import namedtuple
 Entry = namedtuple("Entry", "name distribution value log_prob is_sample")
@@ -30,7 +30,7 @@ class MetropolisHastings:
 
     def run(self, *args, **kws):
         # van de Meent et al. (2018), Algorithm 14
-        rng = random.Random(self.seed)
+        rng = RandomNumberGenerator(self.seed)
         return_counts = defaultdict(int)
         init_ps = CPSInterpreter().initial_program_state(self.function)
         init_ps = init_ps.step(*args, **kws)
@@ -70,12 +70,12 @@ class MetropolisHastings:
             if i >= self.burn_in and i % self.thinning == 0:
                 return_counts[return_val] += 1
         assert sum(return_counts.values()) == self.samples, (sum(return_counts.values()), self.samples)
-        return {e: c/self.samples for e, c in return_counts.items()}
+        return Categorical.from_dict({e: c/self.samples for e, c in return_counts.items()})
 
     def proposal(
         self,
         program_state : SampleState,
-        rng : random.Random
+        rng : RandomNumberGenerator
     ):
         return program_state.distribution.sample(rng=rng)
 
