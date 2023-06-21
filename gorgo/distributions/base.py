@@ -2,7 +2,7 @@ from typing import Sequence, Generic, TypeVar, Any, Callable, Hashable, Tuple
 import math
 import random
 import abc
-from gorgo.tools import isclose
+from gorgo.tools import isclose, ISCLOSE_RTOL, ISCLOSE_ATOL
 from functools import cached_property
 
 from gorgo.distributions.support import Support
@@ -28,7 +28,7 @@ class Distribution(Generic[Element]):
     def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
         raise NotImplementedError
 
-    def isclose(self, other: "Distribution") -> bool:
+    def isclose(self, other: "Distribution", *, rtol: float=ISCLOSE_RTOL, atol: float=ISCLOSE_ATOL) -> bool:
         raise NotImplementedError
 
     def plot(self, ax=None, **kws):
@@ -42,10 +42,10 @@ class FiniteDistribution(Distribution):
     def probabilities(self):
         return tuple(self.prob(e) for e in self.support)
 
-    def isclose(self, other: "FiniteDistribution") -> bool:
+    def isclose(self, other: "FiniteDistribution", *, rtol: float=ISCLOSE_RTOL, atol: float=ISCLOSE_ATOL) -> bool:
         full_support = set(self.support) | set(other.support)
         return all(
-            isclose(self.log_probability(s), other.log_probability(s))
+            isclose(self.log_probability(s), other.log_probability(s), rtol=rtol, atol=atol)
             for s in full_support
         )
 

@@ -1,6 +1,6 @@
 from typing import Sequence, Set, Union
 from itertools import combinations_with_replacement
-from gorgo.tools import isclose
+from gorgo.tools import isclose, ISCLOSE_RTOL, ISCLOSE_ATOL
 from functools import cached_property
 
 Support = Union[Sequence, Set, 'ClosedInterval', 'IntegerInterval', 'Simplex', 'OrderedIntegerPartitions']

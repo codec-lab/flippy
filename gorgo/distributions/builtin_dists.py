@@ -2,8 +2,6 @@ from typing import Tuple, Sequence, Union, Any, Callable
 from itertools import combinations_with_replacement
 from collections import Counter, defaultdict
 import math
-import random
-import abc
 from gorgo.tools import isclose, ISCLOSE_ATOL, ISCLOSE_RTOL
 from functools import cached_property
 from gorgo.distributions.base import Distribution, FiniteDistribution, Element
@@ -52,7 +50,7 @@ class Bernoulli(FiniteDistribution):
 class Categorical(FiniteDistribution):
     def __init__(self, support, *, probabilities=None, weights=None):
         if probabilities is not None:
-            assert isclose(sum(probabilities), 1)
+            assert isclose(sum(probabilities), 1, atol=ISCLOSE_ATOL, rtol=ISCLOSE_RTOL)
         elif weights is not None:
             total_weight = sum(weights)
             probabilities = [w / total_weight for w in weights]
