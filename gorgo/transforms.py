@@ -5,6 +5,44 @@ import contextlib
 import collections
 import dataclasses
 
+class Placeholder(ast.NodeTransformer):
+    '''
+    Use this class to add placeholders in code constructed by string, so that
+    placeholders can later be filled by AST instances.
+    '''
+    prefix = '__PLACEHOLDER_'
+    def __init__(self, replacement_map, *, skip_missing=False):
+        self.replacement_map = replacement_map
+        self.skip_missing = skip_missing
+
+    @classmethod
+    def new(cls, tag):
+        return f'{cls.prefix}{tag}'
+    @classmethod
+    def fill(cls, node, replacement_map, **kwargs):
+        return cls(replacement_map, **kwargs).visit(node)
+
+    def visit_Name(self, node):
+        if node.id.startswith(__class__.prefix):
+            tag = node.id[len(__class__.prefix):]
+            if tag in self.replacement_map:
+                return self.replacement_map[tag]
+            elif not self.skip_missing:
+                assert tag in self.replacement_map, f'Could not find tag {tag} in replacement map.'
+        return self.generic_visit(node)
+    def visit_Expr(self, node):
+        new_node = self.generic_visit(node)
+        if hasattr(new_node, 'value'):
+            if isinstance(new_node.value, ast.expr):
+                return new_node
+            else:
+                # This case is when replacement of var was a statement
+                return new_node.value
+        else:
+            # When replacement of var was None, this node should be deleted.
+            return None
+
+
 @dataclasses.dataclass
 class Scope:
     node: ast.AST
@@ -398,10 +436,10 @@ class DesugaringTransform(ast.NodeTransformer):
             new_block.append(decorator_stmt)
         return new_block
 
-    def visit_ListComp(self, node):
+    def visit_comprehension(self, node):
         '''
-        Convert list comprehensions into cps_reduce calls. Later generators correspond to
-        nested cps_reduce calls. For the following example input:
+        Convert comprehensions into recursive_reduce calls. Later generators correspond to
+        nested recursive_reduce calls. For the following example input:
 
         ```
         [
@@ -416,40 +454,79 @@ class DesugaringTransform(ast.NodeTransformer):
         We transform code into the following:
 
         ```
-        cps_reduce(
-            lambda __acc, x: (
-                __acc + cps_reduce(
-                    lambda __acc, y: (
-                        __acc + [(x, y)] if all([x + y < 3]) else __acc
-                    ),
-                    range(5),
-                    [],
-                ) if all([x % 2 == 0]) else __acc
-            ),
-            range(4),
-            [],
-        )
+        def __v0(_acc, x):
+            def __v1(_acc, y):
+                return __acc + [(x, y)] if all([x + y < 3]) else __acc
+            return __acc + recursive_reduce(__v1, range(5), []) if all([x % 2 == 0]) else __acc
+        recursive_reduce(__v0, range(4), [])
         ```
 
+        This function can also handle set and dictionary comprehensions.
         '''
+        self.add_statement(ast.parse('from gorgo import recursive_reduce').body[0])
 
-        nested = ast.List(elts=[node.elt], ctx=ast.Load())
+        nested_cb = None
+        if isinstance(node, ast.ListComp):
+            op = '+'
+            initial = '[]'
+            nested_comp = ast.List(elts=[node.elt])
+        elif isinstance(node, ast.SetComp):
+            op = '|'
+            initial = 'set()'
+            nested_comp = ast.Set(elts=[node.elt])
+        else:
+            assert isinstance(node, ast.DictComp)
+            op = '|'
+            initial = '{}'
+            nested_comp = ast.Dict(keys=[node.key], values=[node.value])
 
         for g in node.generators[::-1]:
-            assert isinstance(g.target, ast.Name) and isinstance(g.target.ctx, ast.Store), 'Only simple targets are supported.'
-            target = g.target.id
+            # We make sure to specialize the function body based on whether tests were provided.
+            base_expr = f'''__acc {op} {Placeholder.new('nested_comp')}'''
+            if len(g.ifs) == 0:
+                test = None
+                expr = base_expr
+            else:
+                # We separately handle the common case (one test) from the less common case of multiple tests.
+                if len(g.ifs) == 1:
+                    test = g.ifs[0]
+                else:
+                    test = ast.BoolOp(op=ast.And(), values=g.ifs)
+                expr = f'''{base_expr} if {Placeholder.new('test')} else __acc'''
 
-            new_node = ast.parse(textwrap.dedent(f'''
-            cps_reduce(lambda __acc, {target}: __acc + None if all([]) else __acc, None, [])
-            ''')).body[0].value
+            # We add a nested callback so that we can destructure more complex targets. This is particularly useful
+            # for dictionary comprehensions. Previously, we only had nested lambdas, which prevented supporting complex targets.
+            cb_name = self.generate_name()
+            cb = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+            def {cb_name}(__acc, __target):
+                {Placeholder.new('target')} = __target
+                {Placeholder.new('nested_cb')}
+                return {expr}
+            ''')), dict(
+                # In the innermost loop, this CB is None, so the expression is just deleted.
+                nested_cb=nested_cb,
+                nested_comp=nested_comp,
+                test=test,
+                target=g.target
+            )).body[0]
 
-            new_node.args[0].body.body.right = nested
-            new_node.args[0].body.test.args[0].elts = g.ifs
-            new_node.args[1] = g.iter
+            new_node = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+            recursive_reduce({cb_name}, {Placeholder.new('iter')}, {initial})
+            ''')), dict(
+                iter=g.iter,
+            )).body[0].value
 
-            nested = new_node
+            nested_cb = cb
+            nested_comp = new_node
+
+        # We need to add the outermost CB as a statement to the program.
+        self.add_statement(self.visit(cb))
 
         return self.visit(new_node)
+
+    visit_ListComp = visit_comprehension
+    visit_SetComp = visit_comprehension
+    visit_DictComp = visit_comprehension
 
     def visit_AugAssign(self, node):
         loadable_target = copy.copy(node.target)
