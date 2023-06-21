@@ -3,9 +3,6 @@ import random
 MAX_INT64 = 2**64 - 1
 
 class BaseRandomNumberGenerator(random.Random):
-    def fork(self, n : int):
-        return [self.__class__(self.randint(0, MAX_INT64)) for _ in range(n)]
-
     def new_seed(self):
         return self.randint(0, MAX_INT64)
 
