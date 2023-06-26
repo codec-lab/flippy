@@ -82,19 +82,19 @@ class FactorDistribution(Distribution):
         pass
 
     def sample(self, rng, name):
-        pass
+        return 0
 
     def log_probability(self, element : float) -> float:
         #workaround for arbitrary scores
         return element
 
-factor_dist = FactorDistribution()
+_factor_dist = FactorDistribution()
 
 def factor(score):
-    factor_dist.observe(score)
+    _factor_dist.observe(score)
 
 def condition(cond):
-    factor_dist.observe(0 if cond else -float("inf"))
+    _factor_dist.observe(0 if cond else -float("inf"))
 
 def flip(p=.5):
     return Bernoulli(p).sample()
@@ -107,11 +107,11 @@ def draw_from(n):
 def mem(fn):
     def wrapped(*args, **kws):
         key = (fn, args, tuple(kws.items()))
-        if global_store.includes(key):
-            return global_store.read(key)
+        if key in global_store:
+            return global_store.get(key)
         else:
             value = fn(*args, **kws)
-            global_store.write(key, value)
+            global_store.set(key, value)
             return value
     return wrapped
 

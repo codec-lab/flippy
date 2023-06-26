@@ -22,11 +22,11 @@ class ProgramState:
         self.continuation = continuation
         self._name = name
         self.stack = stack
-        self.global_store = None
+        self.init_global_store = GlobalStore()
 
     def step(self, *args, **kws):
         next_ = self.continuation(*args, **kws)
-        global_store = GlobalStore({**self.global_store} if self.global_store is not None else {})
+        global_store = self.init_global_store.copy()
         # HACK: Is there no other reasonable way to access interpreter?
         _cps = next_.__globals__['_cps']
         _cps.global_store_proxy.proxied = global_store
@@ -34,19 +34,10 @@ class ProgramState:
             if callable(next_):
                 next_ = next_()
             elif isinstance(next_, ProgramState):
-                next_.global_store = global_store
+                next_.init_global_store = global_store
                 return next_
-            # elif isinstance(next_, GlobalStoreEvent):
-            #     if isinstance(next_, GlobalStoreIncludes):
-            #         next_ = next_.continuation(next_.key in global_store)
-            #     elif isinstance(next_, GlobalStoreRead):
-            #         next_ = next_.continuation(global_store.get(next_.key))
-            #     elif isinstance(next_, GlobalStoreWrite):
-            #         global_store[next_.key] = next_.value
-            #         next_ = (lambda last_next_ : (lambda : last_next_.continuation(None)))(next_)
             else:
                 raise TypeError(f"Unknown type {type(next_)}")
-            # thunk = next_
 
     @cached_property
     def name(self):
@@ -56,25 +47,6 @@ class ProgramState:
             return None
         return tuple((frame.func_src, frame.lineno) for frame in self.stack)
 
-class GlobalStoreEvent:
-    pass
-
-class GlobalStoreRead(GlobalStoreEvent):
-    def __init__(self, continuation : Continuation, key : Hashable):
-        self.continuation = continuation
-        self.key = key
-
-class GlobalStoreWrite(GlobalStoreEvent):
-    def __init__(self, continuation : Continuation, key : Hashable, value : Any):
-        self.continuation = continuation
-        self.key = key
-        self.value = value
-
-class GlobalStoreIncludes(GlobalStoreEvent):
-    def __init__(self, continuation : Continuation, key : Hashable):
-        self.continuation = continuation
-        self.key = key
-
 class ReadOnlyProxy(object):
     def __init__(self):
         self.proxied = None
@@ -82,16 +54,32 @@ class ReadOnlyProxy(object):
         if self.proxied is None:
             raise NotImplementedError("Proxying to None")
         return getattr(self.proxied, name)
+    def __contains__(self, key):
+        if self.proxied is None:
+            raise NotImplementedError("Proxying to None")
+        return key in self.proxied
 
-class GlobalStore(dict):
-    def read(self, key : Hashable):
-        return self[key]
+class GlobalStore:
+    def __init__(self, initial : dict = None):
+        self.store = initial if initial is not None else {}
 
-    def write(self, key : Hashable, value : Any):
-        self[key] = value
+    def copy(self):
+        return GlobalStore({**self.store})
 
-    def includes(self, key : Hashable):
-        return key in self
+    def get(self, key : Hashable, default : Any = None):
+        return self.store.get(key, default)
+
+    def __getitem__(self, key : Hashable):
+        return self.store[key]
+
+    def __setitem__(self, key : Hashable, value : Any):
+        self.store[key] = value
+
+    def __contains__(self, key : Hashable):
+        return key in self.store
+
+    def set(self, key : Hashable, value : Any):
+        self.store.__setitem__(key, value)
 
 global_store = ReadOnlyProxy()
 
