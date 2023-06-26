@@ -26,21 +26,24 @@ class ProgramState:
 
     def step(self, *args, **kws):
         next_ = self.continuation(*args, **kws)
-        global_store = {**self.global_store} if self.global_store is not None else {}
+        global_store = GlobalStore({**self.global_store} if self.global_store is not None else {})
+        # HACK: Is there no other reasonable way to access interpreter?
+        _cps = next_.__globals__['_cps']
+        _cps.global_store_proxy.proxied = global_store
         while True:
             if callable(next_):
                 next_ = next_()
             elif isinstance(next_, ProgramState):
                 next_.global_store = global_store
                 return next_
-            elif isinstance(next_, GlobalStoreEvent):
-                if isinstance(next_, GlobalStoreIncludes):
-                    next_ = next_.continuation(next_.key in global_store)
-                elif isinstance(next_, GlobalStoreRead):
-                    next_ = next_.continuation(global_store.get(next_.key))
-                elif isinstance(next_, GlobalStoreWrite):
-                    global_store[next_.key] = next_.value
-                    next_ = (lambda last_next_ : (lambda : last_next_.continuation(None)))(next_)
+            # elif isinstance(next_, GlobalStoreEvent):
+            #     if isinstance(next_, GlobalStoreIncludes):
+            #         next_ = next_.continuation(next_.key in global_store)
+            #     elif isinstance(next_, GlobalStoreRead):
+            #         next_ = next_.continuation(global_store.get(next_.key))
+            #     elif isinstance(next_, GlobalStoreWrite):
+            #         global_store[next_.key] = next_.value
+            #         next_ = (lambda last_next_ : (lambda : last_next_.continuation(None)))(next_)
             else:
                 raise TypeError(f"Unknown type {type(next_)}")
             # thunk = next_
@@ -72,6 +75,14 @@ class GlobalStoreIncludes(GlobalStoreEvent):
         self.continuation = continuation
         self.key = key
 
+class ReadOnlyProxy(object):
+    def __init__(self):
+        self.proxied = None
+    def __getattr__(self, name):
+        if self.proxied is None:
+            raise NotImplementedError("Proxying to None")
+        return getattr(self.proxied, name)
+
 class GlobalStore(dict):
     def read(self, key : Hashable):
         return self[key]
@@ -82,7 +93,7 @@ class GlobalStore(dict):
     def includes(self, key : Hashable):
         return key in self
 
-global_store = GlobalStore()
+global_store = ReadOnlyProxy()
 
 class InitialState(ProgramState):
     pass
