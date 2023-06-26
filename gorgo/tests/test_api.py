@@ -1,7 +1,9 @@
 from gorgo import flip, mem, infer, draw_from, factor, condition, \
-    Bernoulli, Categorical, \
+    Bernoulli, Categorical, Uniform, \
     uniform, recursive_map, recursive_filter, recursive_reduce
+from gorgo.interpreter import CPSInterpreter
 from gorgo.inference import Enumeration, LikelihoodWeighting
+from gorgo.core import ReturnState
 import math
 
 
@@ -136,6 +138,33 @@ def test_stochastic_memoization():
 
     assert len(Enumeration(stochastic_mem_func).run().support) == 2**3
     assert len(Enumeration(no_stochastic_mem_func).run().support) == 2**5
+
+
+def test_mem_basic():
+    def with_mem():
+        def f(i):
+            return Uniform(0, 1).sample()
+        f = mem(f)
+        x = f(0)
+        return (x + x, f(0) + f(0))
+
+    u = .456
+    ps = CPSInterpreter().initial_program_state(with_mem)
+    ps = ps.step().step(u)
+    assert isinstance(ps, ReturnState)
+    assert ps.value == (u*2, u*2)
+
+    def without_mem():
+        def f(i):
+            return Uniform(0, 1).sample()
+        x = f(0)
+        return (x + x, f(0) + f(0))
+
+    ps = CPSInterpreter().initial_program_state(without_mem)
+    ps = ps.step().step(u).step(0).step(0)
+    assert isinstance(ps, ReturnState)
+    assert ps.value == (u*2, 0)
+
 
 def test_draw_from():
     def f():

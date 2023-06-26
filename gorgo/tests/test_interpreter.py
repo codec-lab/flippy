@@ -1,10 +1,13 @@
 from gorgo import recursive_map, recursive_filter, recursive_reduce
 from gorgo.distributions import Bernoulli, Categorical
+from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
 import ast
 import pytest
 import traceback
+
+from test_transforms import trampoline
 
 def geometric(p):
     x = Bernoulli(p).sample()
@@ -283,3 +286,20 @@ def test_closure_issues():
             return nested()
         check_trace(fn, [(Bernoulli(0.5), 0)], return_value='good')
     assert 'must be defined before' in str(err)
+
+def test_global_store_proxy():
+    global_store = None
+    def f():
+        return global_store.get('a', 'no value')
+
+    cps = CPSInterpreter()
+    code = cps.transform_from_func(f)
+    context = {"_cps": cps, 'global_store': cps.global_store_proxy}
+    exec(ast.unparse(code), context)
+    f = context['f']
+
+    cps.set_global_store(GlobalStore())
+    assert trampoline(f()) == 'no value'
+
+    cps.set_global_store(GlobalStore({'a': 100}))
+    assert trampoline(f()) == 100
