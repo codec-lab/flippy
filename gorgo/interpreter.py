@@ -40,6 +40,7 @@ class CPSInterpreter:
             )
         return InitialState(
             continuation=program_continuation,
+            cps=self
         )
 
     def interpret(
@@ -105,6 +106,7 @@ class CPSInterpreter:
                 distribution=call.__self__,
                 name=name,
                 stack=_stack,
+                cps=self
             )
         return sample_wrapper
 
@@ -115,7 +117,8 @@ class CPSInterpreter:
                 distribution=call.__self__,
                 value=value,
                 name=name,
-                stack=_stack
+                stack=_stack,
+                cps=self,
             )
         return observation_wrapper
 
@@ -167,3 +170,6 @@ class CPSInterpreter:
             return dict(zip(closure_keys, closure_values))
         else:
             return {}
+
+    def set_global_store(self, store : GlobalStore):
+        self.global_store_proxy.proxied = store

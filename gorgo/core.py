@@ -1,6 +1,9 @@
-from typing import Any, Callable, Hashable, Tuple
+from typing import Any, Callable, Hashable, Tuple, TYPE_CHECKING
 from gorgo.distributions import Distribution
 from gorgo.funcutils import cached_property
+
+if TYPE_CHECKING:
+    from gorgo.interpreter import CPSInterpreter
 
 ############################################
 #  Program State
@@ -18,18 +21,18 @@ class ProgramState:
         continuation : Continuation = None,
         name: Hashable = None,
         stack: Tuple[StackFrame] = None,
+        cps : 'CPSInterpreter' = None
     ):
         self.continuation = continuation
         self._name = name
         self.stack = stack
         self.init_global_store = GlobalStore()
+        self.cps = cps
 
     def step(self, *args, **kws):
         next_ = self.continuation(*args, **kws)
         global_store = self.init_global_store.copy()
-        # HACK: Is there no other reasonable way to access interpreter?
-        _cps = next_.__globals__['_cps']
-        _cps.global_store_proxy.proxied = global_store
+        self.cps.set_global_store(global_store)
         while True:
             if callable(next_):
                 next_ = next_()
@@ -93,12 +96,14 @@ class ObserveState(ProgramState):
         distribution: Distribution,
         value: Any,
         name: Hashable,
-        stack: Tuple[StackFrame]
+        stack: Tuple[StackFrame],
+        cps : 'CPSInterpreter'
     ):
         super().__init__(
             continuation=continuation,
             name=name,
-            stack=stack
+            stack=stack,
+            cps=cps
         )
         self.distribution = distribution
         self.value = value
@@ -109,12 +114,14 @@ class SampleState(ProgramState):
         continuation: Callable[[], Callable],
         distribution: Distribution,
         name: Hashable,
-        stack: Tuple[StackFrame]
+        stack: Tuple[StackFrame],
+        cps : 'CPSInterpreter'
     ):
         super().__init__(
             continuation=continuation,
             name=name,
-            stack=stack
+            stack=stack,
+            cps=cps
         )
         self.distribution = distribution
 
