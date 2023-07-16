@@ -1,6 +1,6 @@
 import math
 from gorgo import _distribution_from_inference
-from gorgo.distributions import Bernoulli, Distribution, Categorical
+from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal, Gamma, Uniform
 from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, MetropolisHastings
 from gorgo.inference.metropolis_hastings import Entry
 from gorgo.tools import isclose
@@ -67,6 +67,54 @@ def test_metropolis_hastings():
     mh_dist = MetropolisHastings(geometric, samples=1000, burn_in=0, thinning=5, seed=seed).run(param)
     mh_exp = expectation(_distribution_from_inference(mh_dist))
     assert isclose(expected, mh_exp, atol=1e-2), 'Should be somewhat close to expected value'
+
+def test_metropolis_hastings_dirichlet_categorical():
+    def model():
+        data = list('ababac'+'ccccba')
+        c1 = Dirichlet([.1, .1, .1]).sample()
+        c2 = Dirichlet([1, 1, 1]).sample()
+        dist1 = Categorical(support=list('abc'), probabilities=c1)
+        dist2 = Categorical(support=list('abc'), probabilities=c2)
+        cat = tuple([0]*6 + [1]*6)
+        [{0: dist1, 1: dist2}[c].observe(d) for d, c in list(zip(data, cat))]
+        return tuple(c1 + c2)
+
+    seed = 13842
+    expected = [3.1/6.3, 2.1/6.3, 1.1/6.3, 2/9, 2/9, 5/9]
+
+    mh_dist = MetropolisHastings(model, samples=5000, burn_in=0, thinning=2, seed=seed).run()
+    mh_dist = _distribution_from_inference(mh_dist)
+    mh_exp = [expectation(mh_dist, projection=lambda s: s[i]) for i in range(6)]
+    for exp, mh_expectation in zip(expected, mh_exp):
+        assert isclose(exp, mh_expectation, atol=1e-2), (exp, mh_expectation)
+
+def test_metropolis_hastings_normal_normal():
+    hyper_mu, hyper_sigma = 1.4, 2
+    obs = [-.75]
+    sigma = 1
+    def normal_model():
+        mu = Normal(hyper_mu, hyper_sigma).sample(name='mu')
+        Normal(mu, sigma).observe(obs)
+        return mu
+
+    seed = 2191299
+    new_sigma = 1/(1/(hyper_sigma**2) + len(obs)/(sigma**2))
+    new_mu = (hyper_mu/(hyper_sigma**2) + sum(obs)/(sigma**2))*new_sigma
+
+    mh_dist = MetropolisHastings(normal_model, samples=20000, burn_in=0, thinning=1, seed=seed).run()
+    mh_dist = _distribution_from_inference(mh_dist)
+    mh_exp = expectation(mh_dist)
+    assert isclose(new_mu, mh_exp, atol=1e-2), (new_mu, mh_exp)
+
+def test_metropolis_hastings_gamma():
+    def gamma_model():
+        g = Gamma(3, 2).sample()
+        Uniform(0, g).observe(0)
+        return g
+
+    mh_dist = MetropolisHastings(gamma_model, samples=10000, burn_in=0, thinning=1, seed=38837).run()
+    lw_dist = LikelihoodWeighting(gamma_model, samples=10000, seed=18837).run()
+    assert isclose(expectation(mh_dist), expectation(lw_dist), rtol=.05)
 
 def test_observations():
     def model_simple():
