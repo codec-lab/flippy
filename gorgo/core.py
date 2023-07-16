@@ -128,6 +128,7 @@ class SampleState(ProgramState):
 class ReturnState(ProgramState):
     def __init__(self, value: Any):
         self.value = value
+        self._name = "RETURN_STATE"
 
     def step(self, *args, **kws):
         raise ValueError

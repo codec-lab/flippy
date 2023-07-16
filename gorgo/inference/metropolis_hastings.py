@@ -1,13 +1,144 @@
 import math
+from dataclasses import dataclass
 from collections import defaultdict
-from typing import Mapping, Hashable, Callable
+from typing import Mapping, Hashable, Callable, Any, List, Union
 
-from gorgo.core import ReturnState, SampleState, ObserveState
+from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState
 from gorgo.interpreter import CPSInterpreter
-from gorgo.distributions import Categorical, RandomNumberGenerator
+from gorgo.distributions import Categorical, RandomNumberGenerator, Distribution
+from gorgo.distributions.random import default_rng
 
-from collections import namedtuple
-Entry = namedtuple("Entry", "name distribution value log_prob is_sample")
+@dataclass
+class Entry:
+    name : Hashable
+    distribution : Distribution
+    value : Any
+    log_prob : float
+    is_sample : bool
+    order : int = None
+    is_multivariate : bool = False
+    program_state : ProgramState = None
+
+class Trace:
+    def __init__(self):
+        self._entries : List[Entry] = []
+        self._entry_name_order : Mapping[Hashable, int] = {}
+
+    @staticmethod
+    def default_sample_site_value(ps : SampleState) -> Any:
+        return ps.distribution.sample(default_rng)
+
+    @staticmethod
+    def default_observe_site_value(ps : ObserveState,) -> Any:
+        return ps.value
+
+    @staticmethod
+    def run_from(
+        ps : ProgramState,
+        old_trace : 'Trace' = None,
+        sample_site_callback : Callable[[SampleState], Any] = None,
+        observe_site_callback : Callable[[ObserveState], Any] = None,
+        break_early : bool = False
+    ) -> 'Trace':
+        new_trace = Trace()
+        if old_trace is not None and len(old_trace) > 0:
+            if ps.name not in old_trace:
+                raise ValueError(f"Name {ps.name} not already in trace")
+            new_trace._entries = old_trace._entries[:old_trace._entry_name_order[ps.name]]
+            new_trace._entry_name_order = {
+                e.name : i for i, e in enumerate(new_trace._entries)
+            }
+
+        if sample_site_callback is None:
+            sample_site_callback = Trace.default_sample_site_value
+        if observe_site_callback is None:
+            observe_site_callback = Trace.default_observe_site_value
+        while True:
+            assert ps.name not in new_trace, f"Name {ps.name} already in trace"
+            if isinstance(ps, SampleState):
+                value = sample_site_callback(ps)
+                new_trace.add_site(ps, value)
+                ps = ps.step(value)
+            elif isinstance(ps, ObserveState):
+                new_trace.add_site(ps, observe_site_callback(ps))
+                ps = ps.step()
+            elif isinstance(ps, ReturnState):
+                new_trace.add_return_state(ps)
+                break
+            if break_early and new_trace._entries[-1].log_prob == float('-inf'):
+                break
+        return new_trace
+
+    def add_site(
+        self,
+        program_state : Union[SampleState, ObserveState],
+        value : Any,
+    ):
+        name = program_state.name
+        log_prob = program_state.distribution.log_probability(value)
+        is_multivariate = False
+        # (
+        #     hasattr(program_state, "distribution") and \
+        #     isinstance(program_state.distribution, Multivariate) and \
+        #     hasattr(value, "__len__")
+        # )
+        self._entries.append(Entry(
+            name=name,
+            order=len(self),
+            distribution=program_state.distribution,
+            value=value,
+            log_prob=log_prob,
+            is_sample=isinstance(program_state, SampleState),
+            is_multivariate=is_multivariate,
+            program_state=program_state
+        ))
+        self._entry_name_order[name] = len(self._entries) - 1
+
+    def add_return_state(self, program_state : ReturnState):
+        self._entries.append(Entry(
+            name=program_state.name,
+            order=len(self),
+            distribution=None,
+            value=program_state.value,
+            log_prob=0.0,
+            is_sample=False,
+            is_multivariate=False,
+            program_state=program_state
+        ))
+        self._entry_name_order[program_state.name] = len(self._entries) - 1
+
+    @property
+    def return_value(self):
+        assert isinstance(self._entries[-1].program_state, ReturnState), \
+            ("Trace does not have a return value", self._entries)
+        return self._entries[-1].program_state.value
+
+    def __len__(self):
+        return len(self._entries)
+
+    def __contains__(self, key):
+        return key in self._entry_name_order
+
+    @property
+    def total_score(self):
+        if self._entries[-1].log_prob == float('-inf'):
+            return float('-inf')
+        return sum(e.log_prob for e in self._entries)
+
+    def items(self):
+        for name, order in self._entry_name_order.items():
+            yield name, self._entries[order]
+
+    def values(self):
+        for order in self._entry_name_order.values():
+            yield self._entries[order]
+
+    def keys(self):
+        for name in self._entry_name_order.keys():
+            yield name
+
+    def __getitem__(self, key):
+        return self._entries[self._entry_name_order[key]]
 
 class MetropolisHastings:
     """
@@ -34,43 +165,46 @@ class MetropolisHastings:
         return_counts = defaultdict(int)
         init_ps = CPSInterpreter().initial_program_state(self.function)
         init_ps = init_ps.step(*args, **kws)
-        db : Mapping[Hashable, Entry] = {}
-        new_db : Mapping[Hashable, Entry] = {}
-        for i in range(-1, self.burn_in + self.samples*self.thinning):
-            initial_trace = i == -1
-            if not initial_trace:
-                name = rng.sample([e.name for e in db.values() if e.is_sample], k=1)[0]
-            ps = init_ps
-            while not isinstance(ps, ReturnState):
-                assert ps.name not in new_db, f"Name already in trace: {ps.name}"
-                if isinstance(ps, SampleState):
-                    if ps.name in db and ps.name != name:
-                        value = db[ps.name].value
-                    else:
-                        value = self.proposal(ps, rng)
-                    log_prob = ps.distribution.log_probability(value)
-                    new_db[ps.name] = Entry(
-                        ps.name, ps.distribution, value, log_prob, True
-                    )
-                    ps = ps.step(value)
-                elif isinstance(ps, ObserveState):
-                    log_prob = ps.distribution.log_probability(ps.value)
-                    new_db[ps.name] = Entry(
-                        ps.name, ps.distribution, ps.value, log_prob, False
-                    )
-                    ps = ps.step()
-            if initial_trace:
-                accept = True
+
+        trace = self.sample_initial_trace(init_ps, rng)
+        def sample_site_callback(ps : SampleState):
+            if ps.name in trace and ps.name != name:
+                return trace[ps.name].value
             else:
-                log_acceptance_ratio = self.calc_log_acceptance_ratio(name, new_db, db)
-                accept = math.log(rng.random()) < log_acceptance_ratio
+                return self.proposal(ps, rng)
+
+        for i in range(self.burn_in + self.samples*self.thinning):
+            name = rng.sample([e.name for e in trace.values() if e.is_sample], k=1)[0]
+            new_trace = Trace.run_from(
+                ps=init_ps,
+                old_trace=trace,
+                sample_site_callback=sample_site_callback,
+            )
+
+            if new_trace.total_score == float('-inf'):
+                log_acceptance_ratio = float('-inf')
+            else:
+                log_acceptance_ratio = self.calc_log_acceptance_ratio(name, new_trace, trace)
+            accept = math.log(rng.random()) < log_acceptance_ratio
             if accept:
-                db, return_val = new_db, ps.value
-            new_db = {}
+                trace = new_trace
             if i >= self.burn_in and i % self.thinning == 0:
-                return_counts[return_val] += 1
+                return_counts[trace.return_value] += 1
         assert sum(return_counts.values()) == self.samples, (sum(return_counts.values()), self.samples)
         return Categorical.from_dict({e: c/self.samples for e, c in return_counts.items()})
+
+    def sample_initial_trace(
+        self,
+        init_ps : SampleState,
+        rng : RandomNumberGenerator
+    ) -> Mapping[Hashable, Entry]:
+        while True:
+            trace = Trace.run_from(
+                ps=init_ps,
+                sample_site_callback=lambda ps : ps.distribution.sample(rng=rng),
+            )
+            if trace.total_score > float('-inf'):
+                return trace
 
     def proposal(
         self,
@@ -82,8 +216,8 @@ class MetropolisHastings:
     def calc_log_acceptance_ratio(
         self,
         sample_name : Hashable,
-        new_db : Mapping[Hashable, Entry],
-        db : Mapping[Hashable, Entry]
+        new_db : Trace,
+        db : Trace
     ):
         # van de Meent et al. (2018), Algorithm 6
 
