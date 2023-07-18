@@ -3,12 +3,19 @@ from typing import Callable
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
-from gorgo.distributions import Categorical, Bernoulli, Distribution
+from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform
+from gorgo.core import global_store
 
 __all__ = [
     # Core API
     'infer',
     'keep_deterministic',
+    'factor',
+    'condition',
+    'flip',
+    'draw_from',
+    'mem',
+    'uniform',
     # Distributions
     'Categorical',
     'Bernoulli',
@@ -69,3 +76,45 @@ def recursive_reduce(fn, iter, initializer):
     if len(iter) == 0:
         return initializer
     return recursive_reduce(fn, iter[1:], fn(initializer, iter[0]))
+
+class FactorDistribution(Distribution):
+    def __init__(self):
+        pass
+
+    def sample(self, rng, name):
+        return 0
+
+    def log_probability(self, element : float) -> float:
+        #workaround for arbitrary scores
+        return element
+
+_factor_dist = FactorDistribution()
+
+def factor(score):
+    _factor_dist.observe(score)
+
+def condition(cond):
+    _factor_dist.observe(0 if cond else -float("inf"))
+
+def flip(p=.5):
+    return Bernoulli(p).sample()
+
+def draw_from(n):
+    if isinstance(n, int):
+        return Categorical(range(n)).sample()
+    return Categorical(n).sample()
+
+def mem(fn):
+    def wrapped(*args, **kws):
+        key = (fn, args, tuple(kws.items()))
+        if key in global_store:
+            return global_store.get(key)
+        else:
+            value = fn(*args, **kws)
+            global_store.set(key, value)
+            return value
+    return wrapped
+
+_uniform = Uniform()
+def uniform():
+    return _uniform.sample()

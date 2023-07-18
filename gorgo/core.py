@@ -1,6 +1,9 @@
-from typing import Any, Callable, Hashable, Tuple
+from typing import Any, Callable, Hashable, Tuple, TYPE_CHECKING
 from gorgo.distributions import Distribution
 from gorgo.funcutils import cached_property
+
+if TYPE_CHECKING:
+    from gorgo.interpreter import CPSInterpreter
 
 ############################################
 #  Program State
@@ -9,24 +12,35 @@ from gorgo.funcutils import cached_property
 from collections import namedtuple
 StackFrame = namedtuple("StackFrame", "func_src lineno locals")
 
+# a continuation is a function that takes a value and returns a thunk
+Continuation = Callable[..., Callable[[], Any]]
+
 class ProgramState:
     def __init__(
         self,
-        continuation,
+        continuation : Continuation = None,
         name: Hashable = None,
-        stack: Tuple[StackFrame] = None
+        stack: Tuple[StackFrame] = None,
+        cps : 'CPSInterpreter' = None
     ):
         self.continuation = continuation
         self._name = name
         self.stack = stack
+        self.init_global_store = GlobalStore()
+        self.cps = cps
 
     def step(self, *args, **kws):
-        thunk = self.continuation(*args, **kws)
-        while True:
-            next_ = thunk()
-            if isinstance(next_, ProgramState):
-                return next_
-            thunk = next_
+        next_ = self.continuation(*args, **kws)
+        global_store = self.init_global_store.copy()
+        with self.cps.set_global_store(global_store):
+            while True:
+                if callable(next_):
+                    next_ = next_()
+                elif isinstance(next_, ProgramState):
+                    next_.init_global_store = global_store
+                    return next_
+                else:
+                    raise TypeError(f"Unknown type {type(next_)}")
 
     @cached_property
     def name(self):
@@ -35,6 +49,42 @@ class ProgramState:
         if self.stack is None:
             return None
         return tuple((frame.func_src, frame.lineno) for frame in self.stack)
+
+class ReadOnlyProxy(object):
+    def __init__(self):
+        self.proxied = None
+    def __getattr__(self, name):
+        if self.proxied is None:
+            raise NotImplementedError("Proxying to None")
+        return getattr(self.proxied, name)
+    def __contains__(self, key):
+        if self.proxied is None:
+            raise NotImplementedError("Proxying to None")
+        return key in self.proxied
+
+class GlobalStore:
+    def __init__(self, initial : dict = None):
+        self.store = initial if initial is not None else {}
+
+    def copy(self):
+        return GlobalStore({**self.store})
+
+    def get(self, key : Hashable, default : Any = None):
+        return self.store.get(key, default)
+
+    def __getitem__(self, key : Hashable):
+        return self.store[key]
+
+    def __setitem__(self, key : Hashable, value : Any):
+        self.store[key] = value
+
+    def __contains__(self, key : Hashable):
+        return key in self.store
+
+    def set(self, key : Hashable, value : Any):
+        self.store.__setitem__(key, value)
+
+global_store = ReadOnlyProxy()
 
 class InitialState(ProgramState):
     pass
@@ -46,12 +96,14 @@ class ObserveState(ProgramState):
         distribution: Distribution,
         value: Any,
         name: Hashable,
-        stack: Tuple[StackFrame]
+        stack: Tuple[StackFrame],
+        cps : 'CPSInterpreter'
     ):
         super().__init__(
             continuation=continuation,
             name=name,
-            stack=stack
+            stack=stack,
+            cps=cps
         )
         self.distribution = distribution
         self.value = value
@@ -62,12 +114,14 @@ class SampleState(ProgramState):
         continuation: Callable[[], Callable],
         distribution: Distribution,
         name: Hashable,
-        stack: Tuple[StackFrame]
+        stack: Tuple[StackFrame],
+        cps : 'CPSInterpreter'
     ):
         super().__init__(
             continuation=continuation,
             name=name,
-            stack=stack
+            stack=stack,
+            cps=cps
         )
         self.distribution = distribution
 

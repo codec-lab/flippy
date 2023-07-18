@@ -9,9 +9,11 @@ from gorgo.core import ReturnState, SampleState, ObserveState, InitialState, \
 from gorgo.distributions import Distribution
 from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis
+from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.funcutils import method_cache
 import linecache
 import types
+import contextlib
 
 class CPSInterpreter:
     def __init__(self):
@@ -20,6 +22,7 @@ class CPSInterpreter:
         self.closure_scope_analysis = ClosureScopeAnalysis()
         self.setlines_transform = SetLineNumbers()
         self.cps_transform = CPSTransform()
+        self.global_store_proxy = ReadOnlyProxy()
 
     def initial_program_state(self, function):
         interpreted_function = self.interpret(
@@ -38,6 +41,7 @@ class CPSInterpreter:
             )
         return InitialState(
             continuation=program_continuation,
+            cps=self
         )
 
     def interpret(
@@ -52,7 +56,8 @@ class CPSInterpreter:
         # normal python
         if (
             isinstance(call, types.BuiltinFunctionType) or \
-            isinstance(call, type)
+            isinstance(call, type) or
+            (hasattr(call, "__self__") and isinstance(call.__self__, GlobalStore))
         ):
             cps_call = self.interpret_builtin(call)
             return functools.partial(cps_call, _cont=cont)
@@ -84,6 +89,10 @@ class CPSInterpreter:
                 return self.interpret_sample(call)
             elif call.__name__ == "observe":
                 return self.interpret_observation(call)
+            else:
+                raise NotImplementedError(f"Only sample and observe are supported for {call.__self__.__class__.__name__}")
+        elif hasattr(call, "__self__"):
+            raise NotImplementedError(f"CPSInterpreter does not support methods for {call.__self__.__class__.__name__}")
         return self.interpret_generic(call)
 
     def interpret_transformed(self, func):
@@ -98,6 +107,7 @@ class CPSInterpreter:
                 distribution=call.__self__,
                 name=name,
                 stack=_stack,
+                cps=self
             )
         return sample_wrapper
 
@@ -108,7 +118,8 @@ class CPSInterpreter:
                 distribution=call.__self__,
                 value=value,
                 name=name,
-                stack=_stack
+                stack=_stack,
+                cps=self,
             )
         return observation_wrapper
 
@@ -117,7 +128,7 @@ class CPSInterpreter:
             f'{func.__name__}_{hex(id(func)).removeprefix("0x")}.py',
             self.transform_from_func(func),
         )
-        context = {**func.__globals__, **self.get_closure(func), "_cps": self}
+        context = {**func.__globals__, **self.get_closure(func), "_cps": self, "global_store": self.global_store_proxy}
         try:
             exec(code, context)
         except SyntaxError as err :
@@ -160,3 +171,12 @@ class CPSInterpreter:
             return dict(zip(closure_keys, closure_values))
         else:
             return {}
+
+    @contextlib.contextmanager
+    def set_global_store(self, store : GlobalStore):
+        assert self.global_store_proxy.proxied is None, 'Nested update of global store not supported.'
+        try:
+            self.global_store_proxy.proxied = store
+            yield
+        finally:
+            self.global_store_proxy.proxied = None

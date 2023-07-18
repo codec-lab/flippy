@@ -1,10 +1,13 @@
-from gorgo import recursive_map, recursive_filter, recursive_reduce
+from gorgo import recursive_map, recursive_filter, recursive_reduce, mem
 from gorgo.distributions import Bernoulli, Categorical
+from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
 import ast
 import pytest
 import traceback
+
+from test_transforms import trampoline
 
 def geometric(p):
     x = Bernoulli(p).sample()
@@ -283,3 +286,56 @@ def test_closure_issues():
             return nested()
         check_trace(fn, [(Bernoulli(0.5), 0)], return_value='good')
     assert 'must be defined before' in str(err)
+
+def test_global_store_proxy():
+    global_store = None
+    def f():
+        return global_store.get('a', 'no value')
+
+    cps = CPSInterpreter()
+    code = cps.transform_from_func(f)
+    context = {"_cps": cps, 'global_store': cps.global_store_proxy}
+    exec(ast.unparse(code), context)
+    f = context['f']
+
+    with cps.set_global_store(GlobalStore()):
+        assert trampoline(f()) == 'no value'
+
+    with cps.set_global_store(GlobalStore({'a': 100})):
+        assert trampoline(f()) == 100
+
+proxy_forking_bags = Categorical(['bag0', 'bag1', 'bag2'])
+def proxy_forking_value(_bag):
+    return Categorical(range(10)).sample()
+def proxy_forking():
+    value = mem(proxy_forking_value)
+    return [
+        value(proxy_forking_bags.sample())
+        for _ in range(5)
+    ]
+
+def test_global_store_proxy_forking():
+    cps = CPSInterpreter()
+    s0 = cps.initial_program_state(proxy_forking).step()
+    assert s0.init_global_store.store == {}
+
+    s1a = s0.step('bag0').step(3)
+    assert s0.init_global_store.store == {}, 'Make sure original state was not modified'
+    assert s1a.init_global_store.store == {(proxy_forking_value, ('bag0',), ()): 3}
+
+    # A sanity check, we shouldn't need to resample for bag0 now.
+    s = s1a.step('bag0')
+    assert isinstance(s, SampleState) and s.distribution == proxy_forking_bags
+
+    # Now, we test forking by restarting at s0
+    s1b = s0.step('bag1').step(7)
+    assert s0.init_global_store.store == {}, 'Make sure original state was not modified'
+    assert s1a.init_global_store.store == {(proxy_forking_value, ('bag0',), ()): 3}, 'Make sure sibling state was not modified'
+    assert s1b.init_global_store.store == {(proxy_forking_value, ('bag1',), ()): 7}
+
+    # This forked state should not pick up on state from s1a
+    s2b = s1b.step('bag0').step(5)
+    assert s0.init_global_store.store == {}, 'Make sure original state was not modified'
+    assert s1a.init_global_store.store == {(proxy_forking_value, ('bag0',), ()): 3}, 'Make sure sibling state was not modified'
+    assert s1b.init_global_store.store == {(proxy_forking_value, ('bag1',), ()): 7}, 'Make sure original state was not modified'
+    assert s2b.init_global_store.store == {(proxy_forking_value, ('bag1',), ()): 7, (proxy_forking_value, ('bag0',), ()): 5}, 'Make sure original state was not modified'
