@@ -13,6 +13,7 @@ from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.funcutils import method_cache
 import linecache
 import types
+import contextlib
 
 class CPSInterpreter:
     def __init__(self):
@@ -171,5 +172,11 @@ class CPSInterpreter:
         else:
             return {}
 
+    @contextlib.contextmanager
     def set_global_store(self, store : GlobalStore):
-        self.global_store_proxy.proxied = store
+        assert self.global_store_proxy.proxied is None, 'Nested update of global store not supported.'
+        try:
+            self.global_store_proxy.proxied = store
+            yield
+        finally:
+            self.global_store_proxy.proxied = None
