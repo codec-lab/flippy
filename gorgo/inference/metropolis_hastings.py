@@ -8,7 +8,7 @@ from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical, RandomNumberGenerator, Distribution, \
     Dirichlet
 from gorgo.distributions.random import default_rng
-from gorgo.distributions.support import Simplex
+from gorgo.distributions.support import Simplex, ClosedInterval
 
 @dataclasses.dataclass
 class Entry:
@@ -203,14 +203,14 @@ class MetropolisHastings:
                 log_acceptance_ratio = self.calc_log_acceptance_ratio(name, new_trace, trace)
             accept = math.log(rng.random()) < log_acceptance_ratio
             if self.save_diagnostics:
-                diagnostics.append(dict(
+                diagnostics.append(MHDiagnosticsEntry(
                     log_acceptance_ratio=log_acceptance_ratio,
                     accept=accept,
                     name=name,
                     new_trace=new_trace,
                     old_trace=trace,
                     burn_in = i < self.burn_in,
-                    sampled_trace = i >= self.burn_in and i % self.thinning != 0,
+                    is_saved_trace = i >= self.burn_in and i % self.thinning == 0,
                 ))
             if accept:
                 trace = new_trace
@@ -244,6 +244,9 @@ class MetropolisHastings:
         if self.uniform_drift_kernel_width is None or cur_value is None:
             return program_state.distribution.sample(rng=rng)
         support = program_state.distribution.support
+        if isinstance(support, ClosedInterval):
+            u = rng.uniform(-.5, .5) * self.uniform_drift_kernel_width
+            return cur_value + u
         if isinstance(support, Simplex):
             u = Dirichlet([1, 1, 1]).sample(rng=rng)
             u = [(ui - 1/len(u))*self.uniform_drift_kernel_width for ui in u]
@@ -276,31 +279,41 @@ class MetropolisHastings:
         # out those that were sampled in the proposal, since the term from the log probability and
         # proposal would cancel out.
         for entry in new_db.values():
-            if entry.name in new_db_sampled:
-                continue
+            # if entry.name in new_db_sampled:
+            #     continue
             log_acceptance_ratio += entry.log_prob
         for entry in db.values():
-            if entry.name in db_sampled:
-                continue
+            # if entry.name in db_sampled:
+            #     continue
             log_acceptance_ratio -= entry.log_prob
         return log_acceptance_ratio
 
 @dataclasses.dataclass
-class MHDiagnostics:
-    history : List[Dict[str, Any]] = dataclasses.field(default_factory=list)
-
-    def append(self, **kws):
-        self.history.append(kws)
+class MHDiagnosticsEntry:
+    log_acceptance_ratio : float
+    accept : bool
+    name : Hashable
+    new_trace : Trace
+    old_trace : Trace
+    burn_in : bool
+    is_saved_trace : bool
 
     @property
-    def sampled_traces(self):
-        return [e for e in self.history if e['sampled_trace']]
+    def accepted_trace(self) -> Trace:
+        return self.new_trace if self.accept else self.old_trace
+
+@dataclasses.dataclass
+class MHDiagnostics:
+    history : List[MHDiagnosticsEntry] = dataclasses.field(default_factory=list)
+
+    def append(self, entry : MHDiagnosticsEntry):
+        self.history.append(entry)
+
+    @property
+    def saved_entries(self):
+        return [e for e in self.history if e.is_saved_trace]
 
     @property
     def acceptance_ratio(self):
-        accepted = [e['accept'] for e in self.sampled_traces]
+        accepted = [e.accept for e in self.saved_entries]
         return sum(accepted) / len(accepted)
-
-    @property
-    def sampled_traces(self):
-        return [e['new_trace'] if e['accept'] else e['old_trace'] for e in self.sampled_traces]
