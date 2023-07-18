@@ -32,15 +32,15 @@ class ProgramState:
     def step(self, *args, **kws):
         next_ = self.continuation(*args, **kws)
         global_store = self.init_global_store.copy()
-        self.cps.set_global_store(global_store)
-        while True:
-            if callable(next_):
-                next_ = next_()
-            elif isinstance(next_, ProgramState):
-                next_.init_global_store = global_store
-                return next_
-            else:
-                raise TypeError(f"Unknown type {type(next_)}")
+        with self.cps.set_global_store(global_store):
+            while True:
+                if callable(next_):
+                    next_ = next_()
+                elif isinstance(next_, ProgramState):
+                    next_.init_global_store = global_store
+                    return next_
+                else:
+                    raise TypeError(f"Unknown type {type(next_)}")
 
     @cached_property
     def name(self):
