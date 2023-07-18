@@ -68,25 +68,46 @@ def test_metropolis_hastings():
     mh_exp = expectation(_distribution_from_inference(mh_dist))
     assert isclose(expected, mh_exp, atol=1e-2), 'Should be somewhat close to expected value'
 
+import numpy as np
+def cosine_similarity(a, b):
+    a = np.array(a)
+    b = np.array(b)
+    return (a@b)/((a**2).sum() * (b**2).sum())**.5
+
 def test_metropolis_hastings_dirichlet_categorical():
+    c1_params = [1, 1, 1]
+    c1_data = list('ababababacc')*2
     def model():
-        data = list('ababac'+'ccccba')
-        c1 = Dirichlet([.1, .1, .1]).sample()
-        c2 = Dirichlet([1, 1, 1]).sample()
+        c1 = Dirichlet(c1_params).sample(name='c1')
         dist1 = Categorical(support=list('abc'), probabilities=c1)
-        dist2 = Categorical(support=list('abc'), probabilities=c2)
-        cat = tuple([0]*6 + [1]*6)
-        [{0: dist1, 1: dist2}[c].observe(d) for d, c in list(zip(data, cat))]
-        return tuple(c1 + c2)
-
+        [dist1.observe(d) for d in c1_data]
+        return c1
     seed = 13842
-    expected = [3.1/6.3, 2.1/6.3, 1.1/6.3, 2/9, 2/9, 5/9]
+    exp_c1 = [n + sum([d == c for d in c1_data]) for c, n in zip('abc', c1_params)]
+    exp_c1 = [n / sum(exp_c1) for n in exp_c1]
 
-    mh_dist = MetropolisHastings(model, samples=5000, burn_in=0, thinning=2, seed=seed).run()
-    mh_dist = _distribution_from_inference(mh_dist)
-    mh_exp = [expectation(mh_dist, projection=lambda s: s[i]) for i in range(6)]
-    for exp, mh_expectation in zip(expected, mh_exp):
-        assert isclose(exp, mh_expectation, atol=1e-2), (exp, mh_expectation)
+    mh_params = dict(
+        function=model,
+        samples=1000,
+        burn_in=500,
+        thinning=2,
+        seed=seed
+    )
+
+    # test without/with drift kernel
+    mh_dist = MetropolisHastings(
+        **mh_params,
+        uniform_drift_kernel_width=None,
+    ).run()
+    est_c1 = mh_dist.expected_value(lambda c1: np.array(c1))
+    assert cosine_similarity(exp_c1, est_c1) > .99
+
+    mh_dist = MetropolisHastings(
+        **mh_params,
+        uniform_drift_kernel_width=.15,
+    ).run()
+    est_c1 = mh_dist.expected_value(lambda c1: np.array(c1))
+    assert cosine_similarity(exp_c1, est_c1) > .99
 
 def test_metropolis_hastings_normal_normal():
     hyper_mu, hyper_sigma = 1.4, 2

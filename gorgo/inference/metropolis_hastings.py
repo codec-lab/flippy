@@ -1,14 +1,16 @@
 import math
-from dataclasses import dataclass
+import dataclasses
 from collections import defaultdict
-from typing import Mapping, Hashable, Callable, Any, List, Union
+from typing import Mapping, Hashable, Callable, Any, List, Union, Dict
 
 from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState
 from gorgo.interpreter import CPSInterpreter
-from gorgo.distributions import Categorical, RandomNumberGenerator, Distribution
+from gorgo.distributions import Categorical, RandomNumberGenerator, Distribution, \
+    Dirichlet
 from gorgo.distributions.random import default_rng
+from gorgo.distributions.support import Simplex
 
-@dataclass
+@dataclasses.dataclass
 class Entry:
     name : Hashable
     distribution : Distribution
@@ -151,15 +153,23 @@ class MetropolisHastings:
         samples : int,
         burn_in : int = 0,
         thinning : int = 1,
-        seed : int = None
+        seed : int = None,
+        uniform_drift_kernel_width : float = None,
+        save_diagnostics = False
     ):
         self.function = function
         self.samples = samples
         self.seed= seed
         self.burn_in = burn_in
         self.thinning = thinning
+        self.uniform_drift_kernel_width = uniform_drift_kernel_width
+        self.save_diagnostics = save_diagnostics
 
     def run(self, *args, **kws):
+        dist, _ = self._run(*args, **kws)
+        return dist
+
+    def _run(self, *args, **kws):
         # van de Meent et al. (2018), Algorithm 14
         rng = RandomNumberGenerator(self.seed)
         return_counts = defaultdict(int)
@@ -171,12 +181,18 @@ class MetropolisHastings:
             if ps.name in trace and ps.name != name:
                 return trace[ps.name].value
             else:
-                return self.proposal(ps, rng)
+                return self.proposal(
+                    program_state=ps,
+                    cur_value=trace[ps.name].value if ps.name in trace else None,
+                    rng=rng
+                )
+
+        diagnostics = MHDiagnostics()
 
         for i in range(self.burn_in + self.samples*self.thinning):
             name = rng.sample([e.name for e in trace.values() if e.is_sample], k=1)[0]
             new_trace = Trace.run_from(
-                ps=init_ps,
+                ps=trace[name].program_state,
                 old_trace=trace,
                 sample_site_callback=sample_site_callback,
             )
@@ -186,12 +202,25 @@ class MetropolisHastings:
             else:
                 log_acceptance_ratio = self.calc_log_acceptance_ratio(name, new_trace, trace)
             accept = math.log(rng.random()) < log_acceptance_ratio
+            if self.save_diagnostics:
+                diagnostics.append(dict(
+                    log_acceptance_ratio=log_acceptance_ratio,
+                    accept=accept,
+                    name=name,
+                    new_trace=new_trace,
+                    old_trace=trace,
+                    burn_in = i < self.burn_in,
+                    sampled_trace = i >= self.burn_in and i % self.thinning != 0,
+                ))
             if accept:
                 trace = new_trace
             if i >= self.burn_in and i % self.thinning == 0:
                 return_counts[trace.return_value] += 1
         assert sum(return_counts.values()) == self.samples, (sum(return_counts.values()), self.samples)
-        return Categorical.from_dict({e: c/self.samples for e, c in return_counts.items()})
+        return (
+            Categorical.from_dict({e: c/self.samples for e, c in return_counts.items()}),
+            diagnostics
+        )
 
     def sample_initial_trace(
         self,
@@ -209,8 +238,16 @@ class MetropolisHastings:
     def proposal(
         self,
         program_state : SampleState,
+        cur_value : Any,
         rng : RandomNumberGenerator
     ):
+        if self.uniform_drift_kernel_width is None or cur_value is None:
+            return program_state.distribution.sample(rng=rng)
+        support = program_state.distribution.support
+        if isinstance(support, Simplex):
+            u = Dirichlet([1, 1, 1]).sample(rng=rng)
+            u = [(ui - 1/len(u))*self.uniform_drift_kernel_width for ui in u]
+            return tuple(vi + ui for vi, ui in zip(cur_value, u))
         return program_state.distribution.sample(rng=rng)
 
     def calc_log_acceptance_ratio(
@@ -247,3 +284,23 @@ class MetropolisHastings:
                 continue
             log_acceptance_ratio -= entry.log_prob
         return log_acceptance_ratio
+
+@dataclasses.dataclass
+class MHDiagnostics:
+    history : List[Dict[str, Any]] = dataclasses.field(default_factory=list)
+
+    def append(self, **kws):
+        self.history.append(kws)
+
+    @property
+    def sampled_traces(self):
+        return [e for e in self.history if e['sampled_trace']]
+
+    @property
+    def acceptance_ratio(self):
+        accepted = [e['accept'] for e in self.sampled_traces]
+        return sum(accepted) / len(accepted)
+
+    @property
+    def sampled_traces(self):
+        return [e['new_trace'] if e['accept'] else e['old_trace'] for e in self.sampled_traces]
