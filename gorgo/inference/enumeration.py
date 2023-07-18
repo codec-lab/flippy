@@ -37,8 +37,9 @@ class Enumeration:
             elif isinstance(ps, SampleState):
                 for value in ps.distribution.support:
                     weight = ps.distribution.log_probability(value)
-                    new_ps = ps.step(value)
-                    heapq.heappush(frontier, PrioritizedItem(-(cum_weight + weight), new_ps))
+                    if weight > float('-inf'):
+                        new_ps = ps.step(value)
+                        heapq.heappush(frontier, PrioritizedItem(-(cum_weight + weight), new_ps))
             elif isinstance(ps, ObserveState):
                 value = ps.value
                 weight = ps.distribution.log_probability(value)
