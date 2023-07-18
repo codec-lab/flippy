@@ -298,11 +298,11 @@ def test_global_store_proxy():
     exec(ast.unparse(code), context)
     f = context['f']
 
-    cps.set_global_store(GlobalStore())
-    assert trampoline(f()) == 'no value'
+    with cps.set_global_store(GlobalStore()):
+        assert trampoline(f()) == 'no value'
 
-    cps.set_global_store(GlobalStore({'a': 100}))
-    assert trampoline(f()) == 100
+    with cps.set_global_store(GlobalStore({'a': 100})):
+        assert trampoline(f()) == 100
 
 proxy_forking_bags = Categorical(['bag0', 'bag1', 'bag2'])
 def proxy_forking_value(_bag):
