@@ -80,7 +80,7 @@ class MarkovChainMonteCarloABC(abc.ABC):
         diagnostics = MCMCDiagnostics()
         return_counts = defaultdict(int)
         old_trace = initial_trace
-        for i in range(self.burn_in + self.samples):
+        for i in range(self.burn_in + self.samples*self.thinning):
             log_acceptance_threshold = math.log(rng.random())
             aux, log_old_aux_proposal_prob = self.aux_proposal(
                 old_trace,
@@ -112,7 +112,7 @@ class MarkovChainMonteCarloABC(abc.ABC):
             assert not math.isnan(log_acceptance_ratio)
             if log_acceptance_ratio > log_acceptance_threshold:
                 old_trace = new_trace
-            save_sample = i >= self.burn_in and (i - self.burn_in) % self.thinning == 0
+            save_sample = (i >= self.burn_in) and (((i - self.burn_in) % self.thinning) == 0)
             if save_sample:
                 return_counts[old_trace.return_value] += 1
             if self.save_diagnostics:

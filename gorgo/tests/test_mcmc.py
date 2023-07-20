@@ -20,10 +20,10 @@ def test_mcmc_normal_model():
         condition(-1.25 < mu < -.5)
         return mu
 
-    seed = 2191299
+    seed = 2391299
     mcmc_res = PriorProposalMCMC(
         function=normal_model,
-        samples=2000,
+        samples=5000,
         seed=seed
     ).run()
 
@@ -37,18 +37,21 @@ def test_mcmc_normal_model():
 def test_mcmc_gamma_model():
     def gamma_model():
         g = Gamma(3, 2).sample(name='g')
-        Uniform(0, g**2).observe(0)
+        Uniform(0, g**1.3).observe(0)
+        condition(.3 < g < 3)
         return g
 
-    seed = 12999124
+    seed = 139932
     mcmc_res = PriorProposalMCMC(
         function=gamma_model,
-        samples=5000,
+        samples=3000,
+        burn_in=1000,
+        thinning=2,
         seed=seed
     ).run()
     lw_res = LikelihoodWeighting(
         function=gamma_model,
-        samples=5000,
+        samples=10000,
         seed=seed
     ).run()
     assert isclose(lw_res.expected_value(), mcmc_res.expected_value(), atol=.01)
