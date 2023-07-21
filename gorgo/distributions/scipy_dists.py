@@ -122,10 +122,11 @@ class Uniform(ScipyContinuousDistribution):
     base_distribution = uniform
     def __init__(self, low=0, high=1, size=1):
         self.loc = self.low = low
-        self.scale = self.high = high
+        self.high = high
+        self.scale = high - low
         self.size = size
     def __repr__(self) -> str:
-        return f"Uniform(low={self.loc}, high={self.scale}, size={self.size})"
+        return f"Uniform(low={self.low}, high={self.high}, size={self.size})"
 
 class Gamma(ScipyContinuousDistribution):
     base_distribution = gamma
