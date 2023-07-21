@@ -18,28 +18,25 @@ class PriorProposalMCMC(MarkovChainMonteCarloABC):
         resampling_site_name = aux
         if new_trace is None:
             resampling_ps = old_trace[resampling_site_name].program_state
-            # def sample_site_callback(ps : SampleState):
-            #     if ps.name == resampling_site_name:
-            #         value = ps.distribution.sample(rng=rng)
-            #     elif ps.name in old_trace:
-            #         value = old_trace[ps.name].value
-            #     else:
-            #         value = ps.distribution.sample(rng=rng)
-            #     return value
+            def sample_site_callback(ps : SampleState):
+                if ps.name == resampling_site_name:
+                    value = ps.distribution.sample(rng=rng)
+                elif ps.name in old_trace:
+                    value = old_trace[ps.name].value
+                else:
+                    value = ps.distribution.sample(rng=rng)
+                return value
             new_trace = Trace.run_from(
                 ps=resampling_ps,
                 old_trace=old_trace,
-                sample_site_callback=lambda ps: ps.distribution.sample(rng=rng),
+                sample_site_callback=sample_site_callback,
                 observe_site_callback=lambda ps : ps.value,
                 break_early=False
             )
-        # old_trace_sample_names = set(old_trace.sample_site_names)
-        # new_trace_sample_names = set(new_trace.sample_site_names)
-        # resampled_variables = new_trace_sample_names - old_trace_sample_names
-        # resampled_score = sum(new_trace[n].log_prob for n in resampled_variables)
-        resampled_score = new_trace.cumulative_score(
-            start_name=resampling_site_name, include_observe_scores=False
-        )
+        old_trace_sample_names = set(old_trace.sample_site_names)
+        new_trace_sample_names = set(new_trace.sample_site_names)
+        resampled_variables = {resampling_site_name} | (new_trace_sample_names - old_trace_sample_names)
+        resampled_score = sum(new_trace[n].log_prob for n in resampled_variables)
         return new_trace, resampled_score
 
     def aux_proposal(
