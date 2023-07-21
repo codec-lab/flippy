@@ -146,6 +146,10 @@ class Trace:
     def sample_site_names(self) -> List[Hashable]:
         return [e.name for e in self._entries if e.is_sample]
 
+    @property
+    def sample_site_entries(self) -> List[Entry]:
+        return [e for e in self._entries if e.is_sample]
+
     def items(self):
         for name, order in self._entry_name_order.items():
             yield name, self._entries[order]
