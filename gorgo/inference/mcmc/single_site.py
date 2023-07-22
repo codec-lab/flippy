@@ -3,8 +3,9 @@ import abc
 from collections import defaultdict
 from typing import Callable, List, Union, Dict, Tuple, TypeVar
 
+from gorgo.tools import isclose
 from gorgo.distributions import Categorical, RandomNumberGenerator, \
-    Dirichlet, Uniform
+    Dirichlet, Uniform, Beta
 from gorgo.distributions.random import default_rng
 from gorgo.distributions.base import Distribution, FiniteDistribution
 from gorgo.distributions.support import ClosedInterval, Simplex
@@ -216,6 +217,7 @@ class SingleSiteMetropolisHastings:
             else:
                 proposal_log_prob = ps.distribution.log_probability(entry.value)
             total_proposal_log_prob += proposal_log_prob
+            assert not math.isnan(total_proposal_log_prob)
         return total_proposal_log_prob
 
     def site_proposal_dist(
@@ -231,17 +233,23 @@ class SingleSiteMetropolisHastings:
         if not self.use_drift_kernels:
             return program_state.distribution
 
-        support = program_state.distribution.support
-        if isinstance(support, ClosedInterval):
+        if isinstance(program_state.distribution, Beta):
+            if isclose(old_value, 0) or isclose(old_value, 1):
+                return program_state.distribution
+            return Beta(
+                alpha=old_value*self.simplex_proposal_kernel_alpha,
+                beta=(1 - old_value)*self.simplex_proposal_kernel_alpha
+            )
+        elif isinstance(program_state.distribution.support, ClosedInterval):
             return Uniform(
                 old_value - self.uniform_drift_kernel_width/2,
                 old_value + self.uniform_drift_kernel_width/2
             )
-        elif isinstance(support, Simplex):
+        elif isinstance(program_state.distribution.support, Simplex):
             return Dirichlet([
                 v*self.simplex_proposal_kernel_alpha for v in old_value
             ])
         elif isinstance(program_state.distribution, FiniteDistribution):
-            return Categorical(support)
+            return Categorical(program_state.distribution.support)
         else:
             return program_state.distribution
