@@ -35,9 +35,11 @@ class SingleSiteMCMC:
         self.thinning = thinning
         self.save_diagnostics = save_diagnostics
         self.seed = seed
-        self.use_drift_kernels = use_drift_kernels
-        self.uniform_drift_kernel_width = uniform_drift_kernel_width
-        self.simplex_proposal_kernel_alpha = simplex_proposal_kernel_alpha
+        self.proposal_params = dict(
+            use_drift_kernels=use_drift_kernels,
+            uniform_drift_kernel_width=uniform_drift_kernel_width,
+            simplex_proposal_kernel_alpha=simplex_proposal_kernel_alpha,
+        )
 
     def generate_initial_trace(
         self,
@@ -70,12 +72,6 @@ class SingleSiteMCMC:
         diagnostics = MCMCDiagnostics()
         return_counts = defaultdict(int)
         old_trace = initial_trace
-        proposal_params = dict(
-            use_drift_kernels=self.use_drift_kernels,
-            uniform_drift_kernel_width=self.uniform_drift_kernel_width,
-            simplex_proposal_kernel_alpha=self.simplex_proposal_kernel_alpha,
-            custom_kernels=None
-        )
         for i in range(self.burn_in + self.samples*self.thinning):
             old_site_dist = ResamplingSiteDistribution(old_trace)
             site_name = old_site_dist.sample(rng=rng)
@@ -83,7 +79,7 @@ class SingleSiteMCMC:
             new_proposal_dist = TraceProposalDistribution(
                 old_trace=old_trace,
                 resampling_site_name=site_name,
-                **proposal_params
+                **self.proposal_params
             )
             new_trace = new_proposal_dist.sample(rng=rng)
             new_proposal_score = new_proposal_dist.log_probability(new_trace)
@@ -92,7 +88,7 @@ class SingleSiteMCMC:
             old_proposal_dist = TraceProposalDistribution(
                 old_trace=new_trace,
                 resampling_site_name=site_name,
-                **proposal_params
+                **self.proposal_params
             )
             old_proposal_score = old_proposal_dist.log_probability(old_trace)
             new_score = new_trace.total_score

@@ -117,3 +117,15 @@ def test_mcmc_geometric():
         seed=seed,
     ).run(param)
     assert isclose(mh_res.expected_value(), expected, atol=.01)
+
+def text_mcmc_categorical_branching_explicit_names():
+    def fn():
+        if Bernoulli(.5).sample(name="choice"):
+            x = Categorical(['a', 'b'], probabilities=[.5, .5]).sample(name='x')
+        else:
+            x = Categorical(['c', 'b'], probabilities=[.8, .2]).sample(name='x')
+        return x
+    enum_dist = Enumeration(fn).run()
+    mh_dist = MH(fn, samples=10000, seed=124).run()
+    for e in enum_dist:
+        assert isclose(enum_dist[e], mh_dist[e], atol=1e-2)
