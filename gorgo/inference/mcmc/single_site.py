@@ -89,14 +89,17 @@ class SingleSiteMetropolisHastings:
                 )
             new_score = new_trace.total_score
             old_score = old_trace.total_score
-            log_acceptance_ratio = (
-                new_score + new_site_score + old_proposal_score
-            ) - (
-                old_score + old_site_score + new_proposal_score
-            )
+            log_acceptance_num = new_score + new_site_score + old_proposal_score
+            log_acceptance_den = old_score + old_site_score + new_proposal_score
             log_acceptance_threshold = math.log(rng.random())
-            assert not math.isnan(log_acceptance_ratio)
-            if log_acceptance_ratio > log_acceptance_threshold:
+            if log_acceptance_num == float('-inf'):
+                accept = False
+            else:
+                log_acceptance_ratio = log_acceptance_num - log_acceptance_den
+                assert not math.isnan(log_acceptance_ratio)
+                accept = log_acceptance_ratio > log_acceptance_threshold
+
+            if accept:
                 old_trace = new_trace
             save_sample = (i >= self.burn_in) and (((i - self.burn_in) % self.thinning) == 0)
             if save_sample:
