@@ -1,3 +1,4 @@
+import math
 from gorgo.inference.mcmc.base_mcmc import MarkovChainMonteCarloABC
 from typing import Mapping, Hashable, Callable, Any, List, Union, Dict, Tuple
 
@@ -50,4 +51,4 @@ class PriorProposalMCMC(MarkovChainMonteCarloABC):
             resampling_site_name = rng.choice(sample_site_names)
         else:
             resampling_site_name = aux
-        return resampling_site_name, 1/len(sample_site_names)
+        return resampling_site_name, math.log(1/len(sample_site_names))

@@ -8,7 +8,8 @@ from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveS
 from gorgo.inference.metropolis_hastings import Mapping, Hashable
 import dataclasses
 
-from gorgo.inference.mcmc.prior_proposal import PriorProposalMCMC
+# from gorgo.inference.mcmc.prior_proposal import PriorProposalMCMC
+from gorgo.inference.mcmc.single_site import SingleSiteMCMC as MH
 
 def test_mcmc_normal_model():
     hyper_mu, hyper_sigma = -1, 1
@@ -21,7 +22,7 @@ def test_mcmc_normal_model():
         return mu
 
     seed = 2391299
-    mcmc_res = PriorProposalMCMC(
+    mcmc_res = MH(
         function=normal_model,
         samples=5000,
         seed=seed
@@ -38,13 +39,13 @@ def test_mcmc_gamma_model():
     def gamma_model():
         g = Gamma(3, 2).sample(name='g')
         Uniform(0, g**1.3).observe(0)
-        condition(.3 < g < 3)
+        condition(.5 < g < 2)
         return g
 
     seed = 139932
-    mcmc_res = PriorProposalMCMC(
+    mcmc_res = MH(
         function=gamma_model,
-        samples=3000,
+        samples=5000,
         burn_in=1000,
         thinning=2,
         seed=seed
@@ -69,7 +70,7 @@ def test_mcmc_dirichet_model():
     exp_c1 = [n + sum([d == c for d in c1_data]) for c, n in zip('abc', c1_params)]
     exp_c1 = [n / sum(exp_c1) for n in exp_c1]
 
-    mcmc_res = PriorProposalMCMC(
+    mcmc_res = MH(
         function=model,
         samples=5000,
         seed=seed
@@ -86,10 +87,33 @@ def test_mcmc_categorical_branching_model():
             return Categorical(range(3)).sample(name='rv')
 
     seed = 12949124
-    mcmc_res = PriorProposalMCMC(
+    mcmc_res = MH(
         function=model,
         samples=50000,
         seed=seed
     ).run()
     enum_res = Enumeration(model).run()
     assert isclose(mcmc_res.expected_value(), enum_res.expected_value(), atol=.01)
+
+def test_mcmc_geometric():
+    def geometric(p):
+        '''
+        The probability distribution of the number X of Bernoulli trials needed to get one success.
+        https://en.wikipedia.org/wiki/Geometric_distribution
+        '''
+        x = Bernoulli(p).sample()
+        if x == 1:
+            return 1
+        return 1 + geometric(p)
+
+    param = 0.98
+    expected = 1/param
+
+    seed = 13852
+
+    mh_res = MH(
+        function=geometric,
+        samples=10000,
+        seed=seed,
+    ).run(param)
+    assert isclose(mh_res.expected_value(), expected, atol=.01)

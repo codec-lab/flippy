@@ -12,10 +12,21 @@ class Entry:
     distribution : Distribution
     value : Any
     log_prob : float
-    is_sample : bool
     order : int = None
     is_multivariate : bool = False
     program_state : ProgramState = None
+
+    @property
+    def is_observed(self) -> bool:
+        return isinstance(self.program_state, ObserveState)
+
+    @property
+    def is_return(self) -> bool:
+        return isinstance(self.program_state, ReturnState)
+
+    @property
+    def is_sample(self) -> bool:
+        return isinstance(self.program_state, SampleState)
 
 class Trace:
     def __init__(self):
@@ -86,7 +97,6 @@ class Trace:
             distribution=program_state.distribution,
             value=value,
             log_prob=log_prob,
-            is_sample=isinstance(program_state, SampleState),
             is_multivariate=is_multivariate,
             program_state=program_state
         ))
@@ -99,7 +109,6 @@ class Trace:
             distribution=None,
             value=program_state.value,
             log_prob=0.0,
-            is_sample=False,
             is_multivariate=False,
             program_state=program_state
         ))
@@ -123,24 +132,13 @@ class Trace:
             return float('-inf')
         return sum(e.log_prob for e in self._entries)
 
-    def cumulative_score(
-        self,
-        start_name : Hashable = None,
-        include_sample_scores : bool = True,
-        include_observe_scores : bool = True,
-    ) -> float:
+    def entries(self, start_name : Hashable = None):
         if start_name is None:
             start_idx = 0
         else:
             start_idx = self._entry_name_order[start_name]
-        if include_sample_scores and include_observe_scores:
-            return sum(e.log_prob for e in self._entries[start_idx:])
-        elif include_sample_scores:
-            return sum(e.log_prob for e in self._entries[start_idx:] if e.is_sample)
-        elif include_observe_scores:
-            return sum(e.log_prob for e in self._entries[start_idx:] if not e.is_sample)
-        else:
-            return 0.0
+        for e in self._entries[start_idx:]:
+            yield e
 
     @property
     def sample_site_names(self) -> List[Hashable]:
