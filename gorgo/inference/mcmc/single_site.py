@@ -123,6 +123,7 @@ class SingleSiteMetropolisHastings:
         for i in range(self.max_initial_trace_attempts):
             trace = Trace.run_from(
                 ps=initial_program_state,
+                old_trace=None,
                 sample_site_callback=lambda ps : ps.distribution.sample(rng=rng),
                 observe_site_callback=lambda ps : ps.value
             )
@@ -136,7 +137,7 @@ class SingleSiteMetropolisHastings:
         target_site_name : VariableName = None,
         rng : RandomNumberGenerator = default_rng,
     ) -> Tuple[VariableName, float]:
-        sample_sites = [e.name for e in trace.values() if e.is_sample]
+        sample_sites = [e.name for e in trace.entries() if e.is_sample]
         if target_site_name is None:
             return rng.choice(sample_sites), math.log(1/len(sample_sites))
         else:

@@ -37,7 +37,7 @@ class PriorProposalMCMC(MarkovChainMonteCarloABC):
         old_trace_sample_names = set(old_trace.sample_site_names)
         new_trace_sample_names = set(new_trace.sample_site_names)
         resampled_variables = {resampling_site_name} | (new_trace_sample_names - old_trace_sample_names)
-        resampled_score = sum(new_trace[n].log_prob for n in resampled_variables)
+        resampled_score = sum(new_trace[n].score for n in resampled_variables)
         return new_trace, resampled_score
 
     def aux_proposal(

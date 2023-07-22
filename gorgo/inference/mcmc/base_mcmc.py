@@ -57,6 +57,7 @@ class MarkovChainMonteCarloABC(abc.ABC):
         for i in range(self.max_initial_trace_attempts):
             trace = Trace.run_from(
                 ps=initial_program_state,
+                old_trace=None,
                 sample_site_callback=lambda ps : ps.distribution.sample(rng=rng),
                 observe_site_callback=lambda ps : ps.value
             )
