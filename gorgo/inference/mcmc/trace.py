@@ -40,7 +40,7 @@ class Trace:
         old_trace : Union['Trace', None],
         sample_site_callback : Callable[[SampleState], SampleValue],
         observe_site_callback : Callable[[ObserveState], SampleValue],
-        break_early : bool = False
+        break_early : bool = True
     ) -> 'Trace':
         new_trace = Trace()
         if old_trace is not None and len(old_trace) > 0:
