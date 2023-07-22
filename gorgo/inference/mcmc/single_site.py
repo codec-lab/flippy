@@ -1,34 +1,35 @@
 import math
 import abc
-from functools import cached_property
 from collections import defaultdict
-from typing import Mapping, Hashable, Callable, Any, List, Union, Dict, Tuple
+from typing import Callable, List, Union, Dict, Tuple, TypeVar
 
 from gorgo.distributions import Categorical, RandomNumberGenerator, \
     Dirichlet, Uniform
 from gorgo.distributions.random import default_rng
 from gorgo.distributions.base import Distribution, FiniteDistribution
 from gorgo.distributions.support import ClosedInterval, Simplex
-from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState
+from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState, VariableName, SampleValue
 from gorgo.interpreter import CPSInterpreter
 
 from gorgo.inference.mcmc.trace import Trace, Entry
 from gorgo.inference.mcmc.diagnostics import MCMCDiagnostics, MCMCDiagnosticsEntry
+
+ProposalKernel = Callable[[SampleValue, SampleState], Distribution[SampleValue]]
 
 class SingleSiteMetropolisHastings:
     max_initial_trace_attempts = 1000
     def __init__(
         self,
         function : Callable,
-        samples,
-        burn_in = 0,
-        thinning = 1,
-        save_diagnostics = False,
-        seed = None,
-        use_drift_kernels = True,
-        uniform_drift_kernel_width = 1,
-        simplex_proposal_kernel_alpha = 10,
-        custom_proposal_kernels = None,
+        samples : int,
+        burn_in : int = 0,
+        thinning : int = 1,
+        save_diagnostics : bool = False,
+        seed : int = None,
+        use_drift_kernels : bool = True,
+        uniform_drift_kernel_width : float = 1,
+        simplex_proposal_kernel_alpha : float = 10,
+        custom_proposal_kernels : Callable[[VariableName], ProposalKernel] = None,
     ):
         self.function = function
         self.samples = samples
@@ -132,9 +133,9 @@ class SingleSiteMetropolisHastings:
     def choose_target_site(
         self,
         trace : Trace,
-        target_site_name : Hashable = None,
+        target_site_name : VariableName = None,
         rng : RandomNumberGenerator = default_rng,
-    ) -> Tuple[Hashable, float]:
+    ) -> Tuple[VariableName, float]:
         sample_sites = [e.name for e in trace.values() if e.is_sample]
         if target_site_name is None:
             return rng.choice(sample_sites), math.log(1/len(sample_sites))
@@ -145,7 +146,7 @@ class SingleSiteMetropolisHastings:
     def choose_new_trace(
         self,
         old_trace : Trace,
-        target_site_name : Hashable,
+        target_site_name : VariableName,
         new_trace : Trace = None,
         rng : RandomNumberGenerator = default_rng,
     ) -> Tuple[Trace, float]:
@@ -165,7 +166,7 @@ class SingleSiteMetropolisHastings:
     def sample_new_trace(
         self,
         old_trace : Trace,
-        target_site_name : Hashable,
+        target_site_name : VariableName,
         rng=default_rng
     ) -> Trace:
         def sample_site_callback(ps : SampleState):
@@ -192,7 +193,7 @@ class SingleSiteMetropolisHastings:
     def calc_new_trace_log_probability(
         self,
         old_trace : Trace,
-        target_site_name : Hashable,
+        target_site_name : VariableName,
         new_trace : Trace
     ) -> float:
         total_proposal_log_prob = 0
@@ -215,9 +216,9 @@ class SingleSiteMetropolisHastings:
 
     def site_proposal_dist(
         self,
-        old_value : Any,
+        old_value : SampleValue,
         program_state : SampleState,
-    ) -> Distribution:
+    ) -> Distribution[SampleValue]:
         if self.custom_proposal_kernels is not None:
             proposal_function = self.custom_proposal_kernels(program_state.name)
             if proposal_function is not None:

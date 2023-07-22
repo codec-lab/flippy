@@ -1,16 +1,16 @@
 import dataclasses
 from typing import Mapping, Hashable, Callable, Any, List, Union, Dict, Tuple
 
-from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState
+from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState, VariableName, SampleValue
 from gorgo.distributions import Categorical, RandomNumberGenerator, Distribution, \
     Dirichlet
 from gorgo.distributions.random import default_rng
 
 @dataclasses.dataclass
 class Entry:
-    name : Hashable
+    name : VariableName
     distribution : Distribution
-    value : Any
+    value : SampleValue
     log_prob : float
     order : int = None
     is_multivariate : bool = False

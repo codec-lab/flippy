@@ -1,4 +1,4 @@
-from typing import Any, Callable, Hashable, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Hashable, Tuple, TYPE_CHECKING, TypeVar
 from gorgo.distributions import Distribution
 from gorgo.funcutils import cached_property
 
@@ -14,12 +14,14 @@ StackFrame = namedtuple("StackFrame", "func_src lineno locals")
 
 # a continuation is a function that takes a value and returns a thunk
 Continuation = Callable[..., Callable[[], Any]]
+VariableName = Hashable
+SampleValue = Any
 
 class ProgramState:
     def __init__(
         self,
         continuation : Continuation = None,
-        name: Hashable = None,
+        name: VariableName = None,
         stack: Tuple[StackFrame] = None,
         cps : 'CPSInterpreter' = None
     ):
@@ -29,7 +31,7 @@ class ProgramState:
         self.init_global_store = GlobalStore()
         self.cps = cps
 
-    def step(self, *args, **kws):
+    def step(self, *args, **kws) -> 'ProgramState':
         next_ = self.continuation(*args, **kws)
         global_store = self.init_global_store.copy()
         with self.cps.set_global_store(global_store):
@@ -43,7 +45,7 @@ class ProgramState:
                     raise TypeError(f"Unknown type {type(next_)}")
 
     @cached_property
-    def name(self):
+    def name(self) -> VariableName:
         if self._name is not None:
             return self._name
         if self.stack is None:
@@ -95,7 +97,7 @@ class ObserveState(ProgramState):
         continuation: Callable[[], Callable],
         distribution: Distribution,
         value: Any,
-        name: Hashable,
+        name: VariableName,
         stack: Tuple[StackFrame],
         cps : 'CPSInterpreter'
     ):
@@ -113,7 +115,7 @@ class SampleState(ProgramState):
         self,
         continuation: Callable[[], Callable],
         distribution: Distribution,
-        name: Hashable,
+        name: VariableName,
         stack: Tuple[StackFrame],
         cps : 'CPSInterpreter'
     ):
