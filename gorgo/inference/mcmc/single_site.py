@@ -25,7 +25,6 @@ class SingleSiteMetropolisHastings:
         samples : int,
         burn_in : int = 0,
         thinning : int = 1,
-        save_diagnostics : bool = False,
         seed : int = None,
         use_drift_kernels : bool = True,
         uniform_drift_kernel_width : float = 1,
@@ -37,7 +36,7 @@ class SingleSiteMetropolisHastings:
         self.samples = samples
         self.burn_in = burn_in
         self.thinning = thinning
-        self.save_diagnostics = save_diagnostics
+        self.save_diagnostics = False
         self.seed = seed
         self.use_drift_kernels = use_drift_kernels
         self.uniform_drift_kernel_width = uniform_drift_kernel_width
@@ -46,10 +45,16 @@ class SingleSiteMetropolisHastings:
         self.custom_initial_trace_kernel = custom_initial_trace_kernel
 
     def run(self, *args, **kws) -> Distribution:
-        dist, _ = self.run_with_diagnostics(*args, **kws)
+        self.save_diagnostics = False
+        dist, _ = self._run(*args, **kws)
         return dist
 
     def run_with_diagnostics(self, *args, **kws) -> Tuple[Distribution, MCMCDiagnostics]:
+        self.save_diagnostics = True
+        dist, diagnostics = self._run(*args, **kws)
+        return dist, diagnostics
+
+    def _run(self, *args, **kws):
         init_ps = CPSInterpreter().initial_program_state(self.function)
         init_ps = init_ps.step(*args, **kws)
         rng = RandomNumberGenerator(self.seed)
