@@ -9,7 +9,7 @@ from gorgo.inference.metropolis_hastings import Mapping, Hashable
 import dataclasses
 
 # from gorgo.inference.mcmc.prior_proposal import PriorProposalMCMC
-from gorgo.inference.mcmc.single_site import SingleSiteMetropolisHastings as MH
+from gorgo.inference.mcmc.metropolis_hastings import SingleSiteMetropolisHastings as MH
 
 def test_mcmc_normal_model():
     hyper_mu, hyper_sigma = -1, 1
