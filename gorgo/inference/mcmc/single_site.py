@@ -31,6 +31,7 @@ class SingleSiteMetropolisHastings:
         uniform_drift_kernel_width : float = 1,
         simplex_proposal_kernel_alpha : float = 10,
         custom_proposal_kernels : Callable[[VariableName], ProposalKernel] = None,
+        custom_initial_trace_kernel : Callable[[VariableName], SampleValue] = None,
     ):
         self.function = function
         self.samples = samples
@@ -42,6 +43,7 @@ class SingleSiteMetropolisHastings:
         self.uniform_drift_kernel_width = uniform_drift_kernel_width
         self.simplex_proposal_kernel_alpha = simplex_proposal_kernel_alpha
         self.custom_proposal_kernels = custom_proposal_kernels
+        self.custom_initial_trace_kernel = custom_initial_trace_kernel
 
     def run(self, *args, **kws) -> Distribution:
         dist, _ = self.run_with_diagnostics(*args, **kws)
@@ -95,6 +97,7 @@ class SingleSiteMetropolisHastings:
             log_acceptance_threshold = math.log(rng.random())
             if log_acceptance_num == float('-inf'):
                 accept = False
+                log_acceptance_ratio = float('-inf')
             else:
                 log_acceptance_ratio = log_acceptance_num - log_acceptance_den
                 assert not math.isnan(log_acceptance_ratio)
@@ -129,11 +132,19 @@ class SingleSiteMetropolisHastings:
         initial_program_state : ProgramState,
         rng : RandomNumberGenerator
     ) -> Trace:
+        def sample_site_callback(ps : SampleState) -> SampleValue:
+            if self.custom_initial_trace_kernel is None:
+                return ps.distribution.sample(rng=rng)
+            value = self.custom_initial_trace_kernel(ps.name)
+            if value is None:
+                return ps.distribution.sample(rng=rng)
+            return value
+
         for i in range(self.max_initial_trace_attempts):
             trace = Trace.run_from(
                 ps=initial_program_state,
                 old_trace=None,
-                sample_site_callback=lambda ps : ps.distribution.sample(rng=rng),
+                sample_site_callback=sample_site_callback,
                 observe_site_callback=lambda ps : ps.value
             )
             if trace.total_score > float('-inf'):
