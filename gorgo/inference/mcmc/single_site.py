@@ -109,7 +109,12 @@ class SingleSiteMetropolisHastings:
                 diagnostics.append(MCMCDiagnosticsEntry(
                     old_trace=old_trace,
                     new_trace=new_trace,
+                    sampled_trace=new_trace if accept else old_trace,
+                    accept=accept,
                     log_acceptance_threshold=log_acceptance_threshold,
+                    log_acceptance_num=log_acceptance_num,
+                    log_acceptance_den=log_acceptance_den,
+                    log_acceptance_ratio=log_acceptance_ratio,
                     save_sample=save_sample,
                     auxiliary_vars=target_site_name,
                 ))

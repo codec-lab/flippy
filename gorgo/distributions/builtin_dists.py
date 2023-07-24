@@ -312,6 +312,9 @@ class Dirichlet(Distribution):
             return math.log(prob) if prob != 0 else float('-inf')
         return float('-inf')
 
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}(alphas={self.alphas})'
+
 
 class DirichletMultinomial(FiniteDistribution):
     def __init__(self, trials, alphas):
