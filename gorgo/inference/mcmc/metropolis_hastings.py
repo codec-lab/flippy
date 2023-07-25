@@ -18,6 +18,7 @@ from gorgo.inference.mcmc.diagnostics import MCMCDiagnostics, MCMCDiagnosticsEnt
 ProposalKernel = Callable[[SampleValue, SampleState], Distribution[SampleValue]]
 
 class MetropolisHastings:
+    # this is finite in case it is impossible to initialize a trace
     max_initial_trace_attempts = 1000
     def __init__(
         self,
@@ -82,12 +83,13 @@ class MetropolisHastings:
                     target_site_name=target_site_name,
                     rng=rng
                 )
-            _, new_site_score = \
+            _target_site_name, new_site_score = \
                 self.choose_target_site(
                     trace=new_trace,
                     target_site_name=target_site_name,
                     rng=rng
                 )
+            assert target_site_name == _target_site_name
             _, old_proposal_score = \
                 self.choose_new_trace(
                     old_trace=new_trace,
@@ -104,17 +106,6 @@ class MetropolisHastings:
                 new_proposal_score=new_proposal_score
             )
             log_acceptance_threshold = math.log(rng.random())
-            # new_score = new_trace.total_score
-            # old_score = old_trace.total_score
-            # log_acceptance_num = new_score + new_site_score + old_proposal_score
-            # log_acceptance_den = old_score + old_site_score + new_proposal_score
-            # log_acceptance_threshold = math.log(rng.random())
-            # if log_acceptance_num == float('-inf'):
-            #     accept = False
-            #     log_acceptance_ratio = float('-inf')
-            # else:
-            #     log_acceptance_ratio = log_acceptance_num - log_acceptance_den
-            #     assert not math.isnan(log_acceptance_ratio)
             accept = log_acceptance_ratio > log_acceptance_threshold
 
             if accept:
