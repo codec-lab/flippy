@@ -1,7 +1,7 @@
 import math
 from gorgo import _distribution_from_inference
 from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal, Gamma, Uniform
-from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, MetropolisHastings
+from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting
 from gorgo.inference.metropolis_hastings import Entry
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
@@ -58,15 +58,15 @@ def test_likelihood_weighting_and_sample_prior():
 
     assert isclose(expected, prior_exp, atol=1e-2), 'Should be somewhat close to expected value'
 
-def test_metropolis_hastings():
-    param = 0.98
-    expected = 1/param
+# def test_metropolis_hastings():
+#     param = 0.98
+#     expected = 1/param
 
-    seed = 13842
+#     seed = 13842
 
-    mh_dist = MetropolisHastings(geometric, samples=1000, burn_in=0, thinning=5, seed=seed).run(param)
-    mh_exp = expectation(_distribution_from_inference(mh_dist))
-    assert isclose(expected, mh_exp, atol=1e-2), 'Should be somewhat close to expected value'
+#     mh_dist = MetropolisHastings(geometric, samples=1000, burn_in=0, thinning=5, seed=seed).run(param)
+#     mh_exp = expectation(_distribution_from_inference(mh_dist))
+#     assert isclose(expected, mh_exp, atol=1e-2), 'Should be somewhat close to expected value'
 
 import numpy as np
 def cosine_similarity(a, b):
@@ -74,68 +74,68 @@ def cosine_similarity(a, b):
     b = np.array(b)
     return (a@b)/((a**2).sum() * (b**2).sum())**.5
 
-def test_metropolis_hastings_dirichlet_categorical():
-    c1_params = [1, 1, 1]
-    c1_data = list('ababababacc')*2
-    def model():
-        c1 = Dirichlet(c1_params).sample(name='c1')
-        dist1 = Categorical(support=list('abc'), probabilities=c1)
-        [dist1.observe(d) for d in c1_data]
-        return c1
-    seed = 13842
-    exp_c1 = [n + sum([d == c for d in c1_data]) for c, n in zip('abc', c1_params)]
-    exp_c1 = [n / sum(exp_c1) for n in exp_c1]
+# def test_metropolis_hastings_dirichlet_categorical():
+#     c1_params = [1, 1, 1]
+#     c1_data = list('ababababacc')*2
+#     def model():
+#         c1 = Dirichlet(c1_params).sample(name='c1')
+#         dist1 = Categorical(support=list('abc'), probabilities=c1)
+#         [dist1.observe(d) for d in c1_data]
+#         return c1
+#     seed = 13842
+#     exp_c1 = [n + sum([d == c for d in c1_data]) for c, n in zip('abc', c1_params)]
+#     exp_c1 = [n / sum(exp_c1) for n in exp_c1]
 
-    mh_params = dict(
-        function=model,
-        samples=1000,
-        burn_in=500,
-        thinning=2,
-        seed=seed
-    )
+#     mh_params = dict(
+#         function=model,
+#         samples=1000,
+#         burn_in=500,
+#         thinning=2,
+#         seed=seed
+#     )
 
-    # test without/with drift kernel
-    mh_dist = MetropolisHastings(
-        **mh_params,
-        uniform_drift_kernel_width=None,
-    ).run()
-    est_c1 = mh_dist.expected_value(lambda c1: np.array(c1))
-    assert cosine_similarity(exp_c1, est_c1) > .99
+#     # test without/with drift kernel
+#     mh_dist = MetropolisHastings(
+#         **mh_params,
+#         uniform_drift_kernel_width=None,
+#     ).run()
+#     est_c1 = mh_dist.expected_value(lambda c1: np.array(c1))
+#     assert cosine_similarity(exp_c1, est_c1) > .99
 
-    mh_dist = MetropolisHastings(
-        **mh_params,
-        uniform_drift_kernel_width=.15,
-    ).run()
-    est_c1 = mh_dist.expected_value(lambda c1: np.array(c1))
-    assert cosine_similarity(exp_c1, est_c1) > .99
+#     mh_dist = MetropolisHastings(
+#         **mh_params,
+#         uniform_drift_kernel_width=.15,
+#     ).run()
+#     est_c1 = mh_dist.expected_value(lambda c1: np.array(c1))
+#     assert cosine_similarity(exp_c1, est_c1) > .99
 
-def test_metropolis_hastings_normal_normal():
-    hyper_mu, hyper_sigma = 1.4, 2
-    obs = [-.75]
-    sigma = 1
-    def normal_model():
-        mu = Normal(hyper_mu, hyper_sigma).sample(name='mu')
-        Normal(mu, sigma).observe(obs)
-        return mu
+# def test_metropolis_hastings_normal_normal():
+#     hyper_mu, hyper_sigma = 1.4, 2
+#     obs = [-.75]
+#     sigma = 1
+#     def normal_model():
+#         mu = Normal(hyper_mu, hyper_sigma).sample(name='mu')
+#         Normal(mu, sigma).observe(obs)
+#         return mu
 
-    seed = 2191299
-    new_sigma = 1/(1/(hyper_sigma**2) + len(obs)/(sigma**2))
-    new_mu = (hyper_mu/(hyper_sigma**2) + sum(obs)/(sigma**2))*new_sigma
+#     seed = 2191299
+#     new_sigma = 1/(1/(hyper_sigma**2) + len(obs)/(sigma**2))
+#     new_mu = (hyper_mu/(hyper_sigma**2) + sum(obs)/(sigma**2))*new_sigma
 
-    mh_dist = MetropolisHastings(normal_model, samples=20000, burn_in=0, thinning=1, seed=seed).run()
-    mh_dist = _distribution_from_inference(mh_dist)
-    mh_exp = expectation(mh_dist)
-    assert isclose(new_mu, mh_exp, atol=1e-2), (new_mu, mh_exp)
+#     mh_dist = MetropolisHastings(normal_model, samples=20000, burn_in=0, thinning=1, seed=seed).run()
+#     mh_dist = _distribution_from_inference(mh_dist)
+#     mh_exp = expectation(mh_dist)
+#     assert isclose(new_mu, mh_exp, atol=1e-2), (new_mu, mh_exp)
 
-def test_metropolis_hastings_gamma():
-    def gamma_model():
-        g = Gamma(3, 2).sample()
-        Uniform(0, g).observe(0)
-        return g
+# def test_metropolis_hastings_gamma():
+#     def gamma_model():
+#         g = Gamma(3, 2).sample()
+#         Uniform(0, g).observe(0)
+#         return g
 
-    mh_dist = MetropolisHastings(gamma_model, samples=10000, burn_in=0, thinning=1, seed=38837).run()
-    lw_dist = LikelihoodWeighting(gamma_model, samples=10000, seed=18837).run()
-    assert isclose(expectation(mh_dist), expectation(lw_dist), rtol=.05)
+#     mh_dist = MetropolisHastings(gamma_model, samples=10000, burn_in=0, thinning=1, seed=38837).run()
+#     lw_dist = LikelihoodWeighting(gamma_model, samples=10000, seed=18837).run()
+#     assert isclose(expectation(mh_dist), expectation(lw_dist), rtol=.05)
 
 def test_observations():
     def model_simple():
@@ -176,182 +176,3 @@ def test_observations():
         dist = _distribution_from_inference(LikelihoodWeighting(model, samples=samples, seed=seed).run())
         print('LikelihoodWeighting', dist)
         assert dist.isclose(expected_dist, atol=1e-1)
-
-        dist = _distribution_from_inference(MetropolisHastings(model, samples=samples, seed=seed).run())
-        print('MetropolisHastings', dist)
-        assert dist.isclose(expected_dist, atol=1e-1)
-
-@dataclasses.dataclass
-class DBResult:
-    db: Mapping[Hashable, Entry]
-    @property
-    def sample_count(self):
-        return sum(1 for entry in self.db.values() if entry.is_sample)
-    @property
-    def log_prior(self):
-        return sum(entry.log_prob for entry in self.db.values() if entry.is_sample)
-    @property
-    def log_likelihood(self):
-        return sum(entry.log_prob for entry in self.db.values() if not entry.is_sample)
-    def log_proposal(self, new: 'DBResult', sample_name: str):
-        '''
-        Log probability of proposing `new`, when starting from `self`.
-        '''
-        log_prior = 0
-        for new_name in (new.db.keys() - self.db.keys()) | {sample_name}:
-            new_entry = new.db[new_name]
-            if new_entry.is_sample:
-                log_prior += new_entry.log_prob
-        return math.log(1/self.sample_count) + log_prior
-    def acceptance_ratio(self, new_db: 'DBResult', proposal_name: str):
-        '''
-        This is a verbosely-computed acceptance ratio, assuming `new_db` is proposed
-        from the `self` DB.
-        '''
-        log_proposal_to_new = self.log_proposal(new_db, proposal_name)
-        log_proposal_to_old = new_db.log_proposal(self, proposal_name)
-        # These are unnormalized, but that is fine because we return a ratio
-        log_probability_new = new_db.log_prior + new_db.log_likelihood
-        log_probability_old = self.log_prior + self.log_likelihood
-        return (
-            log_probability_new + log_proposal_to_old
-            - (log_probability_old + log_proposal_to_new)
-        )
-
-def _db_from_trace(func, *, args=(), kwargs={}, trace=[]):
-    ps = CPSInterpreter().initial_program_state(func).step(*args, **kwargs)
-    db = {}
-    for dist, value in trace:
-        assert ps.distribution.isclose(dist)
-        if isinstance(ps, (SampleState, ObserveState)):
-            is_sample = isinstance(ps, SampleState)
-            if not is_sample:
-                assert isclose(ps.value, value)
-            log_prob = ps.distribution.log_probability(value)
-            db[ps.name] = Entry(ps.name, ps.distribution, value, log_prob, is_sample)
-            ps = ps.step(value) if is_sample else ps.step()
-        else:
-            assert False, f'Unexpected state {ps}'
-    assert isinstance(ps, ReturnState), f'Did not terminate in return state, instead: {ps}'
-    return DBResult(db)
-
-def test_db_result():
-    mh = MetropolisHastings(None, None)
-
-    def fn():
-        if Bernoulli(0.5).sample(name='choice'):
-            return Categorical(range(2)).sample(name='rv')
-        else:
-            Bernoulli(.8).observe(True)
-            return Categorical(range(3)).sample(name='rv')
-
-    def _test_acceptance(new_db, db, sample_name, expected_ratio):
-        assert isclose(db.acceptance_ratio(new_db, sample_name), expected_ratio)
-        assert isclose(new_db.acceptance_ratio(db, sample_name), -expected_ratio)
-        assert isclose(mh.calc_log_acceptance_ratio(sample_name, new_db.db, db.db), expected_ratio)
-        assert isclose(mh.calc_log_acceptance_ratio(sample_name, db.db, new_db.db), -expected_ratio)
-
-    db_result = _db_from_trace(fn, trace=[
-        (Bernoulli(0.5), 0),
-        (Bernoulli(.8), True),
-        (Categorical(range(3)), 1),
-    ])
-
-    assert db_result.sample_count == 2
-    assert db_result.log_prior == math.log(1/2 * 1/3)
-    assert db_result.log_likelihood == math.log(.8)
-    # Probabilities are: 1) choice among variables, then 2) choice among options for variable.
-    assert db_result.log_proposal(db_result, 'choice') == math.log(1/2) + math.log(1/2)
-    assert db_result.log_proposal(db_result, 'rv') == math.log(1/2) + math.log(1/3)
-    _test_acceptance(db_result, db_result, 'rv', 0)
-
-    # Trying a resampling of `rv`
-    new_db_result = _db_from_trace(fn, trace=[
-        (Bernoulli(0.5), 0),
-        (Bernoulli(.8), True),
-        (Categorical(range(3)), 2),
-    ])
-    # This probability is similar to above.
-    assert db_result.log_proposal(new_db_result, 'rv') == math.log(1/2) + math.log(1/3)
-    _test_acceptance(new_db_result, db_result, 'rv', 0)
-
-    # Trying a resampling of `choice`
-    new_db_result = _db_from_trace(fn, trace=[
-        (Bernoulli(0.5), 1),
-        (Categorical(range(2)), 1),
-    ])
-    # This probability is similar to above.
-    assert db_result.log_proposal(new_db_result, 'choice') == math.log(1/2) + math.log(1/2)
-    # Likelihood ratio. New trace at left, old trace at right.
-    ratio = math.log(1/2) - (math.log(1/3) + math.log(.8))
-    _test_acceptance(new_db_result, db_result, 'choice', ratio)
-
-def test_mh_acceptance_ratio():
-    def fn():
-        if Bernoulli(0.5).sample(name='choice'):
-            return Categorical(range(2)).sample(name='rv')
-        else:
-            return Categorical(range(3)).sample(name='rv')
-
-    db_result = _db_from_trace(fn, trace=[
-        (Bernoulli(0.5), 0),
-        (Categorical(range(3)), 1),
-    ])
-
-    new_db_result = _db_from_trace(fn, trace=[
-        (Bernoulli(0.5), 1),
-        (Categorical(range(2)), 1),
-    ])
-
-    # Only need score difference since proposal probabilities are the same.
-    # They're the same b/c we have the same # of variables and the resampled variable
-    # is uniform.
-    acceptance_ratio = new_db_result.log_prior - db_result.log_prior
-    assert isclose(acceptance_ratio, math.log((1/2) / (1/3)))
-    assert isclose(acceptance_ratio, db_result.acceptance_ratio(new_db_result, 'choice'))
-
-    mh = MetropolisHastings(None, None)
-    assert isclose(mh.calc_log_acceptance_ratio("choice", new_db_result.db, db_result.db), acceptance_ratio)
-    assert isclose(mh.calc_log_acceptance_ratio("choice", db_result.db, new_db_result.db), -acceptance_ratio)
-
-    #
-    # An example with observations in different branches
-    #
-
-    def fn():
-        if Bernoulli(0.5).sample(name='choice'):
-            return Categorical(range(2)).sample(name='rv')
-        else:
-            Bernoulli(.8).observe(True, name='obs')
-            return Categorical(range(3)).sample(name='rv')
-
-    db_result = _db_from_trace(fn, trace=[
-        (Bernoulli(0.5), 0),
-        (Bernoulli(0.8), True),
-        (Categorical(range(3)), 1),
-    ])
-
-    new_db_result = _db_from_trace(fn, trace=[
-        (Bernoulli(0.5), 1),
-        (Categorical(range(2)), 1),
-    ])
-
-    acceptance_ratio = db_result.acceptance_ratio(new_db_result, 'choice')
-    # Likelihood ratio. Left term is new DB, right term is old DB (including observe probability).
-    assert isclose(acceptance_ratio, math.log(1/2) - (math.log(1/3) + math.log(.8)))
-
-    assert isclose(mh.calc_log_acceptance_ratio("choice", new_db_result.db, db_result.db), acceptance_ratio)
-    assert isclose(mh.calc_log_acceptance_ratio("choice", db_result.db, new_db_result.db), -acceptance_ratio)
-
-
-def test_single_site_mh():
-    def fn():
-        if Bernoulli(.5).sample(name="choice"):
-            x = Categorical(['a', 'b'], probabilities=[.5, .5]).sample(name='x')
-        else:
-            x = Categorical(['c', 'b'], probabilities=[.8, .2]).sample(name='x')
-        return x
-    enum_dist = Enumeration(fn).run()
-    mh_dist = MetropolisHastings(fn, samples=10000, seed=124).run()
-    for e in enum_dist:
-        assert isclose(enum_dist[e], mh_dist[e], atol=1e-2)

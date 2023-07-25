@@ -17,7 +17,7 @@ from gorgo.inference.mcmc.diagnostics import MCMCDiagnostics, MCMCDiagnosticsEnt
 
 ProposalKernel = Callable[[SampleValue, SampleState], Distribution[SampleValue]]
 
-class SingleSiteMetropolisHastings:
+class MetropolisHastings:
     max_initial_trace_attempts = 1000
     def __init__(
         self,
@@ -95,18 +95,27 @@ class SingleSiteMetropolisHastings:
                     new_trace=old_trace,
                     rng=rng
                 )
-            new_score = new_trace.total_score
-            old_score = old_trace.total_score
-            log_acceptance_num = new_score + new_site_score + old_proposal_score
-            log_acceptance_den = old_score + old_site_score + new_proposal_score
+            log_acceptance_ratio = self.calc_log_acceptance_ratio(
+                new_score=new_trace.total_score,
+                old_score=old_trace.total_score,
+                new_site_score=new_site_score,
+                old_proposal_score=old_proposal_score,
+                old_site_score=old_site_score,
+                new_proposal_score=new_proposal_score
+            )
             log_acceptance_threshold = math.log(rng.random())
-            if log_acceptance_num == float('-inf'):
-                accept = False
-                log_acceptance_ratio = float('-inf')
-            else:
-                log_acceptance_ratio = log_acceptance_num - log_acceptance_den
-                assert not math.isnan(log_acceptance_ratio)
-                accept = log_acceptance_ratio > log_acceptance_threshold
+            # new_score = new_trace.total_score
+            # old_score = old_trace.total_score
+            # log_acceptance_num = new_score + new_site_score + old_proposal_score
+            # log_acceptance_den = old_score + old_site_score + new_proposal_score
+            # log_acceptance_threshold = math.log(rng.random())
+            # if log_acceptance_num == float('-inf'):
+            #     accept = False
+            #     log_acceptance_ratio = float('-inf')
+            # else:
+            #     log_acceptance_ratio = log_acceptance_num - log_acceptance_den
+            #     assert not math.isnan(log_acceptance_ratio)
+            accept = log_acceptance_ratio > log_acceptance_threshold
 
             if accept:
                 old_trace = new_trace
@@ -120,8 +129,6 @@ class SingleSiteMetropolisHastings:
                     sampled_trace=new_trace if accept else old_trace,
                     accept=accept,
                     log_acceptance_threshold=log_acceptance_threshold,
-                    log_acceptance_num=log_acceptance_num,
-                    log_acceptance_den=log_acceptance_den,
                     log_acceptance_ratio=log_acceptance_ratio,
                     save_sample=save_sample,
                     auxiliary_vars=target_site_name,
@@ -131,6 +138,24 @@ class SingleSiteMetropolisHastings:
             Categorical.from_dict({e: c/self.samples for e, c in return_counts.items()}),
             diagnostics
         )
+
+    def calc_log_acceptance_ratio(
+        self,
+        new_score,
+        old_score,
+        new_site_score,
+        old_proposal_score,
+        old_site_score,
+        new_proposal_score,
+    ):
+        log_acceptance_num = new_score + new_site_score + old_proposal_score
+        log_acceptance_den = old_score + old_site_score + new_proposal_score
+        if log_acceptance_num == float('-inf'):
+            return float('-inf')
+        else:
+            log_acceptance_ratio = log_acceptance_num - log_acceptance_den
+            assert not math.isnan(log_acceptance_ratio)
+            return log_acceptance_ratio
 
     def generate_initial_trace(
         self,

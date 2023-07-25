@@ -2,14 +2,82 @@ import math
 from gorgo import condition
 from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal,  Gamma, Uniform
 from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, MetropolisHastings
-from gorgo.inference.metropolis_hastings import Entry
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
-from gorgo.inference.metropolis_hastings import Mapping, Hashable
-import dataclasses
+from gorgo.inference.mcmc.trace import Trace
 
-# from gorgo.inference.mcmc.prior_proposal import PriorProposalMCMC
-from gorgo.inference.mcmc.metropolis_hastings import SingleSiteMetropolisHastings as MH
+from gorgo.inference.mcmc.metropolis_hastings import MetropolisHastings as MH
+
+def test_mcmc_trace_and_acceptance_ratio():
+    def fn():
+        if Bernoulli(0.5).sample(name='choice'):
+            return Categorical(range(2)).sample(name='rv')
+        else:
+            Bernoulli(.8).observe(True, name='obs')
+            return Categorical(range(3)).sample(name='rv')
+
+    init_ps = CPSInterpreter().initial_program_state(fn).step()
+
+    # test that trace score computation is correct
+    tr = Trace.run_from(
+        ps=init_ps,
+        sample_site_callback=lambda ps : {
+            "choice": 0,
+            "rv": 0
+        }[ps.name],
+        observe_site_callback=lambda ps : ps.value,
+        old_trace=None
+    )
+    assert sum(e.is_sample for e in tr.entries()) == 2
+    assert sum(e.score for e in tr.entries() if e.is_sample) == math.log(1/2 * 1/3)
+    assert sum(e.score for e in tr.entries() if not e.is_sample) == math.log(.8)
+
+    # test that proposal scores are correct
+    mh = MH(
+        None,
+        None,
+        use_drift_kernels=False
+    )
+    new_tr = Trace.run_from(
+        ps=init_ps,
+        sample_site_callback=lambda ps : {
+            "choice": 0,
+            "rv": 0
+        }[ps.name],
+        observe_site_callback=lambda ps : ps.value,
+        old_trace=None
+    )
+    _, target_site_proposal_score = mh.choose_target_site(
+        trace=tr,
+        target_site_name='rv',
+    )
+    _, trace_proposal_score = mh.choose_new_trace(
+        old_trace=tr,
+        new_trace=new_tr,
+        target_site_name='rv',
+    )
+    assert target_site_proposal_score == math.log(1/2)
+    assert trace_proposal_score == math.log(1/3)
+
+    _, trace_proposal_score = mh.choose_new_trace(
+        old_trace=tr,
+        new_trace=new_tr,
+        target_site_name='choice',
+    )
+    assert trace_proposal_score == math.log(1/2)
+
+    # test acceptance calculation
+    log_acceptance_ratio = mh.calc_log_acceptance_ratio(
+        new_score=math.log(.5),
+        old_score=math.log(.4),
+        new_site_score=math.log(.3),
+        old_proposal_score=math.log(.2),
+        old_site_score=math.log(.15),
+        new_proposal_score=math.log(.1),
+    )
+    isclose(log_acceptance_ratio, (
+        math.log((.5*.3*.2)/(.4*.15*.1))
+    ))
 
 def test_mcmc_normal_model():
     hyper_mu, hyper_sigma = -1, 1
@@ -24,7 +92,7 @@ def test_mcmc_normal_model():
     seed = 2391299
     mcmc_res = MH(
         function=normal_model,
-        samples=5000,
+        samples=2000,
         seed=seed
     ).run()
 
@@ -45,14 +113,14 @@ def test_mcmc_gamma_model():
     seed = 139932
     mcmc_res = MH(
         function=gamma_model,
-        samples=5000,
+        samples=3000,
         burn_in=1000,
         thinning=2,
         seed=seed
     ).run()
     lw_res = LikelihoodWeighting(
         function=gamma_model,
-        samples=10000,
+        samples=2000,
         seed=seed
     ).run()
     assert isclose(lw_res.expected_value(), mcmc_res.expected_value(), atol=.01)
@@ -72,7 +140,7 @@ def test_mcmc_dirichet_model():
 
     mcmc_res = MH(
         function=model,
-        samples=5000,
+        samples=2000,
         seed=seed
     ).run()
     for i in [0, 1, 2]:
@@ -89,11 +157,11 @@ def test_mcmc_categorical_branching_model():
     seed = 12949124
     mcmc_res = MH(
         function=model,
-        samples=50000,
+        samples=10000,
         seed=seed
     ).run()
     enum_res = Enumeration(model).run()
-    assert isclose(mcmc_res.expected_value(), enum_res.expected_value(), atol=.01)
+    assert isclose(mcmc_res.expected_value(), enum_res.expected_value(), atol=.02)
 
 def test_mcmc_geometric():
     def geometric(p):

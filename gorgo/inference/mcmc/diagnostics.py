@@ -9,8 +9,6 @@ class MCMCDiagnosticsEntry:
     old_trace : Trace
     new_trace : Trace
     log_acceptance_threshold : float
-    log_acceptance_num : float
-    log_acceptance_den : float
     log_acceptance_ratio : float
     sampled_trace : Trace
     accept : bool
