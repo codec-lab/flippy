@@ -1,4 +1,5 @@
 import math
+from functools import partial
 import abc
 from collections import defaultdict
 from typing import Callable, List, Union, Dict, Tuple, TypeVar
@@ -75,9 +76,9 @@ class MetropolisHastings:
         old_trace = initial_trace
         iterator = range(self.burn_in + self.samples*self.thinning)
         if self.verbose:
-            import tqdm
-            iterator = tqdm.tqdm(iterator)
+            from tqdm.notebook import tqdm
             print('Running MCMC')
+            iterator = tqdm(iterator)
         for i in iterator:
             target_site_name, old_site_score = \
                 self.choose_target_site(
@@ -170,9 +171,9 @@ class MetropolisHastings:
 
         iterator = range(self.max_initial_trace_attempts)
         if self.verbose:
-            import tqdm
-            iterator = tqdm.tqdm(iterator)
+            from tqdm.notebook import tqdm
             print('Generating initial trace')
+            iterator = tqdm(iterator)
         for i in iterator:
             trace = Trace.run_from(
                 ps=initial_program_state,
