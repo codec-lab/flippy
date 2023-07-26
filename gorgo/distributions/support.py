@@ -1,8 +1,11 @@
 import math
-from typing import Sequence, Set, Union
+from typing import Sequence, Set, Union, TYPE_CHECKING
 from itertools import combinations_with_replacement, product
 from gorgo.tools import isclose, ISCLOSE_RTOL, ISCLOSE_ATOL
 from functools import cached_property
+
+if TYPE_CHECKING:
+    from gorgo.distributions.base import Distribution
 
 Support = Union[
     Sequence,
@@ -86,3 +89,10 @@ class OrderedIntegerPartitions:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(total={self.total}, partitions={self.partitions})"
+
+class MixtureSupport:
+    def __init__(self, distributions : Sequence['Distribution']):
+        self.distributions = distributions
+
+    def __contains__(self, element):
+        return any(element in d.support for d in self.distributions)

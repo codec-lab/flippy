@@ -6,7 +6,7 @@ from gorgo.tools import isclose, ISCLOSE_ATOL, ISCLOSE_RTOL
 from functools import cached_property
 from gorgo.distributions.base import Distribution, FiniteDistribution, Element
 from gorgo.distributions.support import \
-    ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions
+    ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions, MixtureSupport
 from gorgo.distributions.random import default_rng
 
 __all__ = [
@@ -356,3 +356,48 @@ class DirichletMultinomial(FiniteDistribution):
             if x > 0
         )
         return math.log(num/den)
+
+class Mixture(Distribution):
+    def __init__(self, distributions : Sequence[Distribution], weights : Sequence[float] = None):
+        if weights is None:
+            weights = [1 / len(distributions) for _ in distributions]
+        assert len(distributions) == len(weights), "Must have a weight for each distribution"
+        assert isclose(sum(weights), 1), "Weights must sum to 1"
+        self.distributions = distributions
+        self.weights = weights
+
+    @cached_property
+    def support(self):
+        return MixtureSupport(self.distributions)
+
+    def sample(self, rng=default_rng, name=None) -> Element:
+        dist = rng.choices(self.distributions, weights=self.weights)[0]
+        return dist.sample(rng=rng, name=name)
+
+    def log_probability(self, element : Element) -> float:
+        total_prob = 0
+        for dist, weight in zip(self.distributions, self.weights):
+            prob = weight * dist.prob(element)
+            if prob == 0:
+                return float("-inf")
+            total_prob += weight * dist.prob(element)
+        return math.log(total_prob)
+
+    def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
+        total_expected_value = 0
+        for dist, weight in zip(self.distributions, self.weights):
+            total_expected_value += weight * dist.expected_value(func=func)
+        return total_expected_value
+
+    def plot(self, *, ax=None, xmin=None, xmax=None, **kwargs):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        if ax is None:
+            fig, ax = plt.subplots()
+        if xmin is None:
+            xmin = min([d.support.start for d in self.distributions])
+        if xmax is None:
+            xmax = max([d.support.end for d in self.distributions])
+        x = np.linspace(xmin, xmax, 1000)
+        ax.plot(x, [self.prob(i) for i in x], **kwargs)
+        return ax
