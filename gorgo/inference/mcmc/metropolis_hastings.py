@@ -32,6 +32,7 @@ class MetropolisHastings:
         simplex_proposal_kernel_alpha : float = 10,
         custom_proposal_kernels : Callable[[VariableName], ProposalKernel] = None,
         custom_initial_trace_kernel : Callable[[VariableName], SampleValue] = None,
+        verbose : bool = False
     ):
         self.function = function
         self.samples = samples
@@ -44,6 +45,7 @@ class MetropolisHastings:
         self.simplex_proposal_kernel_alpha = simplex_proposal_kernel_alpha
         self.custom_proposal_kernels = custom_proposal_kernels
         self.custom_initial_trace_kernel = custom_initial_trace_kernel
+        self.verbose = verbose
 
     def run(self, *args, **kws) -> Distribution:
         self.save_diagnostics = False
@@ -71,7 +73,12 @@ class MetropolisHastings:
         diagnostics = MCMCDiagnostics()
         return_counts = defaultdict(int)
         old_trace = initial_trace
-        for i in range(self.burn_in + self.samples*self.thinning):
+        iterator = range(self.burn_in + self.samples*self.thinning)
+        if self.verbose:
+            import tqdm
+            iterator = tqdm.tqdm(iterator)
+            print('Running MCMC')
+        for i in iterator:
             target_site_name, old_site_score = \
                 self.choose_target_site(
                     trace=old_trace,
@@ -161,7 +168,12 @@ class MetropolisHastings:
                 return ps.distribution.sample(rng=rng)
             return value
 
-        for i in range(self.max_initial_trace_attempts):
+        iterator = range(self.max_initial_trace_attempts)
+        if self.verbose:
+            import tqdm
+            iterator = tqdm.tqdm(iterator)
+            print('Generating initial trace')
+        for i in iterator:
             trace = Trace.run_from(
                 ps=initial_program_state,
                 old_trace=None,
