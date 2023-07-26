@@ -79,3 +79,5 @@ class FiniteDistribution(Distribution):
     def __iter__(self):
         yield from self.support
 
+class Multivariate:
+    size : int = 1

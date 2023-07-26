@@ -1,7 +1,7 @@
 import math
 import random
 from itertools import product
-from gorgo.distributions import Categorical, Bernoulli, Multinomial, DirichletMultinomial
+from gorgo.distributions.builtin_dists import Categorical, Bernoulli, Multinomial, DirichletMultinomial
 from gorgo.distributions.random import RandomNumberGenerator
 from gorgo.tools import isclose
 

@@ -204,6 +204,15 @@ class Beta(Distribution):
             return math.log(prob) if prob != 0 else float('-inf')
         return float('-inf')
 
+    def plot(self, ax=None, bins=100, **kwargs):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        if ax is None:
+            fig, ax = plt.subplots()
+        x = np.linspace(0, 1, 1000)
+        ax.plot(x, [self.prob(i) for i in x], **kwargs)
+        return ax
+
 
 class Binomial(Distribution):
     def __init__(self, trials : int, p : float):

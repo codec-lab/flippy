@@ -5,22 +5,23 @@ import abc
 from typing import Union, Tuple, Callable
 from functools import cached_property
 
-from gorgo.distributions.base import Distribution, Element
-from gorgo.distributions.support import ClosedInterval
+from gorgo.distributions.base import Distribution, Element, FiniteDistribution, Multivariate
+from gorgo.distributions.support import ClosedInterval, CrossProduct
 from gorgo.distributions.random import RandomNumberGenerator, default_rng
 from gorgo.tools import isclose
 
 from scipy.stats import rv_continuous, rv_discrete
-from scipy.stats import norm, uniform, beta, gamma, poisson
+from scipy.stats import norm, uniform, beta, gamma, poisson, bernoulli
 
 __all__ = [
     "Normal",
     "Uniform",
     "Gamma",
     "Beta",
+    "Bernoulli"
 ]
 
-class ScipyContinuousDistribution(Distribution):
+class ScipyContinuousDistribution(Distribution, Multivariate):
     loc = 0
     scale = 1
     size = 1
@@ -108,6 +109,15 @@ class ScipyContinuousDistribution(Distribution):
             *self.base_distribution.support(*self.args, loc=self.loc, scale=self.scale)
         )
 
+    def plot(self, ax=None, bins=100, **kwargs):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        if ax is None:
+            fig, ax = plt.subplots()
+        x = np.linspace(0, 1, 1000)
+        ax.plot(x, [self.prob(i) for i in x], **kwargs)
+        return ax
+
 # Common parameterizations of scipy distributions
 
 class Normal(ScipyContinuousDistribution):
@@ -151,3 +161,44 @@ class Beta(ScipyContinuousDistribution):
 
     def __repr__(self) -> str:
         return f"Beta(alpha={self.alpha}, beta={self.beta}, size={self.size})"
+
+
+class Bernoulli(FiniteDistribution, Multivariate):
+    def __init__(self, p=0.5, size=1):
+        self.p = p
+        self.size = size
+
+    @cached_property
+    def support(self) -> Tuple:
+        if self.size == 1:
+            return (0, 1)
+        return CrossProduct([(0, 1)] * self.size)
+
+    def __repr__(self) -> str:
+        return f"Bernoulli(p={self.p}, size={self.size})"
+
+    def sample(self, rng : RandomNumberGenerator = default_rng, name=None) -> Sequence[Element]:
+        s = bernoulli.rvs(self.p, size=self.size, random_state=rng.np)
+        if self.size == 1:
+            return s[0]
+        return tuple(s)
+
+    def observe(self, value : Sequence[Element]) -> None:
+        pass
+
+    def log_probabilities(self, element : Sequence[Element]) -> Sequence[float]:
+        return bernoulli.logpmf(element, self.p)
+
+    def log_probability(self, element : Sequence[Element]) -> float:
+        logprobs = self.log_probabilities(element)
+        if isinstance(logprobs, float):
+            return logprobs
+        return sum(logprobs)
+
+    def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
+        return self.p
+
+    def isclose(self, other: "Distribution") -> bool:
+        if not isinstance(other, Bernoulli):
+            return False
+        return self.p == other.p
