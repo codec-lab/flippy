@@ -1,6 +1,6 @@
 import math
 from gorgo import condition
-from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal,  Gamma, Uniform
+from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal,  Gamma, Uniform, Beta
 from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, MetropolisHastings
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
@@ -146,6 +146,26 @@ def test_mcmc_dirichet_model():
     for i in [0, 1, 2]:
         est_c1_i = mcmc_res.expected_value(lambda e: e[i])
         assert isclose(est_c1_i, exp_c1[i], atol=.01)
+
+def test_mcmc_beta_model():
+    c1_data = [1]*10 + [0]*10
+    def model():
+        p = Beta(3, 2).sample(name='p')
+        bern = Bernoulli(p)
+        [bern.observe(d) for d in c1_data]
+        return p
+
+    seed = 13842
+    exp_p = (3+10) / (3+10 + 2+10)
+
+    mcmc_res = MH(
+        function=model,
+        samples=1000,
+        seed=seed
+    ).run()
+    est_p = mcmc_res.expected_value()
+    assert isclose(est_p, exp_p, atol=.01)
+
 
 def test_mcmc_categorical_branching_model():
     def model():
