@@ -286,16 +286,20 @@ class MetropolisHastings:
         if isinstance(program_state.distribution, Beta):
             if isclose(old_value, 0) or isclose(old_value, 1):
                 return program_state.distribution
+            # This is the Beta version of the Dirichlet kernel below
             return Beta(
                 alpha=old_value*self.simplex_proposal_kernel_alpha,
                 beta=(1 - old_value)*self.simplex_proposal_kernel_alpha
             )
         elif isinstance(program_state.distribution.support, ClosedInterval):
+            # Note that this should be automatically clipped for values out of
+            # bounds by setting the score to -inf
             return Uniform(
                 old_value - self.uniform_drift_kernel_width/2,
                 old_value + self.uniform_drift_kernel_width/2
             )
         elif isinstance(program_state.distribution.support, Simplex):
+            # This implementation is borrowed from WebPPL
             return Dirichlet([
                 v*self.simplex_proposal_kernel_alpha for v in old_value
             ])
