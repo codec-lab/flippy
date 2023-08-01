@@ -2,11 +2,8 @@ import math
 from gorgo import _distribution_from_inference
 from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal, Gamma, Uniform
 from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting
-from gorgo.inference.metropolis_hastings import Entry
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
-from gorgo.inference.metropolis_hastings import Mapping, Hashable
-import dataclasses
 
 def geometric(p):
     '''
@@ -58,84 +55,11 @@ def test_likelihood_weighting_and_sample_prior():
 
     assert isclose(expected, prior_exp, atol=1e-2), 'Should be somewhat close to expected value'
 
-# def test_metropolis_hastings():
-#     param = 0.98
-#     expected = 1/param
-
-#     seed = 13842
-
-#     mh_dist = MetropolisHastings(geometric, samples=1000, burn_in=0, thinning=5, seed=seed).run(param)
-#     mh_exp = expectation(_distribution_from_inference(mh_dist))
-#     assert isclose(expected, mh_exp, atol=1e-2), 'Should be somewhat close to expected value'
-
 import numpy as np
 def cosine_similarity(a, b):
     a = np.array(a)
     b = np.array(b)
     return (a@b)/((a**2).sum() * (b**2).sum())**.5
-
-# def test_metropolis_hastings_dirichlet_categorical():
-#     c1_params = [1, 1, 1]
-#     c1_data = list('ababababacc')*2
-#     def model():
-#         c1 = Dirichlet(c1_params).sample(name='c1')
-#         dist1 = Categorical(support=list('abc'), probabilities=c1)
-#         [dist1.observe(d) for d in c1_data]
-#         return c1
-#     seed = 13842
-#     exp_c1 = [n + sum([d == c for d in c1_data]) for c, n in zip('abc', c1_params)]
-#     exp_c1 = [n / sum(exp_c1) for n in exp_c1]
-
-#     mh_params = dict(
-#         function=model,
-#         samples=1000,
-#         burn_in=500,
-#         thinning=2,
-#         seed=seed
-#     )
-
-#     # test without/with drift kernel
-#     mh_dist = MetropolisHastings(
-#         **mh_params,
-#         uniform_drift_kernel_width=None,
-#     ).run()
-#     est_c1 = mh_dist.expected_value(lambda c1: np.array(c1))
-#     assert cosine_similarity(exp_c1, est_c1) > .99
-
-#     mh_dist = MetropolisHastings(
-#         **mh_params,
-#         uniform_drift_kernel_width=.15,
-#     ).run()
-#     est_c1 = mh_dist.expected_value(lambda c1: np.array(c1))
-#     assert cosine_similarity(exp_c1, est_c1) > .99
-
-# def test_metropolis_hastings_normal_normal():
-#     hyper_mu, hyper_sigma = 1.4, 2
-#     obs = [-.75]
-#     sigma = 1
-#     def normal_model():
-#         mu = Normal(hyper_mu, hyper_sigma).sample(name='mu')
-#         Normal(mu, sigma).observe(obs)
-#         return mu
-
-#     seed = 2191299
-#     new_sigma = 1/(1/(hyper_sigma**2) + len(obs)/(sigma**2))
-#     new_mu = (hyper_mu/(hyper_sigma**2) + sum(obs)/(sigma**2))*new_sigma
-
-#     mh_dist = MetropolisHastings(normal_model, samples=20000, burn_in=0, thinning=1, seed=seed).run()
-#     mh_dist = _distribution_from_inference(mh_dist)
-#     mh_exp = expectation(mh_dist)
-#     assert isclose(new_mu, mh_exp, atol=1e-2), (new_mu, mh_exp)
-
-# def test_metropolis_hastings_gamma():
-#     def gamma_model():
-#         g = Gamma(3, 2).sample()
-#         Uniform(0, g).observe(0)
-#         return g
-
-#     mh_dist = MetropolisHastings(gamma_model, samples=10000, burn_in=0, thinning=1, seed=38837).run()
-#     lw_dist = LikelihoodWeighting(gamma_model, samples=10000, seed=18837).run()
-#     assert isclose(expectation(mh_dist), expectation(lw_dist), rtol=.05)
 
 def test_observations():
     def model_simple():
