@@ -22,6 +22,7 @@ __all__ = [
     "BetaBinomial",
     "Dirichlet",
     "DirichletMultinomial",
+    "Mixture"
 ]
 
 def beta_function(*alphas):

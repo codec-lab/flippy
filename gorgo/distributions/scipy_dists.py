@@ -109,12 +109,16 @@ class ScipyContinuousDistribution(Distribution, Multivariate):
             *self.base_distribution.support(*self.args, loc=self.loc, scale=self.scale)
         )
 
-    def plot(self, ax=None, bins=100, **kwargs):
+    def plot(self, ax=None, xlim=(None, None), **kwargs):
         import matplotlib.pyplot as plt
         import numpy as np
         if ax is None:
             fig, ax = plt.subplots()
-        x = np.linspace(0, 1, 1000)
+        if xlim[0] is None:
+            xlim = (max(self.support.start, -10), xlim[1])
+        if xlim[1] is None:
+            xlim = (xlim[0], min(self.support.end, 10))
+        x = np.linspace(*xlim, 1000)
         ax.plot(x, [self.prob(i) for i in x], **kwargs)
         return ax
 
@@ -165,7 +169,7 @@ class Beta(ScipyContinuousDistribution):
 
 class Bernoulli(FiniteDistribution, Multivariate):
     def __init__(self, p=0.5, size=1):
-        self.p = p
+        self.p = float(p)
         self.size = size
 
     @cached_property
