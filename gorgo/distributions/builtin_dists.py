@@ -25,7 +25,7 @@ __all__ = [
 ]
 
 def beta_function(*alphas):
-    num = math.prod(math.gamma(a) for a in alphas)
+    num = math.prod(math.gamma(a) if not isclose(a, 0) else float('inf') for a in alphas)
     den = math.gamma(sum(alphas))
     return num/den
 
@@ -308,8 +308,12 @@ class Dirichlet(Distribution):
     def log_probability(self, vec):
         if vec in self.support:
             num = math.prod(v**(a - 1) for v, a in zip(vec, self.alphas))
-            return math.log(num/beta_function(*self.alphas))
+            prob = num/beta_function(*self.alphas)
+            return math.log(prob) if prob != 0 else float('-inf')
         return float('-inf')
+
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}(alphas={self.alphas})'
 
 
 class DirichletMultinomial(FiniteDistribution):

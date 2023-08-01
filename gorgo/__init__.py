@@ -4,6 +4,7 @@ from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
 from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform
+from gorgo.distributions.random import default_rng
 from gorgo.core import global_store
 
 __all__ = [
@@ -96,8 +97,8 @@ def factor(score):
 def condition(cond):
     _factor_dist.observe(0 if cond else -float("inf"))
 
-def flip(p=.5):
-    return Bernoulli(p).sample()
+def flip(p=.5, name=None):
+    return Bernoulli(p).sample(name=name)
 
 def draw_from(n):
     if isinstance(n, int):

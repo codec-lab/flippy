@@ -8,6 +8,7 @@ from functools import cached_property
 from gorgo.distributions.base import Distribution, Element
 from gorgo.distributions.support import ClosedInterval
 from gorgo.distributions.random import RandomNumberGenerator, default_rng
+from gorgo.tools import isclose
 
 from scipy.stats import rv_continuous, rv_discrete
 from scipy.stats import norm, uniform, beta, gamma, poisson
@@ -142,9 +143,11 @@ class Gamma(ScipyContinuousDistribution):
 class Beta(ScipyContinuousDistribution):
     base_distribution = beta
     def __init__(self, alpha=1, beta=1, size=1):
+        assert not isclose(alpha, 0) and not isclose(beta, 0), "alpha and beta must be non-zero"
         self.args = (alpha, beta)
         self.alpha = alpha
         self.beta = beta
         self.size = size
+
     def __repr__(self) -> str:
         return f"Beta(alpha={self.alpha}, beta={self.beta}, size={self.size})"
