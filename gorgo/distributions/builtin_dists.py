@@ -301,6 +301,15 @@ class BetaBinomial(FiniteDistribution):
             return math.log(prob)
         return float('-inf')
 
+    def update(self, data: Sequence[int]) -> 'BetaBinomial':
+        assert all(0 <= d <= self.trials for d in data)
+        new_alpha = self.alpha + sum(data)
+        new_beta = self.beta + self.trials*len(data) - sum(data)
+        return BetaBinomial(trials=self.trials, alpha=new_alpha, beta=new_beta)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(trials={self.trials}, alpha={self.alpha}, beta={self.beta})"
+
 
 class Dirichlet(Distribution):
     def __init__(self, alphas):
@@ -327,7 +336,7 @@ class Dirichlet(Distribution):
 
 
 class DirichletMultinomial(FiniteDistribution):
-    def __init__(self, trials, alphas):
+    def __init__(self, trials : int, alphas : Sequence[float]):
         self.alphas = alphas
         self.trials = trials
 
@@ -347,7 +356,7 @@ class DirichletMultinomial(FiniteDistribution):
         counts = Counter(samples)
         return tuple(counts.get(i, 0) for i in range(len(self.alphas)))
 
-    def log_probability(self, vec):
+    def log_probability(self, vec : Tuple[int, ...]) -> float:
         if vec not in self.support:
             return float('-inf')
         assert len(vec) == len(self.alphas)
@@ -357,6 +366,16 @@ class DirichletMultinomial(FiniteDistribution):
             if x > 0
         )
         return math.log(num/den)
+
+    def update(self, data : Sequence[Tuple[int, ...]]) -> 'DirichletMultinomial':
+        assert all(len(d) == len(self.alphas) for d in data)
+        assert all(sum(d) == self.trials for d in data)
+        cat_counts = zip(*data)
+        new_alphas = tuple(a + sum(c) for a, c in zip(self.alphas, cat_counts))
+        return DirichletMultinomial(trials=self.trials, alphas=new_alphas)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(trials={self.trials}, alphas={self.alphas})"
 
 class Mixture(Distribution):
     def __init__(self, distributions : Sequence[Distribution], weights : Sequence[float] = None):

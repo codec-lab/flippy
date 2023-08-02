@@ -1,7 +1,10 @@
 import math
 import random
 from itertools import product
-from gorgo.distributions.builtin_dists import Categorical, Bernoulli, Multinomial, DirichletMultinomial
+from gorgo.distributions.builtin_dists import Categorical, Bernoulli, \
+    Multinomial, DirichletMultinomial, Dirichlet, Multinomial, Beta, \
+    Binomial, BetaBinomial
+from gorgo.inference import LikelihoodWeighting
 from gorgo.distributions.random import RandomNumberGenerator
 from gorgo.tools import isclose
 
@@ -72,6 +75,42 @@ def test_DirichletMultinomial_pdf():
         prob = lambda v : math.exp(dist.log_probability(v))
         tot = sum([prob(v) for v in support])
         assert isclose(1.0, tot), (tot, (balls, bins))
+
+def test_dirichletmultinomial_update():
+    data = [(0, 1, 0), (0, 1, 0), (0, 0, 1), (0, 0, 1)]
+
+    def model():
+        p = Dirichlet([1, 1, 1]).sample()
+        dist = Multinomial(categorical_support=range(len(p)), trials=1, probabilities=p)
+        [dist.observe(d) for d in data]
+        return dist.sample()
+
+    seed = 139491
+    res = LikelihoodWeighting(model, samples=2000, seed=seed).run()
+
+    dist = DirichletMultinomial(trials=1, alphas=[1, 1, 1])
+    dist2 = dist.update(data)
+
+    for e in dist2.support:
+        assert isclose(dist2.prob(e), res.prob(e), atol=.01)
+
+def test_betabinomial_update():
+    data = [0]*3 + [1]*2 + [2]*1
+
+    def model():
+        p = Beta(1, 2).sample()
+        dist = Binomial(trials=3, p=p)
+        [dist.observe(d) for d in data]
+        return dist.sample()
+
+    seed = 139421
+    res = LikelihoodWeighting(model, samples=10000, seed=seed).run()
+
+    dist = BetaBinomial(trials=3, alpha=1, beta=1)
+    dist2 = dist.update(data)
+    for e in dist2.support:
+        assert isclose(dist2.prob(e), res.prob(e), atol=.05)
+
 
 def test_random_number_generation():
     rng1a = RandomNumberGenerator(20)
