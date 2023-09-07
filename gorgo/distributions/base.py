@@ -34,6 +34,9 @@ class Distribution(Generic[Element]):
     def plot(self, ax=None, **kws):
         raise NotImplementedError
 
+    def update(self, data : Sequence[Element]):
+        raise NotImplementedError
+
 
 class FiniteDistribution(Distribution):
     support: Sequence[Element]
@@ -79,3 +82,5 @@ class FiniteDistribution(Distribution):
     def __iter__(self):
         yield from self.support
 
+class Multivariate:
+    size : int = 1

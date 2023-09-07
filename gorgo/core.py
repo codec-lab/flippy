@@ -16,6 +16,7 @@ StackFrame = namedtuple("StackFrame", "func_src lineno locals")
 Continuation = Callable[..., Callable[[], Any]]
 VariableName = Hashable
 SampleValue = Any
+ReturnValue = Any
 
 class ProgramState:
     def __init__(
@@ -128,7 +129,7 @@ class SampleState(ProgramState):
         self.distribution = distribution
 
 class ReturnState(ProgramState):
-    def __init__(self, value: Any):
+    def __init__(self, value: ReturnValue):
         self.value = value
         self._name = "RETURN_STATE"
 

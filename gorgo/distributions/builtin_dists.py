@@ -6,7 +6,7 @@ from gorgo.tools import isclose, ISCLOSE_ATOL, ISCLOSE_RTOL
 from functools import cached_property
 from gorgo.distributions.base import Distribution, FiniteDistribution, Element
 from gorgo.distributions.support import \
-    ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions
+    ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions, MixtureSupport
 from gorgo.distributions.random import default_rng
 
 __all__ = [
@@ -14,6 +14,8 @@ __all__ = [
     "Categorical",
     "Multinomial",
     "Gaussian",
+    "Normal",
+    "Gamma",
     "Uniform",
     "Beta",
     "Binomial",
@@ -22,6 +24,7 @@ __all__ = [
     "BetaBinomial",
     "Dirichlet",
     "DirichletMultinomial",
+    "Mixture"
 ]
 
 def beta_function(*alphas):
@@ -171,6 +174,7 @@ class Gaussian(Distribution):
             self.sd*(2*math.pi)**.5
         )
         return math.log(prob) if prob > 0. else float('-inf')
+Normal = Gaussian
 
 
 class Uniform(Distribution):
@@ -203,6 +207,15 @@ class Beta(Distribution):
             prob = num/beta_function(self.a, self.b)
             return math.log(prob) if prob != 0 else float('-inf')
         return float('-inf')
+
+    def plot(self, ax=None, bins=100, **kwargs):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        if ax is None:
+            fig, ax = plt.subplots()
+        x = np.linspace(0, 1, 1000)
+        ax.plot(x, [self.prob(i) for i in x], **kwargs)
+        return ax
 
 
 class Binomial(Distribution):
@@ -267,6 +280,27 @@ class Poisson(Distribution):
         prob = (self.rate**k)*math.exp(-self.rate)/math.factorial(k)
         return math.log(prob)
 
+class Gamma(Distribution):
+    support = ClosedInterval(0, float('inf'))
+    def __init__(self, shape, rate):
+        self.shape = shape
+        self.rate = rate
+
+    def sample(self, rng=default_rng, name=None) -> float:
+        # uses the shape, scale parameterization
+        return rng.gammavariate(self.shape, 1/self.rate)
+
+    def log_probability(self, element):
+        if element in self.support:
+            prob = (
+                (self.rate**self.shape)*\
+                (element**(self.shape - 1))*\
+                math.exp(-self.rate*element)
+            )/(
+                math.gamma(self.shape)
+            )
+            return math.log(prob) if prob != 0 else float('-inf')
+        return float('-inf')
 
 class BetaBinomial(FiniteDistribution):
     def __init__(self, trials : int, alpha=1, beta=1):
@@ -290,6 +324,15 @@ class BetaBinomial(FiniteDistribution):
             )
             return math.log(prob)
         return float('-inf')
+
+    def update(self, data: Sequence[int]) -> 'BetaBinomial':
+        assert all(0 <= d <= self.trials for d in data)
+        new_alpha = self.alpha + sum(data)
+        new_beta = self.beta + self.trials*len(data) - sum(data)
+        return BetaBinomial(trials=self.trials, alpha=new_alpha, beta=new_beta)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(trials={self.trials}, alpha={self.alpha}, beta={self.beta})"
 
 
 class Dirichlet(Distribution):
@@ -317,7 +360,7 @@ class Dirichlet(Distribution):
 
 
 class DirichletMultinomial(FiniteDistribution):
-    def __init__(self, trials, alphas):
+    def __init__(self, trials : int, alphas : Sequence[float]):
         self.alphas = alphas
         self.trials = trials
 
@@ -337,7 +380,7 @@ class DirichletMultinomial(FiniteDistribution):
         counts = Counter(samples)
         return tuple(counts.get(i, 0) for i in range(len(self.alphas)))
 
-    def log_probability(self, vec):
+    def log_probability(self, vec : Tuple[int, ...]) -> float:
         if vec not in self.support:
             return float('-inf')
         assert len(vec) == len(self.alphas)
@@ -347,3 +390,58 @@ class DirichletMultinomial(FiniteDistribution):
             if x > 0
         )
         return math.log(num/den)
+
+    def update(self, data : Sequence[Tuple[int, ...]]) -> 'DirichletMultinomial':
+        assert all(len(d) == len(self.alphas) for d in data)
+        assert all(sum(d) == self.trials for d in data)
+        cat_counts = zip(*data)
+        new_alphas = tuple(a + sum(c) for a, c in zip(self.alphas, cat_counts))
+        return DirichletMultinomial(trials=self.trials, alphas=new_alphas)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(trials={self.trials}, alphas={self.alphas})"
+
+class Mixture(Distribution):
+    def __init__(self, distributions : Sequence[Distribution], weights : Sequence[float] = None):
+        if weights is None:
+            weights = [1 / len(distributions) for _ in distributions]
+        assert len(distributions) == len(weights), "Must have a weight for each distribution"
+        assert isclose(sum(weights), 1), "Weights must sum to 1"
+        self.distributions = distributions
+        self.weights = weights
+
+    @cached_property
+    def support(self):
+        return MixtureSupport(self.distributions)
+
+    def sample(self, rng=default_rng, name=None) -> Element:
+        dist = rng.choices(self.distributions, weights=self.weights)[0]
+        return dist.sample(rng=rng, name=name)
+
+    def log_probability(self, element : Element) -> float:
+        total_prob = 0
+        for dist, weight in zip(self.distributions, self.weights):
+            prob = weight * dist.prob(element)
+            if prob == 0:
+                return float("-inf")
+            total_prob += weight * dist.prob(element)
+        return math.log(total_prob)
+
+    def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
+        total_expected_value = 0
+        for dist, weight in zip(self.distributions, self.weights):
+            total_expected_value += weight * dist.expected_value(func=func)
+        return total_expected_value
+
+    def plot(self, *, ax=None, xmin=None, xmax=None, **kwargs):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        if ax is None:
+            fig, ax = plt.subplots()
+        if xmin is None:
+            xmin = min([d.support.start for d in self.distributions])
+        if xmax is None:
+            xmax = max([d.support.end for d in self.distributions])
+        x = np.linspace(xmin, xmax, 1000)
+        ax.plot(x, [self.prob(i) for i in x], **kwargs)
+        return ax

@@ -1,9 +1,21 @@
-from typing import Sequence, Set, Union
-from itertools import combinations_with_replacement
+import math
+from typing import Sequence, Set, Union, TYPE_CHECKING
+from itertools import combinations_with_replacement, product
 from gorgo.tools import isclose, ISCLOSE_RTOL, ISCLOSE_ATOL
 from functools import cached_property
 
-Support = Union[Sequence, Set, 'ClosedInterval', 'IntegerInterval', 'Simplex', 'OrderedIntegerPartitions']
+if TYPE_CHECKING:
+    from gorgo.distributions.base import Distribution
+
+Support = Union[
+    Sequence,
+    Set,
+    'ClosedInterval',
+    'IntegerInterval',
+    'Simplex',
+    'OrderedIntegerPartitions',
+    'CrossProduct'
+]
 
 class ClosedInterval:
     def __init__(self, start, end):
@@ -13,6 +25,19 @@ class ClosedInterval:
         return self.start <= ele <= self.end
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.start}, {self.end})"
+
+
+class CrossProduct:
+    def __init__(self, *seqs):
+        self.seqs = seqs
+    def __contains__(self, vec):
+        return len(vec) == len(self.seqs) and all(e in s for e, s in zip(vec, self.seqs))
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({', '.join(map(repr, self.seqs))})"
+    def __iter__(self):
+        yield from product(*self.seqs)
+    def __len__(self):
+        return math.prod([len(s) for s in self.seqs])
 
 
 class IntegerInterval(ClosedInterval):
@@ -64,3 +89,10 @@ class OrderedIntegerPartitions:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(total={self.total}, partitions={self.partitions})"
+
+class MixtureSupport:
+    def __init__(self, distributions : Sequence['Distribution']):
+        self.distributions = distributions
+
+    def __contains__(self, element):
+        return any(element in d.support for d in self.distributions)

@@ -5,22 +5,24 @@ import abc
 from typing import Union, Tuple, Callable
 from functools import cached_property
 
-from gorgo.distributions.base import Distribution, Element
-from gorgo.distributions.support import ClosedInterval
+from gorgo.distributions.base import Distribution, Element, FiniteDistribution, Multivariate
+from gorgo.distributions.support import ClosedInterval, CrossProduct
 from gorgo.distributions.random import RandomNumberGenerator, default_rng
 from gorgo.tools import isclose
 
 from scipy.stats import rv_continuous, rv_discrete
-from scipy.stats import norm, uniform, beta, gamma, poisson
+from scipy.stats import norm, uniform, beta, gamma, poisson, bernoulli
 
 __all__ = [
     "Normal",
     "Uniform",
     "Gamma",
     "Beta",
+    "Bernoulli",
+    "NormalNormal",
 ]
 
-class ScipyContinuousDistribution(Distribution):
+class ScipyContinuousDistribution(Distribution, Multivariate):
     loc = 0
     scale = 1
     size = 1
@@ -108,6 +110,19 @@ class ScipyContinuousDistribution(Distribution):
             *self.base_distribution.support(*self.args, loc=self.loc, scale=self.scale)
         )
 
+    def plot(self, ax=None, xlim=(None, None), **kwargs):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        if ax is None:
+            fig, ax = plt.subplots()
+        if xlim[0] is None:
+            xlim = (max(self.support.start, -10), xlim[1])
+        if xlim[1] is None:
+            xlim = (xlim[0], min(self.support.end, 10))
+        x = np.linspace(*xlim, 1000)
+        ax.plot(x, [self.prob(i) for i in x], **kwargs)
+        return ax
+
 # Common parameterizations of scipy distributions
 
 class Normal(ScipyContinuousDistribution):
@@ -151,3 +166,86 @@ class Beta(ScipyContinuousDistribution):
 
     def __repr__(self) -> str:
         return f"Beta(alpha={self.alpha}, beta={self.beta}, size={self.size})"
+
+
+class Bernoulli(FiniteDistribution, Multivariate):
+    def __init__(self, p=0.5, size=1):
+        self.p = float(p)
+        self.size = size
+
+    @cached_property
+    def support(self) -> Tuple:
+        if self.size == 1:
+            return (0, 1)
+        return CrossProduct([(0, 1)] * self.size)
+
+    def __repr__(self) -> str:
+        return f"Bernoulli(p={self.p}, size={self.size})"
+
+    def sample(self, rng : RandomNumberGenerator = default_rng, name=None) -> Sequence[Element]:
+        s = bernoulli.rvs(self.p, size=self.size, random_state=rng.np)
+        if self.size == 1:
+            return s[0]
+        return tuple(s)
+
+    def observe(self, value : Sequence[Element]) -> None:
+        pass
+
+    def log_probabilities(self, element : Sequence[Element]) -> Sequence[float]:
+        return bernoulli.logpmf(element, self.p)
+
+    def log_probability(self, element : Sequence[Element]) -> float:
+        logprobs = self.log_probabilities(element)
+        if isinstance(logprobs, float):
+            return logprobs
+        return sum(logprobs)
+
+    def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
+        return self.p
+
+    def isclose(self, other: "Distribution") -> bool:
+        if not isinstance(other, Bernoulli):
+            return False
+        return self.p == other.p
+
+class NormalNormal(Multivariate):
+    def __init__(self, prior_mean=0, prior_sd=1, sd=1, size=1):
+        self.prior_mean = np.array(prior_mean)
+        self.prior_sd = np.array(prior_sd)
+        self.sd = np.array(sd)
+        assert isinstance(size, int)
+        assert np.shape(self.prior_mean) == np.shape(self.prior_sd) == np.shape(self.sd) == ()
+        self.size = size
+
+    def __repr__(self) -> str:
+        return f"NormalNormal(prior_mean={self.prior_mean}, prior_sd={self.prior_sd}, sd={self.sd}, size={self.size})"
+
+    def sample(self, rng : RandomNumberGenerator = default_rng, name=None) -> Sequence[Element]:
+        mean = norm.rvs(loc=self.prior_mean, scale=self.prior_sd, size=self.size, random_state=rng.np)
+        x = norm.rvs(loc=mean, scale=self.sd, random_state=rng.np)
+        if self.size == 1 and isinstance(x, Sequence):
+            return x[0]
+        return x
+
+    def log_probabilities(self, element : Sequence[Element]) -> float:
+        marginal_sd = (self.prior_sd**2 + self.sd**2)**.5
+        return norm.logpdf(element, loc=self.prior_mean, scale=marginal_sd)
+
+    def log_probability(self, element : Sequence[Element]) -> float:
+        logprobs = self.log_probabilities(element)
+        if isinstance(logprobs, float):
+            return logprobs
+        return sum(logprobs)
+
+    def update(self, data : Sequence[Element]) -> "NormalNormal":
+        if isinstance(data, (float, int)):
+            total = data
+            n_datapoints = 1
+        elif isinstance(data[0], (float, int)):
+            total = sum(data)
+            n_datapoints = len(data)
+        else:
+            raise ValueError(f"Invalid data shape {data}")
+        new_prior_var = 1/(1/self.prior_sd**2 + n_datapoints/self.sd**2)
+        new_prior_mean = (self.prior_mean/self.prior_sd + total/self.sd) * new_prior_var
+        return NormalNormal(prior_mean=new_prior_mean, prior_sd=new_prior_var**.5, sd=self.sd, size=self.size)
