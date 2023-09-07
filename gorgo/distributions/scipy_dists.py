@@ -18,7 +18,8 @@ __all__ = [
     "Uniform",
     "Gamma",
     "Beta",
-    "Bernoulli"
+    "Bernoulli",
+    "NormalNormal",
 ]
 
 class ScipyContinuousDistribution(Distribution, Multivariate):

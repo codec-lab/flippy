@@ -14,6 +14,8 @@ __all__ = [
     "Categorical",
     "Multinomial",
     "Gaussian",
+    "Normal",
+    "Gamma",
     "Uniform",
     "Beta",
     "Binomial",
@@ -172,6 +174,7 @@ class Gaussian(Distribution):
             self.sd*(2*math.pi)**.5
         )
         return math.log(prob) if prob > 0. else float('-inf')
+Normal = Gaussian
 
 
 class Uniform(Distribution):
@@ -277,6 +280,27 @@ class Poisson(Distribution):
         prob = (self.rate**k)*math.exp(-self.rate)/math.factorial(k)
         return math.log(prob)
 
+class Gamma(Distribution):
+    support = ClosedInterval(0, float('inf'))
+    def __init__(self, shape, rate):
+        self.shape = shape
+        self.rate = rate
+
+    def sample(self, rng=default_rng, name=None) -> float:
+        # uses the shape, scale parameterization
+        return rng.gammavariate(self.shape, 1/self.rate)
+
+    def log_probability(self, element):
+        if element in self.support:
+            prob = (
+                (self.rate**self.shape)*\
+                (element**(self.shape - 1))*\
+                math.exp(-self.rate*element)
+            )/(
+                math.gamma(self.shape)
+            )
+            return math.log(prob) if prob != 0 else float('-inf')
+        return float('-inf')
 
 class BetaBinomial(FiniteDistribution):
     def __init__(self, trials : int, alpha=1, beta=1):
