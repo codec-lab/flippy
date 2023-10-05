@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 import math
 from gorgo.tools import isclose, ISCLOSE_ATOL, ISCLOSE_RTOL
 from functools import cached_property
-from gorgo.distributions.base import Distribution, FiniteDistribution, Element
+from gorgo.distributions.base import Distribution, FiniteDistribution, Element, Multivariate
 from gorgo.distributions.support import \
     ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions, MixtureSupport
 from gorgo.distributions.random import default_rng
@@ -403,6 +403,7 @@ class DirichletMultinomial(FiniteDistribution):
 
 class Mixture(Distribution):
     def __init__(self, distributions : Sequence[Distribution], weights : Sequence[float] = None):
+        assert not any(isinstance(d, Multivariate) for d in distributions), "This Mixture distribution doesn't currently handle batches"
         if weights is None:
             weights = [1 / len(distributions) for _ in distributions]
         assert len(distributions) == len(weights), "Must have a weight for each distribution"
@@ -421,10 +422,9 @@ class Mixture(Distribution):
     def log_probability(self, element : Element) -> float:
         total_prob = 0
         for dist, weight in zip(self.distributions, self.weights):
-            prob = weight * dist.prob(element)
-            if prob == 0:
-                return float("-inf")
             total_prob += weight * dist.prob(element)
+        if total_prob == 0:
+            return float('-inf')
         return math.log(total_prob)
 
     def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
