@@ -11,7 +11,7 @@ from gorgo.distributions.random import RandomNumberGenerator, default_rng
 from gorgo.tools import isclose
 
 from scipy.stats import rv_continuous, rv_discrete
-from scipy.stats import norm, uniform, beta, gamma, poisson, bernoulli
+from scipy.stats import norm, uniform, beta, gamma, poisson, bernoulli, multivariate_normal
 
 __all__ = [
     "Normal",
@@ -209,6 +209,114 @@ class Bernoulli(FiniteDistribution, Multivariate):
         return self.p == other.p
 
 class NormalNormal(Multivariate):
+    def __init__(self, *, prior_mean=0, prior_sd=1, sd=1, size=1):
+        self.prior_mean = np.array(prior_mean)
+        self.prior_sd = np.array(prior_sd)
+        self.sd = np.array(sd)
+        assert isinstance(size, int)
+        assert np.shape(self.prior_mean) == np.shape(self.prior_sd) == np.shape(self.sd) == ()
+        self.size = size
+
+    def __repr__(self) -> str:
+        return f"NormalNormal(prior_mean={self.prior_mean}, prior_sd={self.prior_sd}, sd={self.sd}, size={self.size})"
+
+    #first sample mu aka mean and then sample y aka x from estimated mu
+    #check scipy norm documentation for why loc / general things
+    def sample(self, rng : RandomNumberGenerator = default_rng, name=None) -> Sequence[Element]:
+        mean = norm.rvs(loc=self.prior_mean, scale=self.prior_sd, size=self.size, random_state=rng.np)
+        x = norm.rvs(loc=mean, scale=self.sd, random_state=rng.np)
+        if self.size == 1 and isinstance(x, Sequence):
+            return x[0]
+        return x
+
+    def log_probabilities(self, element : Sequence[Element]) -> float:
+        marginal_sd = (self.prior_sd**2 + self.sd**2)**.5
+        return norm.logpdf(element, loc=self.prior_mean, scale=marginal_sd)
+
+    def log_probability(self, element : Sequence[Element]) -> float:
+        logprobs = self.log_probabilities(element)
+        if isinstance(logprobs, float):
+            return logprobs
+        return sum(logprobs)
+
+    #gets posterior predictive term
+    def update(self, data : Sequence[Element]) -> "NormalNormal":
+        if isinstance(data, (float, int)):
+            total = data
+            n_datapoints = 1
+        elif isinstance(data[0], (float, int)):
+            total = sum(data)
+            n_datapoints = len(data)
+        else:
+            raise ValueError(f"Invalid data shape {data}")
+        new_prior_var = 1/(1/self.prior_sd**2 + n_datapoints/self.sd**2)
+        new_prior_mean = (self.prior_mean/self.prior_sd + total/self.sd) * new_prior_var
+        return NormalNormal(prior_mean=new_prior_mean, prior_sd=new_prior_var**.5, sd=self.sd, size=self.size)
+
+##MM- write multivariate normal
+class MultivariateNormal(Multivariate):
+    # takes in an array of prior means instead of just 1
+    # takes in a covariance matrix of prior stdvs instead of just 1
+    # constant stdv still?
+    # Question: how do we define size? an array / matrix? -> 
+    # we want to allow for any sequence of floats to be our means / cov. you can represent this using 
+    # Sequence from the typing module; commas are to indicate floats
+    def __init__(self, *, prior_means : Sequence[float] = (0,), 
+                 prior_cov: Sequence[Sequence[float]] = ((1,),), 
+                 cov: Sequence[Sequence[float]] = ((1,),), 
+                 size=1):
+        self.prior_means = np.array(prior_means)
+        self.prior_cov = np.array(prior_cov)
+        self.cov = np.array(cov)
+        assert isinstance(size, int)
+        assert len(np.shape(self.prior_cov))==2 #make sure cov is 2d
+        assert len(np.shape(self.cov))==2 #make sure cov is 2d
+        assert np.shape(self.prior_means)[0] == np.shape(self.prior_cov)[0] == np.shape(self.prior_cov)[1] == np.shape(self.cov)[0] == np.shape(self.cov)[1]
+        self.size = size
+    
+    @property
+    def element_shape(self):
+        return np.shape(self.prior_means)[0]
+
+    def __repr__(self) -> str:
+        return f"MultivariateNormal(prior_means={self.prior_means}, prior_cov={self.prior_cov}, cov={self.cov}, size={self.size})"
+
+    def sample(self, rng : RandomNumberGenerator = default_rng, name=None) -> Sequence[Element]:
+        means = multivariate_normal.rvs(self.prior_means, self.prior_cov, size= self.size, random_state=rng.np)
+        x =  np.stack([multivariate_normal.rvs(m, self.cov, random_state=rng.np) for m in means]) #stack turns from list or arrays -> matrix
+        return x
+    
+    #use wikipedia / kevin murphy equation to calculate
+    #given the multivariate normal distribution defined by the object,
+    #what are the log probabilities of each vector being generated 
+    def log_probabilities(self, element : Sequence[Element]) -> float:
+        marginal_cov = self.prior_cov + self.cov
+        return multivariate_normal.logpdf(element, mean=self.prior_means, cov=marginal_cov)
+    
+    def log_probability(self, element : Sequence[Element]) -> float:
+        assert len(element) == self.element_shape or len(element[0]) == self.element_shape
+        logprobs = self.log_probabilities(element)
+        return sum(logprobs)
+    
+    def update(self, data : Sequence[Element]) -> "MultivariateNormal":
+        if isinstance(data[0], (float, int)):
+            total = data
+            n_datapoints = 1
+        elif isinstance(data[0][0], (float, int)):
+            total = np.sum(data,axis=0)
+            n_datapoints = len(data)
+        else:
+            raise ValueError(f"Invalid data shape {data}")
+        prior_cov_inverted = np.linalg.inv(self.prior_cov)
+        cov_inverted = np.linalg.inv(self.cov)
+
+        new_prior_cov = np.linalg.inv(prior_cov_inverted + n_datapoints * cov_inverted)
+        new_prior_means = new_prior_cov * (cov_inverted @ total + prior_cov_inverted @ self.prior_means)
+        return MultivariateNormal(prior_means=new_prior_means, prior_cov=new_prior_cov, cov=self.cov, size=self.size)
+    
+##MM - write conjugate update of a multivariate normal;
+# write it as a generalization of the univariate normal with a normal prior implementation NormalNormal
+class BLG(Multivariate):
     def __init__(self, prior_mean=0, prior_sd=1, sd=1, size=1):
         self.prior_mean = np.array(prior_mean)
         self.prior_sd = np.array(prior_sd)
@@ -248,4 +356,4 @@ class NormalNormal(Multivariate):
             raise ValueError(f"Invalid data shape {data}")
         new_prior_var = 1/(1/self.prior_sd**2 + n_datapoints/self.sd**2)
         new_prior_mean = (self.prior_mean/self.prior_sd + total/self.sd) * new_prior_var
-        return NormalNormal(prior_mean=new_prior_mean, prior_sd=new_prior_var**.5, sd=self.sd, size=self.size)
+        return BLG(prior_mean=new_prior_mean, prior_sd=new_prior_var**.5, sd=self.sd, size=self.size)

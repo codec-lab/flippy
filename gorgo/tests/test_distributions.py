@@ -1,7 +1,8 @@
 import math
-from gorgo.distributions.scipy_dists import Uniform, NormalNormal, Normal
+from gorgo.distributions.scipy_dists import Uniform, NormalNormal, Normal, MultivariateNormal
 from gorgo.inference.likelihood_weighting import LikelihoodWeighting
 from gorgo.tools import isclose
+from gorgo.distributions.random import default_rng
 
 def test_scipy_uniform():
     dist = Uniform(-1, -.5)
@@ -28,3 +29,19 @@ def test_normal_normal():
     nn = NormalNormal(prior_mean=hyper_mu, prior_sd=hyper_sigma, sd=sigma)
 
     assert isclose(lw_res.expected_value(), nn.update(obs).prior_mean, atol=.01)
+
+
+def test_multivariate_normal_multivariate_normal():
+    mean = default_rng.random()
+    priorvar = default_rng.random()
+    sigma2 = default_rng.random()
+
+    mvn = MultivariateNormal(prior_means=[mean,mean],prior_cov=[[priorvar,0],[0,priorvar]],cov=[[sigma2,0],[0,sigma2]],size=3)
+
+    samples = mvn.sample()
+    uvn = NormalNormal(prior_mean=mean, prior_sd=priorvar**.5, sd=sigma2**.5,size=3)
+    uvnlogprob = uvn.log_probability(samples.flatten())
+    mvnlogprob = mvn.log_probability(samples)
+
+    #print(uvnlogprob,mvnlogprob)
+    assert isclose(uvnlogprob, mvnlogprob)
