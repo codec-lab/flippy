@@ -296,7 +296,10 @@ class MultivariateNormal(Multivariate):
     def log_probability(self, element : Sequence[Element]) -> float:
         assert len(element) == self.element_shape or len(element[0]) == self.element_shape
         logprobs = self.log_probabilities(element)
-        return sum(logprobs)
+        if isinstance(logprobs, float):
+            return logprobs
+        else:
+            return sum(logprobs)
     
     def update(self, data : Sequence[Element]) -> "MultivariateNormal":
         if isinstance(data[0], (float, int)):
@@ -311,7 +314,7 @@ class MultivariateNormal(Multivariate):
         cov_inverted = np.linalg.inv(self.cov)
 
         new_prior_cov = np.linalg.inv(prior_cov_inverted + n_datapoints * cov_inverted)
-        new_prior_means = new_prior_cov * (cov_inverted @ total + prior_cov_inverted @ self.prior_means)
+        new_prior_means = new_prior_cov @ (cov_inverted @ total + prior_cov_inverted @ self.prior_means)
         return MultivariateNormal(prior_means=new_prior_means, prior_cov=new_prior_cov, cov=self.cov, size=self.size)
     
 ##MM - write conjugate update of a multivariate normal;
