@@ -253,17 +253,10 @@ class NormalNormal(Multivariate):
         new_prior_mean = (self.prior_mean/self.prior_sd + total/self.sd) * new_prior_var
         return NormalNormal(prior_mean=new_prior_mean, prior_sd=new_prior_var**.5, sd=self.sd, size=self.size)
 
-##MM- write multivariate normal
 class MultivariateNormal(Multivariate):
-    # takes in an array of prior means instead of just 1
-    # takes in a covariance matrix of prior stdvs instead of just 1
-    # constant stdv still?
-    # Question: how do we define size? an array / matrix? -> 
-    # we want to allow for any sequence of floats to be our means / cov. you can represent this using 
-    # Sequence from the typing module; commas are to indicate floats
-    def __init__(self, *, prior_means : Sequence[float] = (0,), 
-                 prior_cov: Sequence[Sequence[float]] = ((1,),), 
-                 cov: Sequence[Sequence[float]] = ((1,),), 
+    def __init__(self, *, prior_means : Sequence[float] = (0,),
+                 prior_cov: Sequence[Sequence[float]] = ((1,),),
+                 cov: Sequence[Sequence[float]] = ((1,),),
                  size=1):
         self.prior_means = np.array(prior_means)
         self.prior_cov = np.array(prior_cov)
@@ -273,7 +266,7 @@ class MultivariateNormal(Multivariate):
         assert len(np.shape(self.cov))==2 #make sure cov is 2d
         assert np.shape(self.prior_means)[0] == np.shape(self.prior_cov)[0] == np.shape(self.prior_cov)[1] == np.shape(self.cov)[0] == np.shape(self.cov)[1]
         self.size = size
-    
+
     @property
     def element_shape(self):
         return np.shape(self.prior_means)[0]
@@ -285,14 +278,12 @@ class MultivariateNormal(Multivariate):
         means = multivariate_normal.rvs(self.prior_means, self.prior_cov, size= self.size, random_state=rng.np)
         x =  np.stack([multivariate_normal.rvs(m, self.cov, random_state=rng.np) for m in means]) #stack turns from list or arrays -> matrix
         return x
-    
-    #use wikipedia / kevin murphy equation to calculate
-    #given the multivariate normal distribution defined by the object,
-    #what are the log probabilities of each vector being generated 
+
     def log_probabilities(self, element : Sequence[Element]) -> float:
+        # Reference: https://www.cs.ubc.ca/~murphyk/Papers/bayesGauss.pdf
         marginal_cov = self.prior_cov + self.cov
         return multivariate_normal.logpdf(element, mean=self.prior_means, cov=marginal_cov)
-    
+
     def log_probability(self, element : Sequence[Element]) -> float:
         assert len(element) == self.element_shape or len(element[0]) == self.element_shape
         logprobs = self.log_probabilities(element)
@@ -300,7 +291,7 @@ class MultivariateNormal(Multivariate):
             return logprobs
         else:
             return sum(logprobs)
-    
+
     def update(self, data : Sequence[Element]) -> "MultivariateNormal":
         if isinstance(data[0], (float, int)):
             total = data
