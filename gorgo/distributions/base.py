@@ -37,6 +37,9 @@ class Distribution(Generic[Element]):
     def update(self, data : Sequence[Element]):
         raise NotImplementedError
 
+    def __bool__(self):
+        raise ValueError("Cannot convert distribution to bool")
+
 
 class FiniteDistribution(Distribution):
     support: Sequence[Element]

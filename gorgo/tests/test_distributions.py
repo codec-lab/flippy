@@ -1,4 +1,5 @@
 import math
+import pytest
 from gorgo.distributions.scipy_dists import Uniform, NormalNormal, Normal, MultivariateNormal
 from gorgo.inference.likelihood_weighting import LikelihoodWeighting
 from gorgo.tools import isclose
@@ -10,6 +11,11 @@ def test_scipy_uniform():
         u = dist.sample()
         assert -1 <= u <= -.5
         assert isclose(dist.log_probability(u), math.log(1/.5))
+
+def test_distribution_bool():
+    dist = Uniform(-1, -.5)
+    with pytest.raises(ValueError):
+        bool(dist)
 
 def test_normal_normal():
     hyper_mu, hyper_sigma = -1, 1
@@ -43,5 +49,4 @@ def test_multivariate_normal_multivariate_normal():
     uvnlogprob = uvn.log_probability(samples.flatten())
     mvnlogprob = mvn.log_probability(samples)
 
-    #print(uvnlogprob,mvnlogprob)
     assert isclose(uvnlogprob, mvnlogprob)
