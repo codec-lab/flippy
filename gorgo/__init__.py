@@ -1,4 +1,5 @@
 import functools
+import math
 from typing import Callable
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
@@ -94,8 +95,11 @@ _factor_dist = FactorDistribution()
 def factor(score):
     _factor_dist.observe(score)
 
-def condition(cond):
-    _factor_dist.observe(0 if cond else -float("inf"))
+def condition(cond: float):
+    if cond == 0:
+        _factor_dist.observe(-float("inf"))
+    else:
+        _factor_dist.observe(math.log(cond))
 
 def flip(p=.5, name=None):
     return Bernoulli(p).sample(name=name)
