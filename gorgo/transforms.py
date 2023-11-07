@@ -152,7 +152,7 @@ class ClosureScopeAnalysis(ast.NodeVisitor):
                 if not is_global and not is_local:
                     write_count = scope.ns[node.id]
                     if write_count > 1:
-                        raise _error_at_node('Variable from outer scope must be immutable.', node, self.source)
+                        raise _error_at_node(f'Variable from outer scope must be immutable, but is set in {write_count} locations.', node, self.source)
                     if node.id not in self.scope_map[scope.node].ns:
                         raise _error_at_node('Variable from outer scope must be defined before being referenced.', node, self.source)
 
