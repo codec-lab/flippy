@@ -87,3 +87,13 @@ class FiniteDistribution(Distribution):
 
 class Multivariate:
     size : int = 1
+
+class ReturnDict(dict[Element, float]):
+    def __hash__(self):
+        return hash(tuple(sorted(self.items())))
+    def __setitem__(self, key, value):
+        raise TypeError("Assignment is immutable")
+    def __repr__(self):
+        return "ReturnDict({})".format(super().__repr__())
+    def __getattr__(self, __name: str) -> Element:
+        return self[__name]

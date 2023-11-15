@@ -8,6 +8,7 @@ from gorgo.distributions.base import Distribution, FiniteDistribution, Element, 
 from gorgo.distributions.support import \
     ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions, MixtureSupport
 from gorgo.distributions.random import default_rng
+from gorgo.distributions.base import ReturnDict
 
 __all__ = [
     "Bernoulli",
@@ -84,7 +85,7 @@ class Categorical(FiniteDistribution):
     def __repr__(self):
         return f"Categorical(support={self.support}, probabilities={self.probabilities})"
 
-    def _repr_html_(self):
+    def _default_repr_html_(self):
         format_prob = lambda p: f"{p:.3f}" if p > 0.001 else f"{p:.2e}"
         return ''.join([
             "<table>",
@@ -109,6 +110,44 @@ class Categorical(FiniteDistribution):
             "</tbody>",
             "</table>"
         ])
+
+    def _ReturnDict_repr_html(self):
+        format_prob = lambda p: f"{p:.3f}" if p > 0.001 else f"{p:.2e}"
+        keys = set()
+        for e in self.support:
+            assert isinstance(e, ReturnDict)
+            keys.update(e.keys())
+        def make_row(e : ReturnDict, p : float):
+            row = []
+            for k in keys:
+                row.append(f"<td>{str(e.get(k, ''))}</td>")
+            row.append(f"<td>{format_prob(p)}</td>")
+            return f"<tr>{''.join(row)}</tr>"
+
+        rows = []
+        if len(self.support) < 10:
+            for e in self.support:
+                rows.append(make_row(e, self.prob(e)))
+        else:
+            for e in self.support[:5]:
+                rows.append(make_row(e, self.prob(e)))
+            rows.append("<tr><td>...</td></tr>")
+            for e in self.support[-5:]:
+                rows.append(make_row(e, self.prob(e)))
+
+        return ''.join([
+            "<table>",
+            "<thead><tr>"+''.join([f"<th>{k}</th>" for k in keys])+"<th>Probability</th></tr></thead>",
+            "<tbody>",
+            *rows,
+            "</tbody>",
+            "</table>"
+        ])
+
+    def _repr_html_(self):
+        if all(isinstance(e, ReturnDict) for e in self.support):
+            return self._ReturnDict_repr_html()
+        return self._default_repr_html_()
 
     def plot(self, ax=None, bins=100, **kwargs):
         assert all(isinstance(s, (int, float)) for s in self.support)
