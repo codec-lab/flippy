@@ -145,8 +145,8 @@ class CPSInterpreter:
         return self.transform(trans_node)
 
     def transform(self, trans_node):
-        trans_node = self.desugaring_transform(trans_node)
         self.closure_scope_analysis(trans_node)
+        trans_node = self.desugaring_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
         return trans_node

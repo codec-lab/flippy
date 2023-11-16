@@ -57,6 +57,19 @@ class Scope:
             scope = scope.parent
 
 class ClosureScopeAnalysis(ast.NodeVisitor):
+    '''
+    This analysis enforces some constraints on scopes that are necessary for
+    our CPS transform.
+
+    1. Only the local scope can be mutated. Enforced by prohibiting nonlocal and global keywords.
+    2. If a nonlocal variable is loaded, we require that it be immutable in its original scope.
+
+    We implement this by doing two passes over the input AST. The first establishes the scope
+    associated with each variable reference. The second validates that variables follow rule #2 above.
+    Two passes are necessary because names are assigned to scopes statically based on whether it is
+    ever possible for them to be defined in that scope.
+    '''
+
     def_pass = 'def_pass'
     use_pass = 'use_pass'
 
@@ -136,9 +149,40 @@ class ClosureScopeAnalysis(ast.NodeVisitor):
         # Then we visit targets.
         self.generic_visit_field(node.targets)
 
+    def visit_AnnAssign(self, node):
+        # Value first then target, like above.
+        self.generic_visit_field(node.value)
+        self.generic_visit_field(node.target)
+
+    def visit_AugAssign(self, node):
+        # Value first then target, like above.
+        # NOTE: We avoid separately analying a Load() to the target because
+        # the case for Load() in visit_Name checks for nonlocals that were mutated
+        # but we know this variable is local (because the nonlocal scope can't be changed).
+        # So, there's no way a Load() here could detect an issue.
+        self.generic_visit_field(node.value)
+        self.generic_visit_field(node.target)
+
     def visit_arg(self, node):
         self.add_name_to_scope(node.arg)
 
+    # Handling comprehensions
+    def visit_ListComp(self, node):
+        with self.in_scope(node):
+            self.generic_visit_field(node.generators)
+            self.generic_visit_field(node.elt)
+    visit_SetComp = visit_ListComp
+    def visit_DictComp(self, node):
+        with self.in_scope(node):
+            self.generic_visit_field(node.generators)
+            self.generic_visit_field(node.key)
+            self.generic_visit_field(node.value)
+    def visit_comprehension(self, node):
+        self.generic_visit_field(node.iter)
+        self.generic_visit_field(node.target)
+        self.generic_visit_field(node.ifs)
+
+    # Case for handling names
     def visit_Name(self, node):
         if isinstance(node.ctx, ast.Store):
             self.add_name_to_scope(node.id)
@@ -166,20 +210,13 @@ class ClosureScopeAnalysis(ast.NodeVisitor):
     visit_Global = not_implemented
     visit_Nonlocal = not_implemented
 
-    # Blocked because we assume they were desugared.
-    visit_AugAssign = not_implemented
-    visit_AnnAssign = not_implemented
-
     # Blocked because they bind names.
     visit_Try = not_implemented
     visit_TryStar = not_implemented
     visit_NamedExpr = not_implemented
 
     # Blocked because they cause new scopes.
-    visit_Class = not_implemented
-    visit_ListComp = not_implemented
-    visit_SetComp = not_implemented
-    visit_DictComp = not_implemented
+    visit_ClassDef = not_implemented
     visit_GeneratorExp = not_implemented
 
 class NodeTransformer(ast.NodeTransformer):
