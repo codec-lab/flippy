@@ -120,6 +120,19 @@ def test_scope_analysis_AnnAssign():
         ''')
     assert 'defined before' in str(err)
 
+def test_scope_analysis_FunctionDef():
+    # Mutating non-local
+    with pytest.raises(SyntaxError) as err:
+        _analyze('''
+        def fn():
+            def abc(): pass
+            def abc(): pass
+            def inner():
+                return abc()
+            return inner
+        ''')
+    assert 'immutable' in str(err)
+
 def test_scope_analysis_AugAssign():
     # Mutating local
     _analyze('''

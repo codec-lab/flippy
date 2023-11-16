@@ -123,6 +123,7 @@ class ClosureScopeAnalysis(ast.NodeVisitor):
             return self.generic_visit(node)
 
     def visit_FunctionDef(self, node):
+        self.add_name_to_scope(node.name)
         self.generic_visit_field(node.decorator_list)
         with self.in_scope(node):
             self.generic_visit_field(node.args)
