@@ -1,6 +1,7 @@
 from typing import Any, Callable, Hashable, Tuple, TYPE_CHECKING, TypeVar
 from gorgo.distributions import Distribution
 from gorgo.funcutils import cached_property
+from gorgo.hashable import hashabledict, hashablelist, hashableset
 
 if TYPE_CHECKING:
     from gorgo.interpreter import CPSInterpreter
@@ -130,6 +131,12 @@ class SampleState(ProgramState):
 
 class ReturnState(ProgramState):
     def __init__(self, value: ReturnValue):
+        if isinstance(value, dict):
+            value = hashabledict(value)
+        elif isinstance(value, list):
+            value = hashablelist(value)
+        elif isinstance(value, set):
+            value = hashableset(value)
         self.value = value
         self._name = "RETURN_STATE"
 

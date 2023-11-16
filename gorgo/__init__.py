@@ -6,7 +6,6 @@ from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
 from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform
 from gorgo.distributions.random import default_rng
-from gorgo.distributions.base import ReturnDict
 from gorgo.core import global_store
 
 __all__ = [
@@ -18,8 +17,8 @@ __all__ = [
     'flip',
     'draw_from',
     'mem',
-    'ReturnDict',
     'uniform',
+    'default_rng',
     # Distributions
     'Categorical',
     'Bernoulli',

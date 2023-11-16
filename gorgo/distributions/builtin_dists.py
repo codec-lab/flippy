@@ -8,7 +8,6 @@ from gorgo.distributions.base import Distribution, FiniteDistribution, Element, 
 from gorgo.distributions.support import \
     ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions, MixtureSupport
 from gorgo.distributions.random import default_rng
-from gorgo.distributions.base import ReturnDict
 
 __all__ = [
     "Bernoulli",
@@ -115,9 +114,9 @@ class Categorical(FiniteDistribution):
         format_prob = lambda p: f"{p:.3f}" if p > 0.001 else f"{p:.2e}"
         keys = set()
         for e in self.support:
-            assert isinstance(e, ReturnDict)
+            assert isinstance(e, dict)
             keys.update(e.keys())
-        def make_row(e : ReturnDict, p : float):
+        def make_row(e : dict, p : float):
             row = []
             for k in keys:
                 row.append(f"<td>{str(e.get(k, ''))}</td>")
@@ -145,7 +144,7 @@ class Categorical(FiniteDistribution):
         ])
 
     def _repr_html_(self):
-        if all(isinstance(e, ReturnDict) for e in self.support):
+        if all(isinstance(e, dict) for e in self.support):
             return self._ReturnDict_repr_html()
         return self._default_repr_html_()
 
