@@ -232,6 +232,21 @@ def test_desugaring_transform():
             __v2
             '''),
         ),
+
+        # de-decoration
+        (
+            textwrap.dedent("""
+            @decorator
+            def f():
+                return 1
+            """),
+            textwrap.dedent("""
+            def f():
+                return 1
+            __v0 = decorator(f)
+            f = __v0
+            """)
+        )
     ]
 
     for src, comp in src_compiled:
