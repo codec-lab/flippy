@@ -34,9 +34,9 @@ def keep_deterministic(fn):
     setattr(wrapped, CPSTransform.is_transformed_property, True)
     return wrapped
 
-def infer(func=None, method=Enumeration, **kwargs) -> Callable[..., Distribution]:
+def infer(func=None, method=Enumeration, cache_size=0, **kwargs) -> Callable[..., Distribution]:
     if func is None:
-        return functools.partial(infer, method=method, **kwargs)
+        return functools.partial(infer, method=method, cache_size=cache_size, **kwargs)
 
     # After the wrapped function is CPS transformed, it will be evaluated.
     # If it is decorated with this function, the CPS-transformed function
@@ -54,11 +54,13 @@ def infer(func=None, method=Enumeration, **kwargs) -> Callable[..., Distribution
 
     func = method(func, **kwargs)
 
-    @keep_deterministic
     def wrapped(*args, _cont=None, _cps=None, **kws):
         dist = func.run(*args, **kws)
         return _distribution_from_inference(dist)
 
+    if cache_size > 0:
+        wrapped = functools.lru_cache(maxsize=cache_size)(wrapped)
+    wrapped = keep_deterministic(wrapped)
     return wrapped
 
 def recursive_map(fn, iter):

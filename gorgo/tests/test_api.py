@@ -91,6 +91,24 @@ def test_scalar_implicature():
         probabilities=[4/9, 4/9, 1/9],
     ))
 
+def test_infer():
+    def f0():
+        return Bernoulli(.4).sample()
+    f0 = infer(f0)
+    @infer
+    def f1():
+        return Bernoulli(.4).sample()
+    @infer()
+    def f2():
+        return Bernoulli(.4).sample()
+    @infer(cache_size=10)
+    def f3():
+        return Bernoulli(.4).sample()
+    assert f1().isclose(f2())
+    assert f1().isclose(f0())
+    assert f1().isclose(f3())
+
+
 def test_builtins():
     @infer
     def model():
