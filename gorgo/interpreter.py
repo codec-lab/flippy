@@ -3,19 +3,43 @@ import functools
 import inspect
 import textwrap
 import types
-from typing import Tuple, Callable, Union, Any, Hashable, TYPE_CHECKING
-from gorgo.core import ReturnState, SampleState, ObserveState, InitialState, \
-    StackFrame, Thunk, Continuation
-from gorgo.distributions import Distribution
+from collections import namedtuple
+from typing import Tuple, Callable, Union, Any, Hashable, TYPE_CHECKING, Protocol
+from gorgo.core import ReturnState, SampleState, ObserveState, InitialState, ProgramState, VariableName
+from gorgo.distributions.base import Distribution, SampleCallable, ObserveCallable, Element
 from gorgo.transforms import DesugaringTransform, \
-    SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis
+    SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
+    CPSCallable
 from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.funcutils import method_cache
 import linecache
 import types
 import contextlib
 
-CPSCallable = Callable
+StackFrame = namedtuple("StackFrame", "func_src lineno locals")
+Stack = Tuple[StackFrame]
+
+# Thunks and continuations, combined with the CPSInterpreter, form the building
+# blocks of the ProgramState abstraction used for defining inference algorithms.
+
+# A thunk is a function that takes no arguments and represents some point in the
+# computation that, when executed, will either step to the next point in the
+# computation (return a new thunk) or return a ProgramState that can be used to
+# modify or inspect the state of the computation.
+# By executing a series of thunks using a trampoline, we can run a program.
+Thunk = Callable[[], Union['Thunk', 'ProgramState']]
+
+# In continuation-passing style (CPS), a continuation is a parameterizable function that represents
+# "what should be done next" after the current function finishes
+# and computes a value for the continuation to use
+# (i.e., how the program should continue executing).
+# Continuations provide a way to represent the stack of a program explicitly.
+
+# In our implementation, continuations either return Thunks to be executed by
+# a trampoline, or they return a ProgramState that can be used to modify or inspect
+# the computation.
+Continuation = Callable[..., Union[Thunk, 'ProgramState']]
+NonCPSCallable = Callable[..., Any]
 
 class CPSInterpreter:
     def __init__(self):
@@ -26,7 +50,7 @@ class CPSInterpreter:
         self.cps_transform = CPSTransform()
         self.global_store_proxy = ReadOnlyProxy()
 
-    def initial_program_state(self, call) -> InitialState:
+    def initial_program_state(self, call: Union[NonCPSCallable,CPSCallable]) -> InitialState:
         cps_call = self.interpret(
             call=call,
             stack = ()
@@ -48,11 +72,11 @@ class CPSInterpreter:
 
     def interpret(
         self,
-        call : Callable,
+        call : Union[NonCPSCallable, CPSCallable],
         cont : Continuation = None,
-        stack : Tuple = None,
+        stack : Stack = None,
         func_src : str = None,
-        locals_ = None,
+        locals_ : dict = None,
         lineno : int = None,
     ) -> Continuation:
         """
@@ -76,18 +100,18 @@ class CPSInterpreter:
         continuation = functools.partial(continuation, _stack=cur_stack, _cont=cont)
         return continuation
 
-    def interpret_builtin(self, call) -> Continuation:
-        def builtin_continuation(*args, _cont=lambda val: val, **kws):
+    def interpret_builtin(self, call: NonCPSCallable) -> Continuation:
+        def builtin_continuation(*args, _cont: Continuation=lambda val: val, **kws):
             return lambda : _cont(call(*args, **kws))
         return builtin_continuation
 
     def update_stack(
         self,
-        stack: Tuple[StackFrame],
+        stack: Stack,
         func_src: str,
         locals_: dict,
         lineno: int
-    ) -> Union[None,Tuple[StackFrame]]:
+    ) -> Union[None,Stack]:
         if stack is None:
             cur_stack = None
         else:
@@ -97,7 +121,7 @@ class CPSInterpreter:
     @method_cache
     def interpret_cps(
         self,
-        call : Callable
+        call : Union[NonCPSCallable, CPSCallable]
     ) -> Continuation:
         if CPSTransform.is_transformed(call):
             return self.interpret_transformed(call)
@@ -113,12 +137,16 @@ class CPSInterpreter:
         return self.interpret_generic(call)
 
     def interpret_transformed(self, call : CPSCallable) -> Continuation:
-        def generic_continuation(*args, _cont=None, _stack=None, **kws):
+        def generic_continuation(*args, _cont: Continuation=None, _stack: Stack=None, **kws):
             return call(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return generic_continuation
 
-    def interpret_sample(self, call) -> Continuation:
-        def sample_continuation(_cont=None, _stack=None, name=None):
+    def interpret_sample(self, call: SampleCallable[Element]) -> Continuation:
+        def sample_continuation(
+            _cont: Continuation=None,
+            _stack:Stack=None,
+            name: 'VariableName'=None
+        ):
             return SampleState(
                 continuation=_cont,
                 distribution=call.__self__,
@@ -128,8 +156,14 @@ class CPSInterpreter:
             )
         return sample_continuation
 
-    def interpret_observe(self, call) -> Continuation:
-        def observe_continuation(value, _cont=None, _stack=None, name=None, **kws):
+    def interpret_observe(self, call: ObserveCallable[Element]) -> Continuation:
+        def observe_continuation(
+                value: Element,
+                _cont: Continuation=None,
+                _stack: Stack=None,
+                name: 'VariableName'=None,
+                **kws
+            ):
             return ObserveState(
                 continuation=lambda : _cont(None),
                 distribution=call.__self__,
@@ -140,7 +174,7 @@ class CPSInterpreter:
             )
         return observe_continuation
 
-    def interpret_generic(self, call) -> Continuation:
+    def interpret_generic(self, call: NonCPSCallable) -> Continuation:
         code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
             self.transform_from_func(call),
@@ -151,24 +185,24 @@ class CPSInterpreter:
         except SyntaxError as err :
             raise err
         trans_func = context[call.__name__]
-        def wrapper_generic(*args, _cont=lambda v: v, _stack=None, **kws):
+        def generic_continuation(*args, _cont: Continuation=lambda v: v, _stack: Stack=None, **kws):
             return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
-        return wrapper_generic
+        return generic_continuation
 
-    def transform_from_func(self, func) -> ast.AST:
+    def transform_from_func(self, func: NonCPSCallable) -> ast.AST:
         source = textwrap.dedent(inspect.getsource(func))
         trans_node = ast.parse(source)
         self.subset_validator(trans_node, source)
         return self.transform(trans_node)
 
-    def transform(self, trans_node) -> ast.AST:
+    def transform(self, trans_node: ast.AST) -> ast.AST:
         self.closure_scope_analysis(trans_node)
         trans_node = self.desugaring_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
         return trans_node
 
-    def compile(self, filename, node) -> types.CodeType:
+    def compile(self, filename: str, node: ast.AST) -> types.CodeType:
         source = ast.unparse(node)
         # In order to get stack traces that reference compiled code, we follow the scheme IPython does
         # in CachingCompiler.cache, by adding an entry to Python's linecache.
@@ -181,7 +215,7 @@ class CPSInterpreter:
         )
         return compile(source, filename, 'exec')
 
-    def get_closure(self, func) -> dict:
+    def get_closure(self, func: NonCPSCallable) -> dict:
         if getattr(func, "__closure__", None) is not None:
             closure_keys = func.__code__.co_freevars
             closure_values = [cell.cell_contents for cell in func.__closure__]

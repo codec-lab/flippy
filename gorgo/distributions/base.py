@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Sequence, Generic, TypeVar, Any, Callable, Hashable, Tuple
+from typing import Sequence, Generic, TypeVar, Any, Callable, Hashable, Tuple, Protocol
 import math
 import random
 import abc
@@ -7,6 +7,7 @@ from gorgo.tools import isclose, ISCLOSE_RTOL, ISCLOSE_ATOL
 from functools import cached_property
 
 from gorgo.distributions.support import Support
+from gorgo.distributions.random import RandomNumberGenerator, default_rng
 
 Element = TypeVar("Element")
 
@@ -88,3 +89,15 @@ class FiniteDistribution(Distribution):
 
 class Multivariate:
     size : int = 1
+
+# Type annotation for a sample method of a Distribution
+class SampleCallable(Protocol[Element]):
+    __self__: Distribution[Element]
+    def __call__(self, rng: RandomNumberGenerator = default_rng, name: Hashable = None) -> Element:
+        ...
+
+# Type annotation for a observe method of a Distribution
+class ObserveCallable(Protocol[Element]):
+    __self__: Distribution[Element]
+    def __call__(self, value: Element) -> None:
+        ...

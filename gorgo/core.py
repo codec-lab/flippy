@@ -4,35 +4,11 @@ from gorgo.funcutils import cached_property
 from gorgo.hashable import hashabledict, hashablelist, hashableset
 
 if TYPE_CHECKING:
-    from gorgo.interpreter import CPSInterpreter
+    from gorgo.interpreter import CPSInterpreter, StackFrame, Thunk, Continuation
 
 ############################################
 #  Program State
 ############################################
-
-from collections import namedtuple
-StackFrame = namedtuple("StackFrame", "func_src lineno locals")
-
-# Thunks and continuations, combined with the CPSInterpreter, form the building
-# blocks of the ProgramState abstraction used for defining inference algorithms.
-
-# A thunk is a function that takes no arguments and represents some point in the
-# computation that, when executed, will either step to the next point in the
-# computation (return a new thunk) or return a ProgramState that can be used to
-# modify or inspect the state of the computation.
-# By executing a series of thunks using a trampoline, we can run a program.
-Thunk = Callable[[], Union['Thunk', 'ProgramState']]
-
-# In continuation-passing style (CPS), a continuation is a parameterizable function that represents
-# "what should be done next" after the current function finishes
-# and computes a value for the continuation to use
-# (i.e., how the program should continue executing).
-# Continuations provide a way to represent the stack of a program explicitly.
-
-# In our implementation, continuations either return Thunks to be executed by
-# a trampoline, or they return a ProgramState that can be used to modify or inspect
-# the computation.
-Continuation = Callable[..., Union[Thunk, 'ProgramState']]
 VariableName = Hashable
 SampleValue = Any
 ReturnValue = Any
@@ -50,9 +26,9 @@ class ProgramState:
     """
     def __init__(
         self,
-        continuation : Continuation = None,
+        continuation : 'Continuation' = None,
         name: VariableName = None,
-        stack: Tuple[StackFrame] = None,
+        stack: Tuple['StackFrame'] = None,
         cps : 'CPSInterpreter' = None
     ):
         self.continuation = continuation
@@ -128,11 +104,11 @@ class InitialState(ProgramState):
 class ObserveState(ProgramState):
     def __init__(
         self,
-        continuation: Callable[[], Callable],
+        continuation: 'Continuation',
         distribution: Distribution,
         value: Any,
         name: VariableName,
-        stack: Tuple[StackFrame],
+        stack: Tuple['StackFrame'],
         cps : 'CPSInterpreter'
     ):
         super().__init__(
@@ -147,10 +123,10 @@ class ObserveState(ProgramState):
 class SampleState(ProgramState):
     def __init__(
         self,
-        continuation: Callable[[], Callable],
+        continuation: 'Continuation',
         distribution: Distribution,
         name: VariableName,
-        stack: Tuple[StackFrame],
+        stack: Tuple['StackFrame'],
         cps : 'CPSInterpreter'
     ):
         super().__init__(
