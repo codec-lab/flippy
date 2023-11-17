@@ -1,12 +1,16 @@
 import functools
 import math
-from typing import Callable, Sequence
+from typing import Callable, Sequence, TYPE_CHECKING
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
 from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform, Element
 from gorgo.distributions.random import default_rng
 from gorgo.core import global_store
+from gorgo.types import CPSCallable, Continuation, Stack
+
+if TYPE_CHECKING:
+    from gorgo.interpreter import CPSInterpreter
 
 __all__ = [
     # Core API
@@ -25,15 +29,15 @@ __all__ = [
     'Bernoulli',
 ]
 
-def keep_deterministic(fn):
-    def wrapped(*args, _cont=None, _cps=None, _stack=None, **kws):
+def keep_deterministic(fn: Callable) -> CPSCallable:
+    def continuation(*args, _cont: Continuation=None, _cps: 'CPSInterpreter'=None, _stack: Stack=None, **kws):
         rv = fn(*args, **kws)
         if _cont is None:
             return rv
         else:
             return lambda : _cont(rv)
-    setattr(wrapped, CPSTransform.is_transformed_property, True)
-    return wrapped
+    setattr(continuation, CPSTransform.is_transformed_property, True)
+    return continuation
 
 def infer(
     func: Callable[..., Element]=None,
