@@ -1,6 +1,7 @@
 from gorgo import flip, mem, infer, draw_from, factor, condition, \
     Bernoulli, Categorical, Uniform, \
-    uniform, recursive_map, recursive_filter, recursive_reduce
+    uniform, recursive_map, recursive_filter, recursive_reduce, \
+    map_observe
 from gorgo.interpreter import CPSInterpreter
 from gorgo.inference import Enumeration, LikelihoodWeighting
 from gorgo.core import ReturnState
@@ -223,3 +224,17 @@ def test_condition_statement():
         return u
     samples = LikelihoodWeighting(f, samples=1000).run().support
     assert all(.25 < s < .75 for s in samples)
+
+def test_map_observe():
+    @infer
+    def f1():
+        p = .1 if Bernoulli(.5).sample() else .9
+        map_observe(Bernoulli(p), [1, 1, 0, 1])
+        return p
+
+    @infer
+    def f2():
+        p = .1 if Bernoulli(.5).sample() else .9
+        [Bernoulli(p).observe(i) for i in [1, 1, 0, 1]]
+        return p
+    assert f2().isclose(f1())

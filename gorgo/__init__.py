@@ -1,10 +1,10 @@
 import functools
 import math
-from typing import Callable
+from typing import Callable, Sequence
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
-from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform
+from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform, Element
 from gorgo.distributions.random import default_rng
 from gorgo.core import global_store
 
@@ -18,6 +18,7 @@ __all__ = [
     'draw_from',
     'mem',
     'uniform',
+    'map_observe',
     'default_rng',
     # Distributions
     'Categorical',
@@ -34,7 +35,12 @@ def keep_deterministic(fn):
     setattr(wrapped, CPSTransform.is_transformed_property, True)
     return wrapped
 
-def infer(func=None, method=Enumeration, cache_size=0, **kwargs) -> Callable[..., Distribution]:
+def infer(
+    func: Callable[..., Element]=None,
+    method=Enumeration,
+    cache_size=0,
+    **kwargs
+) -> Callable[..., Distribution[Element]]:
     if func is None:
         return functools.partial(infer, method=method, cache_size=cache_size, **kwargs)
 
@@ -54,7 +60,7 @@ def infer(func=None, method=Enumeration, cache_size=0, **kwargs) -> Callable[...
 
     func = method(func, **kwargs)
 
-    def wrapped(*args, _cont=None, _cps=None, **kws):
+    def wrapped(*args, _cont=None, _cps=None, **kws) -> Distribution[Element]:
         dist = func.run(*args, **kws)
         return _distribution_from_inference(dist)
 
@@ -126,3 +132,16 @@ def mem(fn):
 _uniform = Uniform()
 def uniform():
     return _uniform.sample()
+
+@keep_deterministic
+def map_log_probability(distribution: Distribution[Element], values: Sequence[Element]) -> float:
+    return sum(distribution.log_probability(i) for i in values)
+
+def map_observe(distribution: Distribution[Element], values: Sequence[Element]) -> float:
+    """
+    Calculates the total log probability of a sequence of
+    independent values from a distribution.
+    """
+    log_prob = map_log_probability(distribution, values)
+    factor(log_prob)
+    return log_prob
