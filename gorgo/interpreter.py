@@ -26,9 +26,9 @@ class CPSInterpreter:
         self.cps_transform = CPSTransform()
         self.global_store_proxy = ReadOnlyProxy()
 
-    def initial_program_state(self, function) -> InitialState:
-        interpreted_function = self.interpret(
-            function,
+    def initial_program_state(self, call) -> InitialState:
+        cps_call = self.interpret(
+            call=call,
             stack = ()
         )
         def return_continuation(value):
@@ -36,7 +36,7 @@ class CPSInterpreter:
                 value=value
             )
         def program_continuation(*args, **kws):
-            return interpreted_function(
+            return cps_call(
                 *args,
                 _cont=return_continuation,
                 **kws
@@ -49,31 +49,37 @@ class CPSInterpreter:
     def interpret(
         self,
         call : Callable,
-        cont : Callable = None,
+        cont : Continuation = None,
         stack : Tuple = None,
         func_src : str = None,
         locals_ = None,
         lineno : int = None,
     ) -> Continuation:
+        """
+        This is the main entry point for interpreting CPS-transformed code.
+        See `CPSTransform.visit_Call` in `transforms.py` for more details on
+        how it appears in transformed code.
+        """
+
         # normal python
         if (
             isinstance(call, types.BuiltinFunctionType) or \
             isinstance(call, type) or
             (hasattr(call, "__self__") and isinstance(call.__self__, GlobalStore))
         ):
-            cps_call = self.interpret_builtin(call)
-            return functools.partial(cps_call, _cont=cont)
+            continuation = self.interpret_builtin(call)
+            return functools.partial(continuation, _cont=cont)
 
         # cps python
-        cps_call = self.interpret_cps(call)
+        continuation = self.interpret_cps(call)
         cur_stack = self.update_stack(stack, func_src, locals_, lineno)
-        cps_call = functools.partial(cps_call, _stack=cur_stack, _cont=cont)
-        return cps_call
+        continuation = functools.partial(continuation, _stack=cur_stack, _cont=cont)
+        return continuation
 
-    def interpret_builtin(self, func) -> Continuation:
-        def builtin_wrapper(*args, _cont=lambda val: val, **kws):
-            return lambda : _cont(func(*args, **kws))
-        return builtin_wrapper
+    def interpret_builtin(self, call) -> Continuation:
+        def builtin_continuation(*args, _cont=lambda val: val, **kws):
+            return lambda : _cont(call(*args, **kws))
+        return builtin_continuation
 
     def update_stack(
         self,
@@ -99,20 +105,20 @@ class CPSInterpreter:
             if call.__name__ == "sample":
                 return self.interpret_sample(call)
             elif call.__name__ == "observe":
-                return self.interpret_observation(call)
+                return self.interpret_observe(call)
             else:
                 raise NotImplementedError(f"Only sample and observe are supported for {call.__self__.__class__.__name__}")
         elif hasattr(call, "__self__"):
             raise NotImplementedError(f"CPSInterpreter does not support methods for {call.__self__.__class__.__name__}")
         return self.interpret_generic(call)
 
-    def interpret_transformed(self, func : CPSCallable) -> Continuation:
-        def wrapper_generic(*args, _cont=None, _stack=None, **kws):
-            return func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
-        return wrapper_generic
+    def interpret_transformed(self, call : CPSCallable) -> Continuation:
+        def generic_continuation(*args, _cont=None, _stack=None, **kws):
+            return call(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
+        return generic_continuation
 
     def interpret_sample(self, call) -> Continuation:
-        def sample_wrapper(_cont=None, _stack=None, name=None):
+        def sample_continuation(_cont=None, _stack=None, name=None):
             return SampleState(
                 continuation=_cont,
                 distribution=call.__self__,
@@ -120,10 +126,10 @@ class CPSInterpreter:
                 stack=_stack,
                 cps=self
             )
-        return sample_wrapper
+        return sample_continuation
 
-    def interpret_observation(self, call) -> Continuation:
-        def observation_wrapper(value, _cont=None, _stack=None, name=None, **kws):
+    def interpret_observe(self, call) -> Continuation:
+        def observe_continuation(value, _cont=None, _stack=None, name=None, **kws):
             return ObserveState(
                 continuation=lambda : _cont(None),
                 distribution=call.__self__,
@@ -132,19 +138,19 @@ class CPSInterpreter:
                 stack=_stack,
                 cps=self,
             )
-        return observation_wrapper
+        return observe_continuation
 
-    def interpret_generic(self, func) -> Continuation:
+    def interpret_generic(self, call) -> Continuation:
         code = self.compile(
-            f'{func.__name__}_{hex(id(func)).removeprefix("0x")}.py',
-            self.transform_from_func(func),
+            f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
+            self.transform_from_func(call),
         )
-        context = {**func.__globals__, **self.get_closure(func), "_cps": self, "global_store": self.global_store_proxy}
+        context = {**call.__globals__, **self.get_closure(call), "_cps": self, "global_store": self.global_store_proxy}
         try:
             exec(code, context)
         except SyntaxError as err :
             raise err
-        trans_func = context[func.__name__]
+        trans_func = context[call.__name__]
         def wrapper_generic(*args, _cont=lambda v: v, _stack=None, **kws):
             return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return wrapper_generic

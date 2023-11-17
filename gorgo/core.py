@@ -13,14 +13,41 @@ if TYPE_CHECKING:
 from collections import namedtuple
 StackFrame = namedtuple("StackFrame", "func_src lineno locals")
 
-# a continuation is a function that takes a value and returns a thunk
+# Thunks and continuations, combined with the CPSInterpreter, form the building
+# blocks of the ProgramState abstraction used for defining inference algorithms.
+
+# A thunk is a function that takes no arguments and represents some point in the
+# computation that, when executed, will either step to the next point in the
+# computation (return a new thunk) or return a ProgramState that can be used to
+# modify or inspect the state of the computation.
+# By executing a series of thunks using a trampoline, we can run a program.
 Thunk = Callable[[], Union['Thunk', 'ProgramState']]
-Continuation = Callable[..., Thunk]
+
+# In continuation-passing style (CPS), a continuation is a parameterizable function that represents
+# "what should be done next" after the current function finishes
+# and computes a value for the continuation to use
+# (i.e., how the program should continue executing).
+# Continuations provide a way to represent the stack of a program explicitly.
+
+# In our implementation, continuations either return Thunks to be executed by
+# a trampoline, or they return a ProgramState that can be used to modify or inspect
+# the computation.
+Continuation = Callable[..., Union[Thunk, 'ProgramState']]
 VariableName = Hashable
 SampleValue = Any
 ReturnValue = Any
 
 class ProgramState:
+    """
+    A program state represents a point in the execution of a program
+    (e.g., the current call stack, memory, and line number) that is
+    exposed to an external interpreter (e.g., an inference algorithm).
+    An external interpreter can control the behavior of a program using the
+    `step` method. An interpreter can also access readable attributes and
+    meta-data associated with program state.
+    Internally, a program state stores a continuation that is used to resume
+    execution when the interpreter calls `step`.
+    """
     def __init__(
         self,
         continuation : Continuation = None,
@@ -35,6 +62,10 @@ class ProgramState:
         self.cps = cps
 
     def step(self, *args, **kws) -> 'ProgramState':
+        """
+        Uses a trampoline to execute a sequence of thunks until
+        a ProgramState is encountered.
+        """
         next_ = self.continuation(*args, **kws)
         global_store = self.init_global_store.copy()
         with self.cps.set_global_store(global_store):
