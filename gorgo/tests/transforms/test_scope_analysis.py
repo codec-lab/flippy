@@ -6,7 +6,14 @@ import pytest
 def _analyze(src):
     src = textwrap.dedent(src)
     node = ast.parse(src)
-    ClosureScopeAnalysis()(node, src)
+    a = ClosureScopeAnalysis()
+    a(node, src)
+    return a, node
+
+def _analyze_with_expected_error(msg, src):
+    with pytest.raises(SyntaxError) as err:
+        _analyze(src)
+    assert msg in str(err)
 
 def test_scope_analysis():
     # Defined before
@@ -119,6 +126,19 @@ def test_scope_analysis_AnnAssign():
             return inner
         ''')
     assert 'defined before' in str(err)
+
+def test_scope_analysis_FunctionDef():
+    # Mutating non-local
+    with pytest.raises(SyntaxError) as err:
+        _analyze('''
+        def fn():
+            def abc(): pass
+            def abc(): pass
+            def inner():
+                return abc()
+            return inner
+        ''')
+    assert 'immutable' in str(err)
 
 def test_scope_analysis_AugAssign():
     # Mutating local
@@ -246,3 +266,49 @@ def test_scope_analysis_Comp():
                 def inner(): return {{{elt} for x in []}}
             ''')
         assert 'immutable' in str(err)
+
+def test_scope_analysis_If():
+    template = lambda s: f'''
+    def fn():
+        before = 3
+        if True:
+            both1 = 1
+            body1 = 1
+            body2 = 2
+            body2 = 3
+            body2orelse1 = 4
+            body2orelse1 = 5
+            body1orelse2 = 7
+        else:
+            both1 = 2
+            orelse1 = 2
+            orelse2 = 3
+            orelse2 = 4
+            body2orelse1 = 7
+            body1orelse2 = 8
+            body1orelse2 = 9
+        after = 8
+        def inner():
+            {s}
+    '''
+    a, node = _analyze(template('pass'))
+    assert a.complete_scope_map[node.body[0]].ns == collections.Counter(dict(
+        both1=1,
+        body1=1,
+        body2=2,
+        orelse1=1,
+        orelse2=2,
+        body2orelse1=2,
+        body1orelse2=2,
+        inner=1,
+        before=1,
+        after=1,
+    ))
+    # Variables used once, in either or both branches, are ok.
+    _analyze(template('return both1'))
+    _analyze(template('return body1'))
+    _analyze(template('return orelse1'))
+    _analyze_with_expected_error('immutable', template('return body2'))
+    _analyze_with_expected_error('immutable', template('return orelse2'))
+    _analyze_with_expected_error('immutable', template('return body1orelse2'))
+    _analyze_with_expected_error('immutable', template('return body2orelse1'))
