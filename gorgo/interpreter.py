@@ -4,42 +4,21 @@ import inspect
 import textwrap
 import types
 from collections import namedtuple
-from typing import Tuple, Callable, Union, Any, Hashable, TYPE_CHECKING, Protocol
-from gorgo.core import ReturnState, SampleState, ObserveState, InitialState, ProgramState, VariableName
-from gorgo.distributions.base import Distribution, SampleCallable, ObserveCallable, Element
+from typing import Union, TYPE_CHECKING
+from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
+from gorgo.distributions.base import Distribution, Element
 from gorgo.transforms import DesugaringTransform, \
-    SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
-    CPSCallable
+    SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis
 from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.funcutils import method_cache
 import linecache
 import types
 import contextlib
 
+from gorgo.types import NonCPSCallable, Continuation, Stack, \
+    SampleCallable, ObserveCallable, CPSCallable, VariableName
+
 StackFrame = namedtuple("StackFrame", "func_src lineno locals")
-Stack = Tuple[StackFrame]
-
-# Thunks and continuations, combined with the CPSInterpreter, form the building
-# blocks of the ProgramState abstraction used for defining inference algorithms.
-
-# A thunk is a function that takes no arguments and represents some point in the
-# computation that, when executed, will either step to the next point in the
-# computation (return a new thunk) or return a ProgramState that can be used to
-# modify or inspect the state of the computation.
-# By executing a series of thunks using a trampoline, we can run a program.
-Thunk = Callable[[], Union['Thunk', 'ProgramState']]
-
-# In continuation-passing style (CPS), a continuation is a parameterizable function that represents
-# "what should be done next" after the current function finishes
-# and computes a value for the continuation to use
-# (i.e., how the program should continue executing).
-# Continuations provide a way to represent the stack of a program explicitly.
-
-# In our implementation, continuations either return Thunks to be executed by
-# a trampoline, or they return a ProgramState that can be used to modify or inspect
-# the computation.
-Continuation = Callable[..., Union[Thunk, 'ProgramState']]
-NonCPSCallable = Callable[..., Any]
 
 class CPSInterpreter:
     def __init__(self):
@@ -50,7 +29,7 @@ class CPSInterpreter:
         self.cps_transform = CPSTransform()
         self.global_store_proxy = ReadOnlyProxy()
 
-    def initial_program_state(self, call: Union[NonCPSCallable,CPSCallable]) -> InitialState:
+    def initial_program_state(self, call: Union['NonCPSCallable','CPSCallable']) -> InitialState:
         cps_call = self.interpret(
             call=call,
             stack = ()
@@ -72,13 +51,13 @@ class CPSInterpreter:
 
     def interpret(
         self,
-        call : Union[NonCPSCallable, CPSCallable],
-        cont : Continuation = None,
-        stack : Stack = None,
+        call : Union['NonCPSCallable', 'CPSCallable'],
+        cont : 'Continuation' = None,
+        stack : 'Stack' = None,
         func_src : str = None,
         locals_ : dict = None,
         lineno : int = None,
-    ) -> Continuation:
+    ) -> 'Continuation':
         """
         This is the main entry point for interpreting CPS-transformed code.
         See `CPSTransform.visit_Call` in `transforms.py` for more details on
@@ -100,18 +79,18 @@ class CPSInterpreter:
         continuation = functools.partial(continuation, _stack=cur_stack, _cont=cont)
         return continuation
 
-    def interpret_builtin(self, call: NonCPSCallable) -> Continuation:
-        def builtin_continuation(*args, _cont: Continuation=lambda val: val, **kws):
+    def interpret_builtin(self, call: 'NonCPSCallable') -> 'Continuation':
+        def builtin_continuation(*args, _cont: 'Continuation'=lambda val: val, **kws):
             return lambda : _cont(call(*args, **kws))
         return builtin_continuation
 
     def update_stack(
         self,
-        stack: Stack,
+        stack: 'Stack',
         func_src: str,
         locals_: dict,
         lineno: int
-    ) -> Union[None,Stack]:
+    ) -> Union[None,'Stack']:
         if stack is None:
             cur_stack = None
         else:
@@ -121,8 +100,8 @@ class CPSInterpreter:
     @method_cache
     def interpret_cps(
         self,
-        call : Union[NonCPSCallable, CPSCallable]
-    ) -> Continuation:
+        call : Union['NonCPSCallable', 'CPSCallable']
+    ) -> 'Continuation':
         if CPSTransform.is_transformed(call):
             return self.interpret_transformed(call)
         if hasattr(call, "__self__") and isinstance(call.__self__, Distribution):
@@ -136,15 +115,15 @@ class CPSInterpreter:
             raise NotImplementedError(f"CPSInterpreter does not support methods for {call.__self__.__class__.__name__}")
         return self.interpret_generic(call)
 
-    def interpret_transformed(self, call : CPSCallable) -> Continuation:
-        def generic_continuation(*args, _cont: Continuation=None, _stack: Stack=None, **kws):
+    def interpret_transformed(self, call : 'CPSCallable') -> 'Continuation':
+        def generic_continuation(*args, _cont: 'Continuation'=None, _stack: 'Stack'=None, **kws):
             return call(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return generic_continuation
 
-    def interpret_sample(self, call: SampleCallable[Element]) -> Continuation:
+    def interpret_sample(self, call: 'SampleCallable[Element]') -> 'Continuation':
         def sample_continuation(
-            _cont: Continuation=None,
-            _stack:Stack=None,
+            _cont: 'Continuation'=None,
+            _stack: 'Stack'=None,
             name: 'VariableName'=None
         ):
             return SampleState(
@@ -156,11 +135,11 @@ class CPSInterpreter:
             )
         return sample_continuation
 
-    def interpret_observe(self, call: ObserveCallable[Element]) -> Continuation:
+    def interpret_observe(self, call: 'ObserveCallable[Element]') -> 'Continuation':
         def observe_continuation(
-                value: Element,
-                _cont: Continuation=None,
-                _stack: Stack=None,
+                value: 'Element',
+                _cont: 'Continuation'=None,
+                _stack: 'Stack'=None,
                 name: 'VariableName'=None,
                 **kws
             ):
@@ -174,7 +153,7 @@ class CPSInterpreter:
             )
         return observe_continuation
 
-    def interpret_generic(self, call: NonCPSCallable) -> Continuation:
+    def interpret_generic(self, call: 'NonCPSCallable') -> 'Continuation':
         code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
             self.transform_from_func(call),
@@ -185,11 +164,11 @@ class CPSInterpreter:
         except SyntaxError as err :
             raise err
         trans_func = context[call.__name__]
-        def generic_continuation(*args, _cont: Continuation=lambda v: v, _stack: Stack=None, **kws):
+        def generic_continuation(*args, _cont: 'Continuation'=lambda v: v, _stack: 'Stack'=None, **kws):
             return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return generic_continuation
 
-    def transform_from_func(self, func: NonCPSCallable) -> ast.AST:
+    def transform_from_func(self, func: 'NonCPSCallable') -> ast.AST:
         source = textwrap.dedent(inspect.getsource(func))
         trans_node = ast.parse(source)
         self.subset_validator(trans_node, source)
@@ -215,7 +194,7 @@ class CPSInterpreter:
         )
         return compile(source, filename, 'exec')
 
-    def get_closure(self, func: NonCPSCallable) -> dict:
+    def get_closure(self, func: 'NonCPSCallable') -> dict:
         if getattr(func, "__closure__", None) is not None:
             closure_keys = func.__code__.co_freevars
             closure_values = [cell.cell_contents for cell in func.__closure__]

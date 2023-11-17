@@ -5,25 +5,6 @@ import contextlib
 import collections
 import dataclasses
 
-from typing import Union, Any, Tuple, Callable, TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from gorgo.interpreter import CPSInterpreter, Stack, Thunk, Continuation
-    from gorgo.core import ProgramState
-
-# Type annotation for a CPS-transformed function
-class CPSCallable(Protocol):
-    def __call__(
-        self,
-        *args,
-        _cps: 'CPSInterpreter',
-        _stack: 'Stack',
-        _cont: 'Continuation',
-        **kws
-    ) -> Union['Thunk', 'ProgramState']:
-        ...
-
-
 class Placeholder(ast.NodeTransformer):
     '''
     Use this class to add placeholders in code constructed by string, so that

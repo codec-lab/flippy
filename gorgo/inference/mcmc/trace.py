@@ -1,15 +1,17 @@
 import dataclasses
 from functools import cached_property
-from typing import Mapping, Hashable, Callable, List, Union
+from typing import Mapping, Hashable, Callable, List, Union, TYPE_CHECKING
 
-from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState, VariableName, SampleValue
+from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState
 from gorgo.distributions import Categorical, RandomNumberGenerator, Distribution, \
     Dirichlet
 from gorgo.distributions.random import default_rng
 
+from gorgo.types import SampleValue, VariableName
+
 @dataclasses.dataclass
 class Entry:
-    value : SampleValue
+    value : 'SampleValue'
     program_state : Union[SampleState, ObserveState] = None
 
     @property
@@ -21,7 +23,7 @@ class Entry:
         return self.program_state.distribution.log_probability(self.value)
 
     @property
-    def name(self) -> VariableName:
+    def name(self) -> 'VariableName':
         return self.program_state.name
 
     @property
@@ -31,15 +33,15 @@ class Entry:
 class Trace:
     def __init__(self):
         self._entries : List[Entry] = []
-        self._entry_name_order : Mapping[VariableName, int] = {}
+        self._entry_name_order : Mapping['VariableName', int] = {}
         self._return_state : ReturnState = None
 
     @staticmethod
     def run_from(
         ps : ProgramState,
         old_trace : Union['Trace', None],
-        sample_site_callback : Callable[[SampleState], SampleValue],
-        observe_site_callback : Callable[[ObserveState], SampleValue],
+        sample_site_callback : Callable[[SampleState], 'SampleValue'],
+        observe_site_callback : Callable[[ObserveState], 'SampleValue'],
         break_early : bool = True
     ) -> 'Trace':
         new_trace = Trace()
@@ -70,7 +72,7 @@ class Trace:
     def add_site(
         self,
         program_state : Union[SampleState, ObserveState],
-        value : SampleValue,
+        value : 'SampleValue',
     ):
         self._entries.append(Entry(
             value=value,
@@ -108,7 +110,7 @@ class Trace:
             yield e
 
     @property
-    def sample_site_names(self) -> List[VariableName]:
+    def sample_site_names(self) -> List['VariableName']:
         return [e.name for e in self._entries if e.is_sample]
 
     def __getitem__(self, key):

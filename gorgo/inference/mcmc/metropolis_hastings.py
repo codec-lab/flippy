@@ -2,7 +2,7 @@ import math
 from functools import partial
 import abc
 from collections import defaultdict
-from typing import Callable, List, Union, Dict, Tuple, TypeVar
+from typing import Callable, List, Union, Dict, Tuple, TypeVar, TYPE_CHECKING
 
 from gorgo.tools import isclose
 from gorgo.distributions import Categorical, RandomNumberGenerator, \
@@ -10,13 +10,15 @@ from gorgo.distributions import Categorical, RandomNumberGenerator, \
 from gorgo.distributions.random import default_rng
 from gorgo.distributions.base import Distribution, FiniteDistribution
 from gorgo.distributions.support import ClosedInterval, Simplex
-from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState, VariableName, SampleValue
+from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState
 from gorgo.interpreter import CPSInterpreter
 
 from gorgo.inference.mcmc.trace import Trace, Entry
 from gorgo.inference.mcmc.diagnostics import MCMCDiagnostics, MCMCDiagnosticsEntry
 
-ProposalKernel = Callable[[SampleValue, SampleState], Distribution[SampleValue]]
+from gorgo.types import VariableName, SampleValue
+
+ProposalKernel = Callable[['SampleValue', SampleState], Distribution['SampleValue']]
 
 class MetropolisHastings:
     # this is finite in case it is impossible to initialize a trace
@@ -31,8 +33,8 @@ class MetropolisHastings:
         use_drift_kernels : bool = True,
         uniform_drift_kernel_width : float = 1,
         simplex_proposal_kernel_alpha : float = 10,
-        custom_proposal_kernels : Callable[[VariableName], ProposalKernel] = None,
-        custom_initial_trace_kernel : Callable[[VariableName], SampleValue] = None,
+        custom_proposal_kernels : Callable[['VariableName'], ProposalKernel] = None,
+        custom_initial_trace_kernel : Callable[['VariableName'], 'SampleValue'] = None,
         verbose : bool = False
     ):
         self.function = function
@@ -161,7 +163,7 @@ class MetropolisHastings:
         initial_program_state : ProgramState,
         rng : RandomNumberGenerator
     ) -> Trace:
-        def sample_site_callback(ps : SampleState) -> SampleValue:
+        def sample_site_callback(ps : SampleState) -> 'SampleValue':
             if self.custom_initial_trace_kernel is None:
                 return ps.distribution.sample(rng=rng)
             value = self.custom_initial_trace_kernel(ps.name)
@@ -188,9 +190,9 @@ class MetropolisHastings:
     def choose_target_site(
         self,
         trace : Trace,
-        target_site_name : VariableName = None,
+        target_site_name : 'VariableName' = None,
         rng : RandomNumberGenerator = default_rng,
-    ) -> Tuple[VariableName, float]:
+    ) -> Tuple['VariableName', float]:
         sample_sites = [e.name for e in trace.entries() if e.is_sample]
         if target_site_name is None:
             return rng.choice(sample_sites), math.log(1/len(sample_sites))
@@ -201,7 +203,7 @@ class MetropolisHastings:
     def choose_new_trace(
         self,
         old_trace : Trace,
-        target_site_name : VariableName,
+        target_site_name : 'VariableName',
         new_trace : Trace = None,
         rng : RandomNumberGenerator = default_rng,
     ) -> Tuple[Trace, float]:
@@ -221,7 +223,7 @@ class MetropolisHastings:
     def sample_new_trace(
         self,
         old_trace : Trace,
-        target_site_name : VariableName,
+        target_site_name : 'VariableName',
         rng=default_rng
     ) -> Trace:
         def sample_site_callback(ps : SampleState):
@@ -248,7 +250,7 @@ class MetropolisHastings:
     def calc_new_trace_log_probability(
         self,
         old_trace : Trace,
-        target_site_name : VariableName,
+        target_site_name : 'VariableName',
         new_trace : Trace
     ) -> float:
         total_proposal_log_prob = 0
@@ -272,9 +274,9 @@ class MetropolisHastings:
 
     def site_proposal_dist(
         self,
-        old_value : SampleValue,
+        old_value : 'SampleValue',
         program_state : SampleState,
-    ) -> Distribution[SampleValue]:
+    ) -> Distribution['SampleValue']:
         if self.custom_proposal_kernels is not None:
             proposal_function = self.custom_proposal_kernels(program_state.name)
             if proposal_function is not None:

@@ -3,15 +3,14 @@ from gorgo.distributions import Distribution
 from gorgo.funcutils import cached_property
 from gorgo.hashable import hashabledict, hashablelist, hashableset
 
+from gorgo.types import Continuation, Stack, VariableName, ReturnValue
+
 if TYPE_CHECKING:
-    from gorgo.interpreter import CPSInterpreter, StackFrame, Thunk, Continuation
+    from gorgo.interpreter import CPSInterpreter
 
 ############################################
 #  Program State
 ############################################
-VariableName = Hashable
-SampleValue = Any
-ReturnValue = Any
 
 class ProgramState:
     """
@@ -27,8 +26,8 @@ class ProgramState:
     def __init__(
         self,
         continuation : 'Continuation' = None,
-        name: VariableName = None,
-        stack: Tuple['StackFrame'] = None,
+        name: 'VariableName' = None,
+        stack: 'Stack' = None,
         cps : 'CPSInterpreter' = None
     ):
         self.continuation = continuation
@@ -55,7 +54,7 @@ class ProgramState:
                     raise TypeError(f"Unknown type {type(next_)}")
 
     @cached_property
-    def name(self) -> VariableName:
+    def name(self) -> 'VariableName':
         if self._name is not None:
             return self._name
         if self.stack is None:
@@ -107,8 +106,8 @@ class ObserveState(ProgramState):
         continuation: 'Continuation',
         distribution: Distribution,
         value: Any,
-        name: VariableName,
-        stack: Tuple['StackFrame'],
+        name: 'VariableName',
+        stack: 'Stack',
         cps : 'CPSInterpreter'
     ):
         super().__init__(
@@ -125,8 +124,8 @@ class SampleState(ProgramState):
         self,
         continuation: 'Continuation',
         distribution: Distribution,
-        name: VariableName,
-        stack: Tuple['StackFrame'],
+        name: 'VariableName',
+        stack: 'Stack',
         cps : 'CPSInterpreter'
     ):
         super().__init__(
@@ -138,7 +137,7 @@ class SampleState(ProgramState):
         self.distribution = distribution
 
 class ReturnState(ProgramState):
-    def __init__(self, value: ReturnValue):
+    def __init__(self, value: 'ReturnValue'):
         if isinstance(value, dict):
             value = hashabledict(value)
         elif isinstance(value, list):
