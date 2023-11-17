@@ -3,9 +3,9 @@ import functools
 import inspect
 import textwrap
 import types
-from typing import Tuple, Callable
+from typing import Tuple, Callable, Union, Any, Hashable, TYPE_CHECKING
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState, \
-    StackFrame
+    StackFrame, Thunk, Continuation
 from gorgo.distributions import Distribution
 from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis
@@ -14,6 +14,8 @@ from gorgo.funcutils import method_cache
 import linecache
 import types
 import contextlib
+
+CPSCallable = Callable
 
 class CPSInterpreter:
     def __init__(self):
@@ -24,7 +26,7 @@ class CPSInterpreter:
         self.cps_transform = CPSTransform()
         self.global_store_proxy = ReadOnlyProxy()
 
-    def initial_program_state(self, function):
+    def initial_program_state(self, function) -> InitialState:
         interpreted_function = self.interpret(
             function,
             stack = ()
@@ -46,13 +48,13 @@ class CPSInterpreter:
 
     def interpret(
         self,
-        call,
+        call : Callable,
         cont : Callable = None,
         stack : Tuple = None,
         func_src : str = None,
         locals_ = None,
         lineno : int = None,
-    ):
+    ) -> Continuation:
         # normal python
         if (
             isinstance(call, types.BuiltinFunctionType) or \
@@ -68,12 +70,18 @@ class CPSInterpreter:
         cps_call = functools.partial(cps_call, _stack=cur_stack, _cont=cont)
         return cps_call
 
-    def interpret_builtin(self, func):
+    def interpret_builtin(self, func) -> Continuation:
         def builtin_wrapper(*args, _cont=lambda val: val, **kws):
             return lambda : _cont(func(*args, **kws))
         return builtin_wrapper
 
-    def update_stack(self, stack, func_src, locals_, lineno):
+    def update_stack(
+        self,
+        stack: Tuple[StackFrame],
+        func_src: str,
+        locals_: dict,
+        lineno: int
+    ) -> Union[None,Tuple[StackFrame]]:
         if stack is None:
             cur_stack = None
         else:
@@ -81,7 +89,10 @@ class CPSInterpreter:
         return cur_stack
 
     @method_cache
-    def interpret_cps(self, call):
+    def interpret_cps(
+        self,
+        call : Callable
+    ) -> Continuation:
         if CPSTransform.is_transformed(call):
             return self.interpret_transformed(call)
         if hasattr(call, "__self__") and isinstance(call.__self__, Distribution):
@@ -95,12 +106,12 @@ class CPSInterpreter:
             raise NotImplementedError(f"CPSInterpreter does not support methods for {call.__self__.__class__.__name__}")
         return self.interpret_generic(call)
 
-    def interpret_transformed(self, func):
+    def interpret_transformed(self, func : CPSCallable) -> Continuation:
         def wrapper_generic(*args, _cont=None, _stack=None, **kws):
             return func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return wrapper_generic
 
-    def interpret_sample(self, call):
+    def interpret_sample(self, call) -> Continuation:
         def sample_wrapper(_cont=None, _stack=None, name=None):
             return SampleState(
                 continuation=_cont,
@@ -111,7 +122,7 @@ class CPSInterpreter:
             )
         return sample_wrapper
 
-    def interpret_observation(self, call):
+    def interpret_observation(self, call) -> Continuation:
         def observation_wrapper(value, _cont=None, _stack=None, name=None, **kws):
             return ObserveState(
                 continuation=lambda : _cont(None),
@@ -123,7 +134,7 @@ class CPSInterpreter:
             )
         return observation_wrapper
 
-    def interpret_generic(self, func):
+    def interpret_generic(self, func) -> Continuation:
         code = self.compile(
             f'{func.__name__}_{hex(id(func)).removeprefix("0x")}.py',
             self.transform_from_func(func),
@@ -138,20 +149,20 @@ class CPSInterpreter:
             return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return wrapper_generic
 
-    def transform_from_func(self, func):
+    def transform_from_func(self, func) -> ast.AST:
         source = textwrap.dedent(inspect.getsource(func))
         trans_node = ast.parse(source)
         self.subset_validator(trans_node, source)
         return self.transform(trans_node)
 
-    def transform(self, trans_node):
+    def transform(self, trans_node) -> ast.AST:
         self.closure_scope_analysis(trans_node)
         trans_node = self.desugaring_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
         return trans_node
 
-    def compile(self, filename, node):
+    def compile(self, filename, node) -> types.CodeType:
         source = ast.unparse(node)
         # In order to get stack traces that reference compiled code, we follow the scheme IPython does
         # in CachingCompiler.cache, by adding an entry to Python's linecache.
@@ -164,7 +175,7 @@ class CPSInterpreter:
         )
         return compile(source, filename, 'exec')
 
-    def get_closure(self, func):
+    def get_closure(self, func) -> dict:
         if getattr(func, "__closure__", None) is not None:
             closure_keys = func.__code__.co_freevars
             closure_values = [cell.cell_contents for cell in func.__closure__]

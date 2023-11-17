@@ -1,4 +1,4 @@
-from typing import Any, Callable, Hashable, Tuple, TYPE_CHECKING, TypeVar
+from typing import Any, Callable, Hashable, Tuple, TYPE_CHECKING, TypeVar, Sequence, Union
 from gorgo.distributions import Distribution
 from gorgo.funcutils import cached_property
 from gorgo.hashable import hashabledict, hashablelist, hashableset
@@ -14,7 +14,8 @@ from collections import namedtuple
 StackFrame = namedtuple("StackFrame", "func_src lineno locals")
 
 # a continuation is a function that takes a value and returns a thunk
-Continuation = Callable[..., Callable[[], Any]]
+Thunk = Callable[[], Union['Thunk', 'ProgramState']]
+Continuation = Callable[..., Thunk]
 VariableName = Hashable
 SampleValue = Any
 ReturnValue = Any
