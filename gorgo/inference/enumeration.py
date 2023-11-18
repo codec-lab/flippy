@@ -2,7 +2,7 @@ import heapq
 import math
 from collections import defaultdict
 import dataclasses
-from typing import Any
+from typing import Any, Union, List
 
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
@@ -18,23 +18,22 @@ class Enumeration:
         self.function = function
         self.max_executions = max_executions
 
-    def run(self, *args, **kws):
-        frontier = []
+    def enumerate_tree(
+        self,
+        ps: ProgramState,
+        max_executions: int,
+    ):
+        frontier: List[PrioritizedItem] = []
         return_probs = defaultdict(float)
         executions = 0
-        ps = CPSInterpreter().initial_program_state(self.function)
-        ps : ProgramState
         heapq.heappush(frontier, PrioritizedItem(0, ps))
         while len(frontier) > 0:
-            if executions >= self.max_executions:
+            if executions >= max_executions:
                 break
             item = heapq.heappop(frontier)
             cum_weight = -item.priority
             ps = item.item
-            if isinstance(ps, InitialState):
-                new_ps = ps.step(*args, **kws)
-                heapq.heappush(frontier, PrioritizedItem(-cum_weight, new_ps))
-            elif isinstance(ps, SampleState):
+            if isinstance(ps, SampleState):
                 for value in ps.distribution.support:
                     weight = ps.distribution.log_probability(value)
                     if weight > float('-inf'):
@@ -53,6 +52,12 @@ class Enumeration:
                 executions += 1
             else:
                 raise ValueError("Unrecognized program state message")
+        return return_probs
+
+    def run(self, *args, **kws):
+        init_ps = CPSInterpreter().initial_program_state(self.function)
+        ps = init_ps.step(*args, **kws)
+        return_probs = self.enumerate_tree(ps, self.max_executions)
         total_prob = sum(return_probs.values())
         return_probs = {e: p/total_prob for e, p in return_probs.items()}
         return Categorical.from_dict(return_probs)
