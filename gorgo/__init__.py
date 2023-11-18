@@ -115,7 +115,7 @@ def condition(cond: float):
         _factor_dist.observe(math.log(cond))
 
 def flip(p=.5, name=None):
-    return Bernoulli(p).sample(name=name)
+    return bool(Bernoulli(p).sample(name=name))
 
 def draw_from(n):
     if isinstance(n, int):
