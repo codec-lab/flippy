@@ -7,6 +7,7 @@ from typing import Any, Union, List
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical
+from gorgo.tools import logsumexp, softmax_dict
 
 @dataclasses.dataclass(order=True)
 class PrioritizedItem:
@@ -24,7 +25,8 @@ class Enumeration:
         max_executions: int,
     ):
         frontier: List[PrioritizedItem] = []
-        return_probs = defaultdict(float)
+        return_scores = {}
+        # return_probs = defaultdict(float)
         executions = 0
         heapq.heappush(frontier, PrioritizedItem(0, ps))
         while len(frontier) > 0:
@@ -46,18 +48,17 @@ class Enumeration:
                     new_ps = ps.step()
                     heapq.heappush(frontier, PrioritizedItem(-(cum_weight + weight), new_ps))
             elif isinstance(ps, ReturnState):
-                cum_prob = math.exp(cum_weight)
-                assert cum_prob > 0, "Possible underflow"
-                return_probs[ps.value] += cum_prob
+                return_scores[ps.value] = logsumexp(
+                    return_scores.get(ps.value, float('-inf')),
+                    cum_weight
+                )
                 executions += 1
             else:
                 raise ValueError("Unrecognized program state message")
-        return return_probs
+        return return_scores
 
     def run(self, *args, **kws):
         init_ps = CPSInterpreter().initial_program_state(self.function)
         ps = init_ps.step(*args, **kws)
-        return_probs = self.enumerate_tree(ps, self.max_executions)
-        total_prob = sum(return_probs.values())
-        return_probs = {e: p/total_prob for e, p in return_probs.items()}
-        return Categorical.from_dict(return_probs)
+        return_scores = self.enumerate_tree(ps, self.max_executions)
+        return Categorical.from_dict(softmax_dict(return_scores))
