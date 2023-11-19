@@ -15,7 +15,7 @@ import linecache
 import types
 import contextlib
 
-from gorgo.types import NonCPSCallable, Continuation, Stack, \
+from gorgo.types import NonCPSCallable, Method, Continuation, Stack, \
     SampleCallable, ObserveCallable, CPSCallable, VariableName
 
 StackFrame = namedtuple("StackFrame", "func_src lineno locals")
@@ -110,7 +110,8 @@ class CPSInterpreter:
             elif call.__name__ == "observe":
                 return self.interpret_observe(call)
             else:
-                raise NotImplementedError(f"Only sample and observe are supported for {call.__self__.__class__.__name__}")
+                # other than sample and observe, we interpret Distribution methods as deterministic
+                return self.interpret_method_deterministically(call)
         elif hasattr(call, "__self__"):
             raise NotImplementedError(f"CPSInterpreter does not support methods for {call.__self__.__class__.__name__}")
         return self.interpret_generic(call)
@@ -152,6 +153,12 @@ class CPSInterpreter:
                 cps=self,
             )
         return observe_continuation
+
+    def interpret_method_deterministically(self, call: Method) -> 'Continuation':
+        self = call.__self__
+        def method_continuation(*args, _cont: 'Continuation'=lambda val: val, _stack=None, **kws):
+            return lambda : _cont(call.__func__(self, *args, **kws))
+        return method_continuation
 
     def interpret_generic(self, call: 'NonCPSCallable') -> 'Continuation':
         code = self.compile(
