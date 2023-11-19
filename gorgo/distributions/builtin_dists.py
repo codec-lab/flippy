@@ -1,4 +1,5 @@
 from typing import Tuple, Sequence, Union, Any, Callable
+from dataclasses import is_dataclass, asdict
 from itertools import combinations_with_replacement
 from collections import Counter, defaultdict
 import math
@@ -113,8 +114,17 @@ class Categorical(FiniteDistribution):
     def _ReturnDict_repr_html(self):
         format_prob = lambda p: f"{p:.3f}" if p > 0.001 else f"{p:.2e}"
         keys = set()
+        support = []
+        probs = []
         for e in self.support:
+            prob = self.prob(e)
+            probs.append(prob)
+            if is_dataclass(e):
+                e = asdict(e)
             assert isinstance(e, dict)
+            support.append(e)
+
+        for e in support:
             keys.update(e.keys())
         def make_row(e : dict, p : float):
             row = []
@@ -124,15 +134,15 @@ class Categorical(FiniteDistribution):
             return f"<tr>{''.join(row)}</tr>"
 
         rows = []
-        if len(self.support) < 10:
-            for e in self.support:
-                rows.append(make_row(e, self.prob(e)))
+        if len(support) < 10:
+            for e, p in zip(support, probs):
+                rows.append(make_row(e, p))
         else:
-            for e in self.support[:5]:
-                rows.append(make_row(e, self.prob(e)))
+            for e, p in zip(support[:5], probs[:5]):
+                rows.append(make_row(e, p))
             rows.append("<tr><td>...</td></tr>")
-            for e in self.support[-5:]:
-                rows.append(make_row(e, self.prob(e)))
+            for e, p in zip(support[-5:], probs[-5:]):
+                rows.append(make_row(e, p))
 
         return ''.join([
             "<table>",
@@ -144,7 +154,10 @@ class Categorical(FiniteDistribution):
         ])
 
     def _repr_html_(self):
-        if all(isinstance(e, dict) for e in self.support):
+        if (
+            all(isinstance(e, dict) for e in self.support) or \
+            all(is_dataclass(e) for e in self.support)
+        ):
             return self._ReturnDict_repr_html()
         return self._default_repr_html_()
 

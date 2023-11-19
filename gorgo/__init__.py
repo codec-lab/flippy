@@ -1,6 +1,6 @@
 import functools
 import math
-from typing import Callable, Sequence, TYPE_CHECKING
+from typing import Callable, Sequence, TYPE_CHECKING, Union, TypeVar, overload
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
     Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
@@ -29,7 +29,10 @@ __all__ = [
     'Bernoulli',
 ]
 
-def keep_deterministic(fn: Callable) -> CPSCallable:
+R = TypeVar('R')
+
+# def keep_deterministic(fn: Callable) -> CPSCallable: #note that this is the real type signature
+def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
     def continuation(*args, _cont: Continuation=None, _cps: 'CPSInterpreter'=None, _stack: Stack=None, **kws):
         rv = fn(*args, **kws)
         if _cont is None:
@@ -117,10 +120,23 @@ def condition(cond: float):
 def flip(p=.5, name=None):
     return bool(Bernoulli(p).sample(name=name))
 
-def draw_from(n):
+@keep_deterministic
+def _draw_from_dist(n: Union[Sequence[Element], int]) -> Distribution[Element]:
     if isinstance(n, int):
-        return Categorical(range(n)).sample()
-    return Categorical(n).sample()
+        return Categorical(range(n))
+    if hasattr(n, '__getitem__'):
+        return Categorical(n)
+    else:
+        return Categorical(list(n))
+
+@overload
+def draw_from(n: int) -> int:
+    ...
+@overload
+def draw_from(n: Sequence[Element]) -> Element:
+    ...
+def draw_from(n: Union[Sequence[Element], int]) -> Element:
+    return _draw_from_dist(n).sample()
 
 def mem(fn):
     def wrapped(*args, **kws):
