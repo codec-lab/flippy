@@ -49,6 +49,11 @@ class ObserveCallable(Protocol[Element]):
     def __call__(self, value: Element) -> None:
         ...
 
+class Method(Protocol):
+    __self__: Any
+    __func__: Callable
+    __name__: str
+
 # Type annotation for a CPS-transformed function
 class CPSCallable(Protocol):
     def __call__(

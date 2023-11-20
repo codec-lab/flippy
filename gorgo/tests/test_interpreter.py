@@ -4,6 +4,7 @@ from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
 import ast
+import math
 import pytest
 import traceback
 
@@ -339,3 +340,13 @@ def test_global_store_proxy_forking():
     assert s1a.init_global_store.store == {(proxy_forking_value, ('bag0',), ()): 3}, 'Make sure sibling state was not modified'
     assert s1b.init_global_store.store == {(proxy_forking_value, ('bag1',), ()): 7}, 'Make sure original state was not modified'
     assert s2b.init_global_store.store == {(proxy_forking_value, ('bag1',), ()): 7, (proxy_forking_value, ('bag0',), ()): 5}, 'Make sure original state was not modified'
+
+def test_Distribution_generic_methods():
+    # other than observe and sample, Distribution methods
+    # should be run deterministically
+    def f():
+        x = Bernoulli(0.5)
+        return x.log_probability(1)
+    check_trace(
+        f, [], return_value=math.log(.5)
+    )
