@@ -14,10 +14,15 @@ class PrioritizedItem:
     priority: int
     item: Any=dataclasses.field(compare=False)
 
+@dataclasses.dataclass
+class EnumerationStats:
+    executions: int = 0
+
 class Enumeration:
     def __init__(self, function, max_executions=float('inf')):
         self.function = function
         self.max_executions = max_executions
+        self._stats = None
 
     def enumerate_tree(
         self,
@@ -68,6 +73,8 @@ class Enumeration:
                 executions += 1
             else:
                 raise ValueError("Unrecognized program state message")
+        if self._stats is not None:
+            self._stats.executions += executions
         return return_scores
 
     def enumerate_map(
@@ -93,9 +100,15 @@ class Enumeration:
             map_result_weights.append((map_exit_ps, cum_weight))
         return map_result_weights
 
-    def run(self, *args, **kws):
+    def run(self, *args, **kws) -> Categorical:
         init_ps = CPSInterpreter().initial_program_state(self.function)
         ps = init_ps.step(*args, **kws)
         return_scores = self.enumerate_tree(ps, self.max_executions)
         return Categorical.from_dict(softmax_dict(return_scores))
+
+    def _run_with_stats(self, *args, **kws) -> Tuple[Categorical, EnumerationStats]:
+        self._stats = EnumerationStats()
+        result = self.run(*args, **kws)
+        self._stats, stats = None, self._stats
+        return result, stats
 
