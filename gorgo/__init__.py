@@ -140,7 +140,7 @@ def draw_from(n: Union[Sequence[Element], int]) -> Element:
 
 def mem(fn):
     def wrapped(*args, **kws):
-        key = (fn, args, tuple(kws.items()))
+        key = (fn, args, tuple(sorted(kws.items())))
         if key in global_store:
             return global_store.get(key)
         else:
