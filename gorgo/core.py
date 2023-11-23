@@ -28,13 +28,18 @@ class ProgramState:
         continuation : 'Continuation' = None,
         name: 'VariableName' = None,
         stack: 'Stack' = None,
-        cps : 'CPSInterpreter' = None
+        cps : 'CPSInterpreter' = None,
+        init_global_store : 'GlobalStore' = None,
     ):
         self.continuation = continuation
         self._name = name
         self.stack = stack
-        self.init_global_store = GlobalStore()
+        self.init_global_store = init_global_store
         self.cps = cps
+
+    def set_init_global_store(self, global_store : 'GlobalStore'):
+        assert self.init_global_store is None, "Cannot set global store twice"
+        self.init_global_store = global_store
 
     def step(self, *args, **kws) -> 'ProgramState':
         """
@@ -48,7 +53,7 @@ class ProgramState:
                 if callable(next_):
                     next_ = next_()
                 elif isinstance(next_, ProgramState):
-                    next_.init_global_store = global_store
+                    next_.set_init_global_store(global_store)
                     return next_
                 else:
                     raise TypeError(f"Unknown type {type(next_)}")
@@ -98,7 +103,16 @@ class GlobalStore:
 global_store = ReadOnlyProxy()
 
 class InitialState(ProgramState):
-    pass
+    def __init__(
+        self,
+        continuation : 'Continuation' = None,
+        cps : 'CPSInterpreter' = None,
+    ):
+        super().__init__(
+            continuation=continuation,
+            cps=cps,
+            init_global_store=GlobalStore()
+        )
 
 class ObserveState(ProgramState):
     def __init__(
@@ -138,6 +152,7 @@ class SampleState(ProgramState):
 
 class ReturnState(ProgramState):
     def __init__(self, value: 'ReturnValue'):
+        super().__init__()
         if isinstance(value, dict):
             value = hashabledict(value)
         elif isinstance(value, list):
