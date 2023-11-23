@@ -1,6 +1,6 @@
 import heapq
 import math
-from collections import defaultdict
+from collections import defaultdict, Counter
 import dataclasses
 from typing import Any, Union, List, Tuple
 
@@ -14,9 +14,17 @@ class PrioritizedItem:
     priority: int
     item: Any=dataclasses.field(compare=False)
 
+@dataclasses.dataclass(frozen=True)
+class ProgramStateRecord:
+    kind: type
+    name: str
+
 @dataclasses.dataclass
 class EnumerationStats:
-    executions: int = 0
+    states_visited: list[ProgramStateRecord] = dataclasses.field(default_factory=list)
+
+    def site_counts(self):
+        return Counter(self.states_visited)
 
 class Enumeration:
     def __init__(self, function, max_executions=float('inf')):
@@ -60,8 +68,8 @@ class Enumeration:
                 executions += 1
             else:
                 raise ValueError("Unrecognized program state message")
-        if self._stats is not None:
-            self._stats.executions += executions
+            if self._stats is not None:
+                self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
         return return_scores
 
     def run(self, *args, **kws):
