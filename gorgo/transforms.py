@@ -697,6 +697,29 @@ class SetLineNumbers(ast.NodeTransformer):
         ast.NodeTransformer.generic_visit(self, node)
         return node
 
+class GetLineNumber(ast.NodeVisitor):
+    """
+    Reset line numbers by statement.
+    """
+    def __call__(self, node: ast.AST, lineno: int):
+        self.cur_line = 0
+        self.lineno = lineno
+        try:
+            self.visit(node)
+        except StopIteration as err:
+            return err.value
+        raise ValueError(f"Could not find line number {lineno} in {ast.dump(node)}")
+    def set_line(self, node):
+        node.lineno = self.cur_line
+        self.cur_line += 1
+    def generic_visit(self, node):
+        if isinstance(node, (ast.Expr, ast.stmt)):
+            if self.cur_line == self.lineno:
+                raise StopIteration(node)
+            self.cur_line += 1
+        ast.NodeVisitor.generic_visit(self, node)
+        return node
+
 class CPSTransform(NodeTransformer):
     """
     Convert python to a form of continuation passing style.
