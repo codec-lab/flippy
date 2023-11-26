@@ -66,6 +66,18 @@ class ProgramState:
             return None
         return tuple((frame.func_src, frame.lineno) for frame in self.stack)
 
+    def __eq__(self, other: 'ProgramState'):
+        if not isinstance(other, ProgramState):
+            return False
+        return (
+            self.__class__ == other.__class__ and
+            self.stack == other.stack and
+            self.init_global_store.store == other.init_global_store.store
+        )
+
+    def __hash__(self):
+        return hash((self.__class__, self.stack, hashabledict(self.init_global_store.store)))
+
 class ReadOnlyProxy(object):
     def __init__(self):
         self.proxied = None
@@ -151,8 +163,8 @@ class SampleState(ProgramState):
         self.distribution = distribution
 
 class ReturnState(ProgramState):
-    def __init__(self, value: 'ReturnValue'):
-        super().__init__()
+    def __init__(self, value: 'ReturnValue', stack: 'Stack'):
+        super().__init__(stack=stack, name="RETURN_STATE")
         if isinstance(value, dict):
             value = hashabledict(value)
         elif isinstance(value, list):
@@ -160,7 +172,6 @@ class ReturnState(ProgramState):
         elif isinstance(value, set):
             value = hashableset(value)
         self.value = value
-        self._name = "RETURN_STATE"
 
     def step(self, *args, **kws):
         raise ValueError

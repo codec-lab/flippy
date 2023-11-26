@@ -11,6 +11,7 @@ from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis
 from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.funcutils import method_cache
+from gorgo.hashable import hashabledict
 import linecache
 import types
 import contextlib
@@ -32,11 +33,15 @@ class CPSInterpreter:
     def initial_program_state(self, call: Union['NonCPSCallable','CPSCallable']) -> InitialState:
         cps_call = self.interpret(
             call=call,
-            stack = ()
+            stack = (),
+            func_src = "<root>",
+            locals_ = {},
+            lineno= 0
         )
         def return_continuation(value):
             return ReturnState(
-                value=value
+                value=value,
+                stack=(StackFrame("<root>", 0, hashabledict({'__return__': value})), ),
             )
         def program_continuation(*args, **kws):
             return cps_call(
@@ -92,9 +97,16 @@ class CPSInterpreter:
         lineno: int
     ) -> Union[None,'Stack']:
         if stack is None:
-            cur_stack = None
-        else:
-            cur_stack = stack + (StackFrame(func_src, lineno, locals_),)
+            return None
+        if isinstance(locals_, dict):
+            locals_ = hashabledict({
+                k: v for k, v in locals_.items()
+                if (
+                    (k not in ['__func_src', '_cont', '_cps', '_stack']) and
+                    ('_scope_' not in k)
+                )
+            })
+        cur_stack = stack + (StackFrame(func_src, lineno, locals_),)
         return cur_stack
 
     @method_cache
