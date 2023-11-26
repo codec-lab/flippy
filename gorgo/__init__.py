@@ -140,7 +140,7 @@ def draw_from(n: Union[Sequence[Element], int]) -> Element:
     return _draw_from_dist(n).sample()
 
 def mem(fn):
-    def wrapped(*args, **kws):
+    def mem_wrapper(*args, **kws):
         key = (fn, args, tuple(sorted(kws.items())))
         kws = hashabledict(kws)
         if key in global_store:
@@ -149,7 +149,7 @@ def mem(fn):
             value = fn(*args, **kws)
             global_store.set(key, value)
             return value
-    return wrapped
+    return mem_wrapper
 
 _uniform = Uniform()
 def uniform():
