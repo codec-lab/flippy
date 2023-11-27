@@ -50,15 +50,19 @@ class StackFrame:
 
     def _repr_html_(self):
         func_string, line_match = self._func_src_string_line_match()
+        func_string = [r.replace('<', '&lt;').replace('>', '&gt;') for r in func_string]
         func_string[line_match] = '<span style="color:red;">'+func_string[line_match]+'</span>'
         func_html = '<pre>'+'\n'.join(func_string)+'</pre>'
         func_html = func_html.replace('  ', '&nbsp;&nbsp;')
-        locals_html = '<pre>'+'\n'.join([f'{k}: {v}' for k, v in self.locals.items()])+'</pre>'
+        locals_html = '<pre>'+'\n'.join([
+            f'{k}: {v}'.replace('<', '&lt;').replace('>', '&gt;')
+            for k, v in self.locals.items()
+        ])+'</pre>'
         locals_keys = "<pre style='display:inline;'>"+', '.join(self.locals.keys())+'</pre>'
         func_head = "<pre style='display:inline;'>"+func_string[0].replace(":", "").replace("def ", "")+"</pre>"
         frame_html = [
             f"<details><summary>Locals: {locals_keys}</summary>{locals_html}</details>",
-            f"<details><summary>Function: {func_head} </summary>{func_html}</details>"
+            f"<details><summary>Caller: {func_head} </summary>{func_html}</details>"
         ]
         frame_html = "<div style='cursor:default'>"+'\n'.join(frame_html)+"</div>"
         return frame_html
