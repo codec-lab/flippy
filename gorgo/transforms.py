@@ -735,6 +735,7 @@ class CPSTransform(NodeTransformer):
         self.remaining_stmts = None
         self.new_block = None
         self.cur_stmt = None
+        self.parent_function_lineno = 0
 
     def __call__(self, node):
         with self.in_scope():
@@ -764,7 +765,12 @@ class CPSTransform(NodeTransformer):
         node = self.add_keyword_to_FunctionDef(node, self.final_continuation_name, "lambda val: val")
         with self.in_scope():
             self.visit(node.args)
+            # we track this so that line numbers passed to interpreter are
+            # with respect to the start of the function definition
+            old_parent_lineno = self.parent_function_lineno
+            self.parent_function_lineno = node.lineno
             node.body = self.transform_block(node.body)
+            self.parent_function_lineno = old_parent_lineno
         decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
 
         # This decorator position makes it the last decorator called.
@@ -849,7 +855,7 @@ class CPSTransform(NodeTransformer):
                 stack={self.stack_name},
                 func_src={self.func_src_name},
                 locals_={locals_name},
-                lineno={node.lineno}
+                lineno={node.lineno - self.parent_function_lineno}
             )()
         ''')).body
         continuation_node, thunk_node = code[-2:]
