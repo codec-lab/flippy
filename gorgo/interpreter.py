@@ -28,6 +28,13 @@ class StackFrame:
     locals: dict
 
     def as_string(self):
+        func_string, line_match = self._func_src_string_line_match()
+        func_string = ['   '+r for r in func_string]
+        func_string[line_match] = func_string[line_match].replace('  ', '>>', 1)
+        func_string[line_match] = func_string[line_match] + f'  # {self.locals}'
+        return '\n'.join(func_string)
+
+    def _func_src_string_line_match(self):
         try:
             func_ast = ast.parse(self.func_src).body[0]
             line = GetLineNumber()(func_ast, self.lineno)
@@ -39,10 +46,23 @@ class StackFrame:
         line_match = [i for i, l in enumerate(func_string) if line_string in l]
         assert len(line_match) == 1
         line_match = line_match[0]
-        func_string = ['   '+r for r in func_string]
-        func_string[line_match] = func_string[line_match].replace('  ', '>>', 1)
-        func_string[line_match] = func_string[line_match] + f'  # {self.locals}'
-        return '\n'.join(func_string)
+        return func_string, line_match
+
+    def _repr_html_(self):
+        func_string, line_match = self._func_src_string_line_match()
+        func_string[line_match] = '<span style="color:red;">'+func_string[line_match]+'</span>'
+        func_html = '<pre>'+'\n'.join(func_string)+'</pre>'
+        func_html = func_html.replace('  ', '&nbsp;&nbsp;')
+        locals_html = '<pre>'+'\n'.join([f'{k}: {v}' for k, v in self.locals.items()])+'</pre>'
+        locals_keys = "<pre style='display:inline;'>"+', '.join(self.locals.keys())+'</pre>'
+        func_head = "<pre style='display:inline;'>"+func_string[0].replace(":", "").replace("def ", "")+"</pre>"
+        frame_html = [
+            f"<details><summary>Locals: {locals_keys}</summary>{locals_html}</details>",
+            f"<details><summary>Function: {func_head} </summary>{func_html}</details>"
+        ]
+        frame_html = "<div style='cursor:default'>"+'\n'.join(frame_html)+"</div>"
+        return frame_html
+        # return f'<pre>{self.as_string()}</pre>'
 
 @dataclasses.dataclass(frozen=True)
 class Stack:
@@ -70,6 +90,16 @@ class Stack:
 
     def __getitem__(self, key):
         return self.stack_frames[key]
+
+    def _repr_html_(self):
+        stack_html = []
+        for i, frame in enumerate(self.stack_frames):
+            frame_html = frame._repr_html_()
+            frame_html = "<div style='margin-left: 20px;'>"+frame_html+"</div>"
+            frame_html = f"<details open><summary>Frame {i}</summary>{frame_html}</details>"
+            stack_html.append(frame_html)
+        return '\n'.join(stack_html)
+
 
 class CPSInterpreter:
     def __init__(self):
