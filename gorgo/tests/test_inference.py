@@ -1,7 +1,7 @@
 import math
-from gorgo import _distribution_from_inference
+from gorgo import _distribution_from_inference, flip, mem, condition
 from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal, Gamma, Uniform
-from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting
+from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, GraphEnumeration
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
 
@@ -100,3 +100,30 @@ def test_observations():
         dist = _distribution_from_inference(LikelihoodWeighting(model, samples=samples, seed=seed).run())
         print('LikelihoodWeighting', dist)
         assert dist.isclose(expected_dist, atol=1e-1)
+
+def test_graph_enumeration():
+    def f1():
+        def g():
+            return flip() + flip() + flip() + flip() + flip()
+        return g() + g()
+
+    def f2():
+        def g(i):
+            return flip() + flip()
+        g = mem(g)
+        i = flip()
+        j = flip()
+        return g(i) + g(j)
+
+    def f3():
+        i = flip()
+        j = flip()
+        condition(.9 if i + j == 1 else .3)
+        return i + j
+
+    test_models = [f1, f2, f3]
+
+    for f in test_models:
+        e_res = Enumeration(f).run()
+        ge_res = GraphEnumeration(f).run()
+        assert e_res.isclose(ge_res)

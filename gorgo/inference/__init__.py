@@ -1,4 +1,4 @@
-from gorgo.inference.enumeration import Enumeration
+from gorgo.inference.enumeration import Enumeration, GraphEnumeration
 from gorgo.inference.sample_prior import SamplePrior
 from gorgo.inference.likelihood_weighting import LikelihoodWeighting
 from gorgo.inference.mcmc.metropolis_hastings import MetropolisHastings
