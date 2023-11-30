@@ -4,6 +4,7 @@ from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet,
 from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, GraphEnumeration
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
+from gorgo.callentryexit import register_call_entryexit
 
 def geometric(p):
     '''
@@ -104,7 +105,7 @@ def test_observations():
 def test_graph_enumeration():
     def f1():
         def g():
-            return flip() + flip() + flip() + flip() + flip()
+            return flip(.4) + flip(.7) + flip(.9) + flip(.2) + flip(.51)
         return g() + g()
 
     def f2():
@@ -116,14 +117,29 @@ def test_graph_enumeration():
         return g(i) + g(j)
 
     def f3():
-        i = flip()
-        j = flip()
+        i = flip(.3)
+        j = flip(.72)
         condition(.9 if i + j == 1 else .3)
         return i + j
 
-    test_models = [f1, f2, f3]
+    def f4():
+        @register_call_entryexit
+        def g(i):
+            return flip(.61, name='a') + flip(.77, name='b')
+        x = flip(.3, name='x')
+        return x + g(1)
+
+    def f5():
+        @register_call_entryexit
+        def g(i):
+            Bernoulli(.3).observe(i)
+            return flip(.61, name='a') + flip(.77, name='b')
+        x = flip(.3, name='x')
+        return x + g(x)
+
+    test_models = [f1, f2, f3, f4, f5]
 
     for f in test_models:
         e_res = Enumeration(f).run()
         ge_res = GraphEnumeration(f).run()
-        assert e_res.isclose(ge_res)
+        assert e_res.isclose(ge_res), f"Results for {f.__name__} do not match"
