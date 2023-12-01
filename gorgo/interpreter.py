@@ -10,7 +10,7 @@ from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
 from gorgo.distributions.base import Distribution, Element
 from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
-    GetLineNumber
+    GetLineNumber, CPSFunction
 from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.funcutils import method_cache
 from gorgo.hashable import hashabledict
@@ -243,7 +243,13 @@ class CPSInterpreter:
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
             self.transform_from_func(call),
         )
-        context = {**call.__globals__, **self.get_closure(call), "_cps": self, "global_store": self.global_store_proxy}
+        context = {
+            **call.__globals__,
+            **self.get_closure(call),
+            "_cps": self,
+            "global_store": self.global_store_proxy,
+            "CPSFunction": CPSFunction,
+        }
         try:
             exec(code, context)
         except SyntaxError as err :

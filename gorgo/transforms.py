@@ -1,9 +1,12 @@
 import ast
+from functools import cached_property
+from typing import Callable
 import textwrap
 import copy
 import contextlib
 import collections
 import dataclasses
+from gorgo.hashable import hashabledict
 
 class Placeholder(ast.NodeTransformer):
     '''
@@ -720,6 +723,37 @@ class GetLineNumber(ast.NodeVisitor):
         ast.NodeVisitor.generic_visit(self, node)
         return node
 
+class CPSFunction:
+    def __init__(self, func: Callable, func_src: str):
+        self.func = func
+        self.func_src = func_src
+        setattr(self, CPSTransform.is_transformed_property, True)
+
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+
+    @property
+    def closure(self) -> hashabledict:
+        if getattr(self.func, "__closure__", None) is not None:
+            closure_keys = self.func.__code__.co_freevars
+            closure_values = [cell.cell_contents for cell in self.func.__closure__]
+            return hashabledict(zip(closure_keys, closure_values))
+        else:
+            return hashabledict()
+
+    @cached_property
+    def _hash(self):
+        # we sort the closure and use repr to avoid circular references
+        return hash((self.func_src, repr(sorted(self.closure.items()))))
+
+    def __hash__(self):
+        return self._hash
+
+    def __eq__(self, other):
+        if not isinstance(other, CPSFunction):
+            return False
+        return self.func_src == other.func_src and self.closure == other.closure
+
 class CPSTransform(NodeTransformer):
     """
     Convert python to a form of continuation passing style.
@@ -771,17 +805,17 @@ class CPSTransform(NodeTransformer):
             self.parent_function_lineno = node.lineno
             node.body = self.transform_block(node.body)
             self.parent_function_lineno = old_parent_lineno
-        decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
+        # decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
 
         # This decorator position makes it the last decorator called.
         # This ensures that the outermost function has `is_transformed_property` set.
-        node.decorator_list.insert(0, decorator)
+        # node.decorator_list.insert(0, decorator)
         # This decorator position makes it the first decorator called.
         # This is important so that intermediate decorators can change their behavior
         # the second time that this function is executed.
         # Functions are executed a second time when being evaluted after being CPS-transformed
         # because decorators aren't removed by the transform.
-        node.decorator_list.append(decorator)
+        # node.decorator_list.append(decorator)
         return node
 
     def add_keyword_to_FunctionDef(self, node, key, value):
@@ -797,6 +831,9 @@ class CPSTransform(NodeTransformer):
         ctx_id = repr(ast.unparse(node))
         ctx_id_assn = ast.parse(f"{self.func_src_name} = {ctx_id}").body[0]
         node.body.insert(0, ctx_id_assn)
+        node.decorator_list.append(
+            ast.parse(f"lambda fn: CPSFunction(fn, {ctx_id})").body[0].value
+        )
         return node
 
     @contextlib.contextmanager
