@@ -153,3 +153,13 @@ def test_graph_enumeration():
         e_res = Enumeration(f).run()
         ge_res = GraphEnumeration(f).run()
         assert e_res.isclose(ge_res), f"Results for {f.__name__} do not match"
+
+def test_hashing_program_states_with_list_and_dict():
+    def f():
+        a = []
+        b = {}
+        return flip()
+
+    ps = CPSInterpreter().initial_program_state(f)
+    assert id(ps.step()) != id(ps.step())
+    assert hash(ps.step()) == hash(ps.step())
