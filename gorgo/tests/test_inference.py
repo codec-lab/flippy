@@ -1,5 +1,5 @@
 import math
-from gorgo import _distribution_from_inference, flip, mem, condition
+from gorgo import _distribution_from_inference, flip, mem, condition, draw_from
 from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal, Gamma, Uniform
 from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, GraphEnumeration
 from gorgo.tools import isclose
@@ -137,7 +137,17 @@ def test_graph_enumeration():
         x = flip(.3, name='x')
         return x + g(x)
 
-    test_models = [f1, f2, f3, f4, f5]
+    def f6():
+        num = lambda : draw_from(range(2))
+        op = lambda : '+' if flip(.5) else '*'
+        def eq(d):
+            if d == 0 or flip(.34):
+                return num()
+            else:
+                return (num(), op(), eq(d - 1))
+        return eq(3)
+
+    test_models = [f1, f2, f3, f4, f5, f6]
 
     for f in test_models:
         e_res = Enumeration(f).run()
