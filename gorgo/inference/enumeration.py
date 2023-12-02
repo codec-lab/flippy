@@ -159,6 +159,9 @@ class GraphEnumeration:
                 transition_scores[(ps, new_ps)] = \
                     logsumexp(transition_scores[(ps, new_ps)], score)
 
+            if self._stats is not None:
+                self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
+
         for ps in return_states:
             state_idx[ps] = len(state_idx)
         n_states = len(visited) + len(return_states)
@@ -200,6 +203,8 @@ class GraphEnumeration:
             if isinstance(ps, ObserveState):
                 score += ps.distribution.log_probability(ps.value)
             ps = ps.step()
+            if self._stats is not None:
+                self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
         return ps, score
 
 
@@ -232,3 +237,9 @@ class GraphEnumeration:
         successors = [rs.step() for rs in successors]
         scores = [init_score + score for score in scores]
         return successors, scores
+
+    def _run_with_stats(self, *args, **kws) -> Tuple[Categorical, EnumerationStats]:
+        self._stats = EnumerationStats()
+        result = self.run(*args, **kws)
+        self._stats, stats = None, self._stats
+        return result, stats
