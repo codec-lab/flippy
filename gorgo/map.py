@@ -1,6 +1,6 @@
 from typing import Sequence, Protocol, Collection, TypeVar
 from gorgo.types import Continuation, Thunk, Stack, CPSCallable
-from gorgo.core import ProgramState
+from gorgo.core import ProgramState, GlobalStore
 from gorgo.interpreter import CPSInterpreter
 from gorgo.transforms import CPSTransform
 
@@ -31,6 +31,7 @@ class NoGlobalStoreProgramState(ProgramState):
             if callable(next_):
                 next_ = next_()
             elif isinstance(next_, ProgramState):
+                next_.set_init_global_store(GlobalStore())
                 return next_
             else:
                 raise TypeError(f"Unknown type {type(next_)}")
@@ -45,6 +46,7 @@ class MapIterStart(NoGlobalStoreProgramState):
         self.continuation = iter_continuation
         self.iterator = iterator
         self.map_finish_program_state = map_finish_program_state
+        self.init_global_store = None
 
 class MapIterEnd(NoGlobalStoreProgramState):
     def __init__(
@@ -58,6 +60,7 @@ class MapIterEnd(NoGlobalStoreProgramState):
         elif isinstance(value, set):
             value = hashableset(value)
         self.value = value
+        self.init_global_store = None
 
 class MapFinish(NoGlobalStoreProgramState):
     def __init__(
