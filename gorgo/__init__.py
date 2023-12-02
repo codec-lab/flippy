@@ -9,6 +9,7 @@ from gorgo.distributions.random import default_rng
 from gorgo.core import global_store
 from gorgo.types import CPSCallable, Continuation, Stack
 from gorgo.hashable import hashabledict
+from gorgo.map import recursive_map
 
 if TYPE_CHECKING:
     from gorgo.interpreter import CPSInterpreter
@@ -76,11 +77,6 @@ def infer(
         wrapped = functools.lru_cache(maxsize=cache_size)(wrapped)
     wrapped = keep_deterministic(wrapped)
     return wrapped
-
-def recursive_map(fn, iter):
-    if not iter:
-        return []
-    return [fn(iter[0])] + recursive_map(fn, iter[1:])
 
 def recursive_filter(fn, iter):
     if not iter:

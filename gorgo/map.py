@@ -1,75 +1,55 @@
-from typing import Sequence, Protocol, Collection, TypeVar
-from gorgo.types import Continuation, Thunk, Stack, CPSCallable
-from gorgo.core import ProgramState, GlobalStore
+from typing import Sequence
+
+from gorgo.core import ProgramState
+from gorgo.types import Continuation, Stack, CPSCallable
 from gorgo.interpreter import CPSInterpreter
 from gorgo.transforms import CPSTransform
 
-from gorgo.hashable import hashabledict, hashablelist, hashableset
+from gorgo.callentryexit import register_call_entryexit
 
-IterInput = TypeVar("IterInput")
-IterOutput = TypeVar("IterOutput")
+def recursive_map(fn, iter):
+    if not iter:
+        return []
+    return [fn(iter[0])] + recursive_map(fn, iter[1:])
 
-def MapIterStartContinuation(Protocol):
-    def __call__(self, i : IterInput) -> Thunk:
-        ...
+def independent_map(func, iterator):
+    """
+    This gives the inference algorithm access to a mapped function
+    applied to each iterate using the EnterCallState/ExitCallState interface.
+    We do this by:
 
-def MapFinishContinuation(Protocol):
-    def __call__(self, values : Sequence[IterOutput]) -> Thunk:
-        ...
+    1. Sending a `MapEnter` signal to the algorithm to see if it wants access to
+    the mapped function applied to each iterate. If not, it just uses `recursive_map`.
 
-class NoGlobalStoreProgramState(ProgramState):
-    def step(self, *args, **kws) -> 'ProgramState':
-        """
-        Uses a trampoline to execute a sequence of thunks until
-        a ProgramState is encountered.
-        """
-        next_ = self.continuation(*args, **kws)
-        # TODO: throw more informative error if global store is accessed
-        # TODO: refactor base programstate to make global store writing optional
-        # or make a way to access global store
-        while True:
-            if callable(next_):
-                next_ = next_()
-            elif isinstance(next_, ProgramState):
-                next_.set_init_global_store(GlobalStore())
-                return next_
-            else:
-                raise TypeError(f"Unknown type {type(next_)}")
+    2. If it does, we intercept and then reinstate the CPS transform to construct a
+    sequence of EnterCallState/ExitCallState blocks that
+    *does not save non-global state between each iterate*. The inference algorithm
+    is responsible for handing return values from `ExitCallState`s.
 
-class MapIterStart(NoGlobalStoreProgramState):
-    def __init__(
-        self,
-        iter_continuation : 'MapIterStartContinuation',
-        iterator : Sequence[IterInput],
-        map_finish_program_state : 'MapFinish' = None,
-    ):
-        self.continuation = iter_continuation
-        self.iterator = iterator
-        self.map_finish_program_state = map_finish_program_state
-        self.init_global_store = None
+    3. Sending a `MapExit` signal to the algorithm that accepts the result of applying
+    the mapped function over each iterate.
+    """
+    send_call_entryexit = map_enter_event()
+    if send_call_entryexit:
+        return _independent_map(func, iterator)
+    else:
+        return recursive_map(func, iterator)
 
-class MapIterEnd(NoGlobalStoreProgramState):
-    def __init__(
-        self,
-        value : IterOutput,
-    ):
-        if isinstance(value, dict):
-            value = hashabledict(value)
-        elif isinstance(value, list):
-            value = hashablelist(value)
-        elif isinstance(value, set):
-            value = hashableset(value)
-        self.value = value
-        self.init_global_store = None
+class MapEnter(ProgramState):
+    pass
 
-class MapFinish(NoGlobalStoreProgramState):
-    def __init__(
-        self,
-        finish_continuation : 'MapFinishContinuation',
-    ):
-        self.continuation = finish_continuation
+class MapExit(ProgramState):
+    pass
 
-def independent_map(
+def map_enter_event(*, _stack=None, _cps=None, _cont=None):
+    return MapEnter(
+        continuation=lambda send_call_entryexit : _cont(send_call_entryexit),
+        stack=_stack,
+        cps=_cps,
+    )
+setattr(map_enter_event, CPSTransform.is_transformed_property, True)
+
+def _independent_map(
     func: CPSCallable,
     iterator: Sequence,
     *,
@@ -77,18 +57,31 @@ def independent_map(
     _cps: CPSInterpreter = None,
     _cont: Continuation = None
 ):
-    map_finish_program_state = MapFinish(
-        finish_continuation=_cont,
+    def construct_cont(next_cont, i):
+        # note we don't actually use the return value of each iterate
+        # here (_res). The inference algorithm is responsible for handling
+        # that when it receives an `ExitCallState` message.
+        return lambda : _cps.interpret(
+            _independent_map_iter,
+            cont=lambda _res : next_cont(),
+            stack=_stack,
+            func_src="INDEPENDENT_MAP_ITER",
+            locals_={},
+            lineno=0
+        )(func, i)
+
+    # we start from the end and then iterate backwards
+    next_cont = lambda : MapExit(
+        continuation=lambda map_result: _cont(map_result),
     )
-    def iter_end_continuation(result: IterOutput):
-        return MapIterEnd(
-            value=result
-        )
-    def iter_continuation(i: IterInput):
-        return lambda : _cps.interpret(func, cont=iter_end_continuation)(i)
-    return MapIterStart(
-        iter_continuation=iter_continuation,
-        iterator=iterator,
-        map_finish_program_state=map_finish_program_state,
-    )
-setattr(independent_map, CPSTransform.is_transformed_property, True)
+    for i in iterator[::-1]:
+        last_cont = construct_cont(next_cont, i)
+        next_cont = last_cont
+    return last_cont
+setattr(_independent_map, CPSTransform.is_transformed_property, True)
+
+# Here's where each individual function call lives. It is wrapped in an entry/exit
+# wrapper and gets CPS transformed.
+def _independent_map_iter(func, i):
+    return func(i)
+_independent_map_iter = register_call_entryexit(_independent_map_iter)
