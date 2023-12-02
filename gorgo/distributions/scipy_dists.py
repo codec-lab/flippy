@@ -123,6 +123,15 @@ class ScipyContinuousDistribution(Distribution, Multivariate):
         ax.plot(x, [self.prob(i) for i in x], **kwargs)
         return ax
 
+    def __hash__(self):
+        return hash((self.__class__, self.args, self.loc, self.scale))
+
+    def __eq__(self, other: "ScipyContinuousDistribution"):
+        return self.__class__ == other.__class__ and \
+            self.args == other.args and \
+            self.loc == other.loc and \
+            self.scale == other.scale
+
 # Common parameterizations of scipy distributions
 
 class Normal(ScipyContinuousDistribution):
