@@ -86,6 +86,8 @@ class Enumeration:
         init_ps = CPSInterpreter().initial_program_state(self.function)
         ps = init_ps.step(*args, **kws)
         return_scores = self.enumerate_tree(ps, self.max_executions)
+        if len(return_scores) == 0:
+            raise ValueError("No return states encountered during enumeration")
         return Categorical.from_dict(softmax_dict(return_scores))
 
     def _run_with_stats(self, *args, **kws) -> Tuple[Categorical, EnumerationStats]:
@@ -105,6 +107,8 @@ class GraphEnumeration:
         init_ps = CPSInterpreter().initial_program_state(self.function)
         ps = init_ps.step(*args, **kws)
         return_states, return_scores = self.enumerate_graph(ps, self.max_states)
+        if len(return_states) == 0:
+            raise ValueError("No return states encountered during enumeration")
         return_values = [rs.value for rs in return_states]
         return_probs = np.exp(return_scores)
         return_probs = return_probs / return_probs.sum()
@@ -141,8 +145,12 @@ class GraphEnumeration:
                 successors, scores = self.enumerate_enter_call_state_successors(ps)
             elif isinstance(ps, InitialState):
                 new_ps, step_score = self.next_state_score(ps)
-                successors = [new_ps]
-                scores = [step_score]
+                if step_score > float('-inf'):
+                    successors = [new_ps]
+                    scores = [step_score]
+                else:
+                    successors = []
+                    scores = []
             else:
                 raise ValueError("Unrecognized program state message")
 
@@ -161,6 +169,9 @@ class GraphEnumeration:
 
             if self._stats is not None:
                 self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
+
+        if len(return_states) == 0:
+            return [], []
 
         for ps in return_states:
             state_idx[ps] = len(state_idx)
@@ -202,6 +213,8 @@ class GraphEnumeration:
         while not isinstance(ps, (SampleState, EnterCallState, ReturnState, ExitCallState)):
             if isinstance(ps, ObserveState):
                 score += ps.distribution.log_probability(ps.value)
+            if score == float('-inf'):
+                return None, float('-inf')
             ps = ps.step()
             if self._stats is not None:
                 self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
@@ -216,6 +229,8 @@ class GraphEnumeration:
         for value in ps.distribution.support:
             score = ps.distribution.log_probability(value)
             new_ps, new_score = self.next_state_score(ps, value)
+            if new_score == float('-inf'):
+                continue
             score += new_score
             successors.append(new_ps)
             scores.append(score)
