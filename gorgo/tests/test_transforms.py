@@ -330,7 +330,7 @@ def test_cps():
             x = x + 1
             z = z + 1
             return lambda : _cont(x + y + z)
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([1, 2, 3])
+        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([1, 2, 3])
     ''', check_args=[(0,), (1,), (2,)])
 
     # Making sure things still work well in nested continuations.
@@ -359,8 +359,8 @@ def test_cps():
                     y = _scope_4['y']
                 y = _res_4
                 return lambda : _cont(y)
-            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([y, 2])
-        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=3)([y, 1])
+            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([y, 2])
+        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=1)([y, 1])
     ''', check_args=[(0,), (1,)])
 
     # Testing destructuring.
@@ -387,7 +387,7 @@ def test_cps():
                 z = _scope_4['z']
             _res_4
             return lambda : _cont(y + z)
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([])
+        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([])
     ''', check_args=[([1, 2],), ([7, 3],)])
 
 def check_cps_transform(src, exp_src, *, check_args=[]):

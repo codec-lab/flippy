@@ -8,6 +8,7 @@ from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform, E
 from gorgo.distributions.random import default_rng
 from gorgo.core import global_store
 from gorgo.types import CPSCallable, Continuation, Stack
+from gorgo.hashable import hashabledict
 
 if TYPE_CHECKING:
     from gorgo.interpreter import CPSInterpreter
@@ -139,15 +140,16 @@ def draw_from(n: Union[Sequence[Element], int]) -> Element:
     return _draw_from_dist(n).sample()
 
 def mem(fn):
-    def wrapped(*args, **kws):
-        key = (fn, args, tuple(kws.items()))
+    def mem_wrapper(*args, **kws):
+        key = (fn, args, tuple(sorted(kws.items())))
+        kws = hashabledict(kws)
         if key in global_store:
             return global_store.get(key)
         else:
             value = fn(*args, **kws)
             global_store.set(key, value)
             return value
-    return wrapped
+    return mem_wrapper
 
 _uniform = Uniform()
 def uniform():

@@ -1,22 +1,39 @@
 import heapq
+import queue
+import math
+from collections import defaultdict, Counter
 import dataclasses
-from typing import Any, Union, List, Dict, Tuple, Sequence
+from typing import Any, Union, List, Tuple, Dict, Set, Tuple, Sequence
 from itertools import product
+
+import numpy as np
+from scipy.sparse.linalg import spsolve
+from scipy.sparse import eye as sp_eye, coo_array
 
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical
 from gorgo.tools import logsumexp, softmax_dict
 from gorgo.map import MapIterStart, MapIterEnd
+from gorgo.types import ReturnValue
+from gorgo.callentryexit import EnterCallState, ExitCallState
 
 @dataclasses.dataclass(order=True)
 class PrioritizedItem:
     priority: int
     item: Any=dataclasses.field(compare=False)
 
+@dataclasses.dataclass(frozen=True)
+class ProgramStateRecord:
+    kind: type
+    name: str
+
 @dataclasses.dataclass
 class EnumerationStats:
-    executions: int = 0
+    states_visited: list[ProgramStateRecord] = dataclasses.field(default_factory=list)
+
+    def site_counts(self):
+        return Counter(self.states_visited)
 
 class Enumeration:
     def __init__(self, function, max_executions=float('inf')):
@@ -71,10 +88,13 @@ class Enumeration:
                     cum_weight
                 )
                 executions += 1
+            elif isinstance(ps, (EnterCallState, ExitCallState)):
+                new_ps = ps.step()
+                heapq.heappush(frontier, PrioritizedItem(-cum_weight, new_ps))
             else:
-                raise ValueError("Unrecognized program state message")
-        if self._stats is not None:
-            self._stats.executions += executions
+                raise ValueError(f"Unrecognized program state message, {ps}")
+            if self._stats is not None:
+                self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
         return return_scores
 
     def enumerate_map(
@@ -104,6 +124,8 @@ class Enumeration:
         init_ps = CPSInterpreter().initial_program_state(self.function)
         ps = init_ps.step(*args, **kws)
         return_scores = self.enumerate_tree(ps, self.max_executions)
+        if len(return_scores) == 0:
+            raise ValueError("No return states encountered during enumeration")
         return Categorical.from_dict(softmax_dict(return_scores))
 
     def _run_with_stats(self, *args, **kws) -> Tuple[Categorical, EnumerationStats]:
@@ -111,4 +133,3 @@ class Enumeration:
         result = self.run(*args, **kws)
         self._stats, stats = None, self._stats
         return result, stats
-
