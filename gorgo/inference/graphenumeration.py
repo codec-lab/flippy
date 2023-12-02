@@ -1,4 +1,3 @@
-
 import heapq
 import queue
 import math
@@ -64,6 +63,8 @@ class GraphEnumeration:
                 successors, scores = self.enumerate_sample_state_successors(ps)
             elif isinstance(ps, EnterCallState):
                 successors, scores = self.enumerate_enter_call_state_successors(ps)
+                # we need to take the next step for each successor
+                successors = [ps.step() for ps in successors]
             elif isinstance(ps, InitialState):
                 new_ps, step_score = self.next_state_score(ps)
                 if step_score > float('-inf'):
@@ -160,8 +161,8 @@ class GraphEnumeration:
 
     def enumerate_enter_call_state_successors(
         self,
-        init_ps: EnterCallState,
-    ) -> Tuple[List[ProgramState], List[float]]:
+        init_ps: EnterCallState
+    ) -> Tuple[List[ExitCallState], List[float]]:
         # when we enter a call, we take the first step, see if it returns immediately
         # and then take the subsequent step
         # if not, we enumerate the graph to get all the exit states, then for
@@ -170,7 +171,6 @@ class GraphEnumeration:
         if isinstance(ps, ExitCallState):
             return [ps.step()], [init_score]
         successors, scores = self.enumerate_graph(init_ps=ps, max_states=self.max_states)
-        successors = [rs.step() for rs in successors]
         scores = [init_score + score for score in scores]
         return successors, scores
 
