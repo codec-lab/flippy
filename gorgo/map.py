@@ -1,4 +1,4 @@
-from typing import Sequence
+from typing import Sequence, Tuple, Callable, TypeVar, List
 
 from gorgo.core import ProgramState
 from gorgo.types import Continuation, Stack, CPSCallable
@@ -7,12 +7,15 @@ from gorgo.transforms import CPSTransform
 
 from gorgo.callentryexit import register_call_entryexit
 
-def recursive_map(fn, iter):
+T = TypeVar('T')
+I = TypeVar('I')
+
+def recursive_map(fn: Callable[[I],T], iter: Sequence[I]) -> List[T]:
     if not iter:
         return []
     return [fn(iter[0])] + recursive_map(fn, iter[1:])
 
-def independent_map(func, iterator):
+def independent_map(func: Callable[[I],T], iterator: Sequence[I]) -> Tuple[T, ...]:
     """
     This gives the inference algorithm access to a mapped function
     applied to each iterate using the EnterCallState/ExitCallState interface.
@@ -33,7 +36,7 @@ def independent_map(func, iterator):
     if send_call_entryexit:
         return _independent_map(func, iterator)
     else:
-        return recursive_map(func, iterator)
+        return tuple(recursive_map(func, iterator))
 
 class MapEnter(ProgramState):
     pass
@@ -43,7 +46,7 @@ class MapExit(ProgramState):
 
 def map_enter_event(*, _stack=None, _cps=None, _cont=None):
     return MapEnter(
-        continuation=lambda send_call_entryexit : _cont(send_call_entryexit),
+        continuation=lambda send_call_entryexit=False : _cont(send_call_entryexit),
         stack=_stack,
         cps=_cps,
     )
@@ -73,6 +76,8 @@ def _independent_map(
     # we start from the end and then iterate backwards
     next_cont = lambda : MapExit(
         continuation=lambda map_result: _cont(map_result),
+        stack=_stack,
+        cps=_cps,
     )
     for i in iterator[::-1]:
         last_cont = construct_cont(next_cont, i)

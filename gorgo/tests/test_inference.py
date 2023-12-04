@@ -6,6 +6,7 @@ from gorgo.inference.graphenumeration import GraphEnumeration
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
 from gorgo.callentryexit import register_call_entryexit
+from gorgo.map import independent_map
 
 def geometric(p):
     '''
@@ -148,7 +149,10 @@ def test_graph_enumeration():
                 return (num(), op(), eq(d - 1))
         return eq(3)
 
-    test_models = [f1, f2, f3, f4, f5, f6]
+    def f7():
+        return flip(0)
+
+    test_models = [f1, f2, f3, f4, f5, f6, f7]
 
     for f in test_models:
         e_res = Enumeration(f).run()

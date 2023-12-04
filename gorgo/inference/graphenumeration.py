@@ -1,8 +1,6 @@
-import heapq
 import queue
-import math
-from collections import defaultdict, Counter
-import dataclasses
+from itertools import product
+from collections import defaultdict
 from typing import Any, Union, List, Tuple, Dict, Set
 
 import numpy as np
@@ -12,9 +10,10 @@ from scipy.sparse import eye as sp_eye, coo_array
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical
-from gorgo.tools import logsumexp, softmax_dict
+from gorgo.tools import logsumexp
 from gorgo.types import ReturnValue
 from gorgo.callentryexit import EnterCallState, ExitCallState
+from gorgo.map import MapEnter, MapExit
 from gorgo.inference.enumeration import EnumerationStats, ProgramStateRecord
 
 class GraphEnumeration:
@@ -65,6 +64,8 @@ class GraphEnumeration:
                 successors, scores = self.enumerate_enter_call_state_successors(ps)
                 # we need to take the next step for each successor
                 successors = [ps.step() for ps in successors]
+            elif isinstance(ps, MapEnter):
+                successors, scores = self.enumerate_enter_map_state_successors(ps)
             elif isinstance(ps, InitialState):
                 new_ps, step_score = self.next_state_score(ps)
                 if step_score > float('-inf'):
@@ -78,6 +79,8 @@ class GraphEnumeration:
 
             # logic for updating graph
             for new_ps, score in zip(successors, scores):
+                if score == float('-inf'):
+                    continue
                 if new_ps not in visited and new_ps not in return_states:
                     if isinstance(new_ps, (ReturnState, ExitCallState)):
                         return_states.append(new_ps)
@@ -118,8 +121,12 @@ class GraphEnumeration:
         sp_return_probs = spsolve(
             A=eye - sp_scores_matrix,
             b=sp_return_onehot
-        )[0]
-        return return_states, np.log(sp_return_probs.toarray().flatten())
+        )
+        if sp_return_probs.ndim == 2:
+            sp_return_logprobs = np.log(sp_return_probs[0].toarray().flatten())
+        else:
+            sp_return_logprobs = np.log([sp_return_probs[0]])
+        return return_states, sp_return_logprobs
 
 
     def next_state_score(
@@ -173,6 +180,26 @@ class GraphEnumeration:
         successors, scores = self.enumerate_graph(init_ps=ps, max_states=self.max_states)
         scores = [init_score + score for score in scores]
         return successors, scores
+
+    def enumerate_enter_map_state_successors(
+        self,
+        map_enter_ps : MapEnter
+    ):
+        ps : EnterCallState = map_enter_ps.step(True)
+        iteration_results = []
+        while not isinstance(ps, MapExit):
+            exit_call_ps_list, scores = self.enumerate_enter_call_state_successors(ps)
+            assert all(isinstance(r, ExitCallState) for r in exit_call_ps_list)
+            iteration_results.append(list(zip([r.value for r in exit_call_ps_list], scores)))
+            ps = exit_call_ps_list[0].step()
+
+        map_successors = []
+        map_scores = []
+        for vals_scores in product(*iteration_results):
+            vals, scores = zip(*vals_scores)
+            map_successors.append(ps.step(vals))
+            map_scores.append(sum(scores))
+        return map_successors, map_scores
 
     def _run_with_stats(self, *args, **kws) -> Tuple[Categorical, EnumerationStats]:
         self._stats = EnumerationStats()
