@@ -161,7 +161,22 @@ def test_graph_enumeration():
         x = independent_map(g, (.1, .2, .3, .4, .5, .6, .7))
         return x
 
-    test_models = [f1, f2, f3, f4, f5, f6, f7, f8]
+    def f9():
+        @register_call_entryexit
+        def g(i):
+            return flip(i)
+        x = g(.2)
+        condition(1)
+        return x
+
+    def f10():
+        def g(i):
+            return flip(i)
+        x = independent_map(g, (.2,))
+        condition(1)
+        return x
+
+    test_models = [f1, f2, f3, f4, f5, f6, f7, f8, f9, f10]
 
     for f in test_models:
         e_res = Enumeration(f).run()
