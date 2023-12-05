@@ -69,14 +69,20 @@ class ProgramState:
     def __eq__(self, other: 'ProgramState'):
         if not isinstance(other, ProgramState):
             return False
+        if self._hash != other._hash:
+            return False
         return (
             self.__class__ == other.__class__ and
             self.stack == other.stack and
             self.init_global_store.store == other.init_global_store.store
         )
 
-    def __hash__(self):
+    @cached_property
+    def _hash(self):
         return hash((self.__class__, self.stack, hashabledict(self.init_global_store.store)))
+
+    def __hash__(self):
+        return self._hash
 
 class ReadOnlyProxy(object):
     def __init__(self):
