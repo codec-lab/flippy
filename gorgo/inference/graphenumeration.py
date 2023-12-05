@@ -1,4 +1,5 @@
 import queue
+from dataclasses import dataclass
 from itertools import product
 from collections import defaultdict
 from typing import Any, Union, List, Tuple, Dict, Set
@@ -17,7 +18,11 @@ from gorgo.map import MapEnter, MapExit
 from gorgo.inference.enumeration import EnumerationStats, ProgramStateRecord
 
 class GraphEnumeration:
-    def __init__(self, function, max_states=float('inf')):
+    def __init__(
+        self,
+        function,
+        max_states=float('inf'),
+    ):
         self.function = function
         self.max_states = max_states
         self._stats = None
@@ -186,23 +191,78 @@ class GraphEnumeration:
         map_enter_ps : MapEnter
     ):
         ps : EnterCallState = map_enter_ps.step(True)
-        iteration_results = []
-        while not isinstance(ps, MapExit):
-            exit_call_ps_list, scores = self.enumerate_enter_call_state_successors(ps)
-            assert all(isinstance(r, ExitCallState) for r in exit_call_ps_list)
-            iteration_results.append(list(zip([r.value for r in exit_call_ps_list], scores)))
-            ps = exit_call_ps_list[0].step()
-
-        map_successors = []
-        map_scores = []
-        for vals_scores in product(*iteration_results):
-            vals, scores = zip(*vals_scores)
-            map_successors.append(ps.step(vals))
-            map_scores.append(sum(scores))
-        return map_successors, map_scores
+        init_node = MapCrossProductNode(ps)
+        successors, scores = init_node.enumerate_exit_map_state_successors(self)
+        return successors, scores
 
     def _run_with_stats(self, *args, **kws) -> Tuple[Categorical, EnumerationStats]:
         self._stats = EnumerationStats()
         result = self.run(*args, **kws)
         self._stats, stats = None, self._stats
         return result, stats
+
+@dataclass
+class MapCrossProductNode:
+    """
+    Helper class for keeping track of mapped values and scores.
+    This is needed to handle changes to the global store.
+    """
+    enter_call_ps: Union[EnterCallState, MapExit]
+    parent_exit_scores: List[Tuple[Any,float]] = None
+    children: List['MapCrossProductNode'] = None
+
+    def enumerate_exit_map_state_successors(self, enumerator: GraphEnumeration):
+        self.iteratively_expand(enumerator=enumerator)
+        map_successors = []
+        map_scores = []
+        for iteration_results, ps in self.traverse():
+            for vals_scores in product(*iteration_results):
+                vals, scores = zip(*vals_scores)
+                map_successors.append(ps.step(vals))
+                map_scores.append(sum(scores))
+        return map_successors, map_scores
+
+    def iteratively_expand(self, enumerator: GraphEnumeration):
+        frontier: List[MapCrossProductNode] = [self]
+        while frontier:
+            node = frontier.pop()
+            if node.iteration_terminated():
+                continue
+            node.expand(enumerator)
+            frontier.extend(node.children)
+
+    def expand(self, enumerator: GraphEnumeration):
+        assert self.children is None, "Node already expanded"
+
+        # enumerate values and scores for exiting the call
+        # we want to partition them by the next state
+        # (i.e., the subsequent global scope)
+        exit_call_ps_list, exit_scores = \
+            enumerator.enumerate_enter_call_state_successors(self.enter_call_ps)
+        next_state_exit_val_scores = defaultdict(list)
+        for exit_ps, score in zip(exit_call_ps_list, exit_scores):
+            next_ps = exit_ps.step()
+            next_state_exit_val_scores[next_ps].append((exit_ps.value, score))
+
+        # create child nodes
+        self.children = []
+        for next_ps, exit_val_scores in next_state_exit_val_scores.items():
+            self.children.append(MapCrossProductNode(next_ps, parent_exit_scores=exit_val_scores))
+
+    def iteration_terminated(self):
+        return isinstance(self.enter_call_ps, MapExit)
+
+    def traverse(self):
+        assert self.children is not None, "Node not expanded"
+        assert self.parent_exit_scores is None, "We should only traverse from the root node"
+        frontier: List[Tuple['MapCrossProductNode', ...]] = [(self, )]
+        while frontier:
+            seq = frontier.pop()
+            for node in seq[-1].children:
+                if node.iteration_terminated():
+                    response_cross_prod = [
+                        n.parent_exit_scores for n in seq[1:] + (node, )
+                    ]
+                    yield response_cross_prod, node.enter_call_ps
+                else:
+                    frontier.append(seq + (node, ))

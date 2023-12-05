@@ -22,3 +22,17 @@ def test_independent_map():
     res3 = GraphEnumeration(f1).run()
     assert res1.isclose(res2)
     assert res1.isclose(res3)
+
+def test_independent_map_with_mem():
+    def f(n):
+        @mem
+        def h(i):
+            return flip(0.5)
+        def g(p):
+            i = flip(p) + flip(p)
+            return h(i)
+        return independent_map(g, tuple([i/(n - 1) for i in range(n)]))
+
+    e_res = Enumeration(f).run(n=3)
+    ge_res = GraphEnumeration(f).run(n=3)
+    assert e_res.isclose(ge_res)
