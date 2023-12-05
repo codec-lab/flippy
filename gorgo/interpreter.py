@@ -18,7 +18,7 @@ import linecache
 import types
 import contextlib
 
-from gorgo.types import NonCPSCallable, Method, Continuation, Stack, \
+from gorgo.types import NonCPSCallable, Method, Continuation, \
     SampleCallable, ObserveCallable, CPSCallable, VariableName
 
 @dataclasses.dataclass(frozen=True)

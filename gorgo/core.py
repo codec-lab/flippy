@@ -3,10 +3,10 @@ from gorgo.distributions import Distribution
 from gorgo.funcutils import cached_property
 from gorgo.hashable import hashabledict, hashablelist, hashableset
 
-from gorgo.types import Continuation, Stack, VariableName, ReturnValue
+from gorgo.types import Continuation, VariableName, ReturnValue
 
 if TYPE_CHECKING:
-    from gorgo.interpreter import CPSInterpreter
+    from gorgo.interpreter import CPSInterpreter, Stack
 
 ############################################
 #  Program State

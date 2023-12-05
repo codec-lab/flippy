@@ -13,8 +13,6 @@ VariableName = Hashable
 SampleValue = Any
 ReturnValue = Any
 
-Stack = Tuple['StackFrame']
-
 # Thunks and continuations, combined with the CPSInterpreter, form the building
 # blocks of the ProgramState abstraction used for defining inference algorithms.
 

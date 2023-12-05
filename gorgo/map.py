@@ -1,11 +1,13 @@
-from typing import Sequence, Tuple, Callable, TypeVar, List
+from typing import Sequence, Tuple, Callable, TypeVar, List, TYPE_CHECKING
 
 from gorgo.core import ProgramState
-from gorgo.types import Continuation, Stack, CPSCallable
+from gorgo.types import Continuation, CPSCallable
 from gorgo.interpreter import CPSInterpreter
 from gorgo.transforms import CPSTransform
 
 from gorgo.callentryexit import register_call_entryexit
+if TYPE_CHECKING:
+    from gorgo.interpreter import Stack
 
 T = TypeVar('T')
 I = TypeVar('I')
@@ -56,7 +58,7 @@ def _independent_map(
     func: CPSCallable,
     iterator: Sequence,
     *,
-    _stack: Stack = None,
+    _stack: 'Stack' = None,
     _cps: CPSInterpreter = None,
     _cont: Continuation = None
 ):
