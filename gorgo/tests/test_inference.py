@@ -152,7 +152,16 @@ def test_graph_enumeration():
     def f7():
         return flip(0)
 
-    test_models = [f1, f2, f3, f4, f5, f6, f7]
+    def f8():
+        def g(i):
+            if i < 0.5:
+                return 1
+            else:
+                return flip(i)
+        x = independent_map(g, (.1, .2, .3, .4, .5, .6, .7))
+        return x
+
+    test_models = [f1, f2, f3, f4, f5, f6, f7, f8]
 
     for f in test_models:
         e_res = Enumeration(f).run()

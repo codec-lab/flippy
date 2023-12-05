@@ -181,7 +181,7 @@ class GraphEnumeration:
         # each exit state, we take the next deterministic step
         ps, init_score = self.next_state_score(init_ps)
         if isinstance(ps, ExitCallState):
-            return [ps.step()], [init_score]
+            return [ps], [init_score]
         successors, scores = self.enumerate_graph(init_ps=ps, max_states=self.max_states)
         scores = [init_score + score for score in scores]
         return successors, scores
