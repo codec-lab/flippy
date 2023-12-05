@@ -5,7 +5,7 @@ if TYPE_CHECKING:
     from gorgo.distributions import Distribution
     from gorgo.core import ProgramState
     from gorgo.distributions.random import RandomNumberGenerator, default_rng
-    from gorgo.interpreter import CPSInterpreter
+    from gorgo.interpreter import CPSInterpreter, Stack
 
 Element = TypeVar("Element")
 
