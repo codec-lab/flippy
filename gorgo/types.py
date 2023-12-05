@@ -5,15 +5,13 @@ if TYPE_CHECKING:
     from gorgo.distributions import Distribution
     from gorgo.core import ProgramState
     from gorgo.distributions.random import RandomNumberGenerator, default_rng
-    from gorgo.interpreter import CPSInterpreter
+    from gorgo.interpreter import CPSInterpreter, Stack
 
 Element = TypeVar("Element")
 
 VariableName = Hashable
 SampleValue = Any
 ReturnValue = Any
-
-Stack = Tuple['StackFrame']
 
 # Thunks and continuations, combined with the CPSInterpreter, form the building
 # blocks of the ProgramState abstraction used for defining inference algorithms.

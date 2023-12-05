@@ -1,19 +1,14 @@
 import heapq
-import queue
-import math
 from collections import defaultdict, Counter
 import dataclasses
-from typing import Any, Union, List, Tuple, Dict, Set
+from typing import Any, Union, List, Tuple, Dict, Set, Tuple, Sequence
+from itertools import product
 
-import numpy as np
-from scipy.sparse.linalg import spsolve
-from scipy.sparse import eye as sp_eye, coo_array
-
-from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
+from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical
 from gorgo.tools import logsumexp, softmax_dict
-from gorgo.types import ReturnValue
+from gorgo.map import MapEnter
 from gorgo.callentryexit import EnterCallState, ExitCallState
 
 @dataclasses.dataclass(order=True)
@@ -43,10 +38,9 @@ class Enumeration:
         self,
         ps: ProgramState,
         max_executions: int,
-    ):
+    ) -> Dict[Any, float]:
         frontier: List[PrioritizedItem] = []
         return_scores = {}
-        # return_probs = defaultdict(float)
         executions = 0
         heapq.heappush(frontier, PrioritizedItem(0, ps))
         while len(frontier) > 0:
@@ -73,7 +67,7 @@ class Enumeration:
                     cum_weight
                 )
                 executions += 1
-            elif isinstance(ps, (EnterCallState, ExitCallState)):
+            elif isinstance(ps, (EnterCallState, ExitCallState, MapEnter)):
                 new_ps = ps.step()
                 heapq.heappush(frontier, PrioritizedItem(-cum_weight, new_ps))
             else:
@@ -82,7 +76,7 @@ class Enumeration:
                 self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
         return return_scores
 
-    def run(self, *args, **kws):
+    def run(self, *args, **kws) -> Categorical:
         init_ps = CPSInterpreter().initial_program_state(self.function)
         ps = init_ps.step(*args, **kws)
         return_scores = self.enumerate_tree(ps, self.max_executions)

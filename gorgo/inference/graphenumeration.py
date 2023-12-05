@@ -1,8 +1,7 @@
-import heapq
 import queue
-import math
-from collections import defaultdict, Counter
-import dataclasses
+from dataclasses import dataclass
+from itertools import product
+from collections import defaultdict
 from typing import Any, Union, List, Tuple, Dict, Set
 
 import numpy as np
@@ -12,13 +11,18 @@ from scipy.sparse import eye as sp_eye, coo_array
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical
-from gorgo.tools import logsumexp, softmax_dict
+from gorgo.tools import logsumexp
 from gorgo.types import ReturnValue
 from gorgo.callentryexit import EnterCallState, ExitCallState
+from gorgo.map import MapEnter, MapExit
 from gorgo.inference.enumeration import EnumerationStats, ProgramStateRecord
 
 class GraphEnumeration:
-    def __init__(self, function, max_states=float('inf')):
+    def __init__(
+        self,
+        function,
+        max_states=float('inf'),
+    ):
         self.function = function
         self.max_states = max_states
         self._stats = None
@@ -65,6 +69,8 @@ class GraphEnumeration:
                 successors, scores = self.enumerate_enter_call_state_successors(ps)
                 # we need to take the next step for each successor
                 successors = [ps.step() for ps in successors]
+            elif isinstance(ps, MapEnter):
+                successors, scores = self.enumerate_enter_map_state_successors(ps)
             elif isinstance(ps, InitialState):
                 new_ps, step_score = self.next_state_score(ps)
                 if step_score > float('-inf'):
@@ -78,6 +84,8 @@ class GraphEnumeration:
 
             # logic for updating graph
             for new_ps, score in zip(successors, scores):
+                if score == float('-inf'):
+                    continue
                 if new_ps not in visited and new_ps not in return_states:
                     if isinstance(new_ps, (ReturnState, ExitCallState)):
                         return_states.append(new_ps)
@@ -118,8 +126,12 @@ class GraphEnumeration:
         sp_return_probs = spsolve(
             A=eye - sp_scores_matrix,
             b=sp_return_onehot
-        )[0]
-        return return_states, np.log(sp_return_probs.toarray().flatten())
+        )
+        if sp_return_probs.ndim == 2:
+            sp_return_logprobs = np.log(sp_return_probs[0].toarray().flatten())
+        else:
+            sp_return_logprobs = np.log([sp_return_probs[0]])
+        return return_states, sp_return_logprobs
 
 
     def next_state_score(
@@ -169,9 +181,18 @@ class GraphEnumeration:
         # each exit state, we take the next deterministic step
         ps, init_score = self.next_state_score(init_ps)
         if isinstance(ps, ExitCallState):
-            return [ps.step()], [init_score]
+            return [ps], [init_score]
         successors, scores = self.enumerate_graph(init_ps=ps, max_states=self.max_states)
         scores = [init_score + score for score in scores]
+        return successors, scores
+
+    def enumerate_enter_map_state_successors(
+        self,
+        map_enter_ps : MapEnter
+    ):
+        ps : EnterCallState = map_enter_ps.step(True)
+        init_node = MapCrossProductNode(ps)
+        successors, scores = init_node.enumerate_exit_map_state_successors(self)
         return successors, scores
 
     def _run_with_stats(self, *args, **kws) -> Tuple[Categorical, EnumerationStats]:
@@ -179,3 +200,69 @@ class GraphEnumeration:
         result = self.run(*args, **kws)
         self._stats, stats = None, self._stats
         return result, stats
+
+@dataclass
+class MapCrossProductNode:
+    """
+    Helper class for keeping track of mapped values and scores.
+    This is needed to handle changes to the global store.
+    """
+    enter_call_ps: Union[EnterCallState, MapExit]
+    parent_exit_scores: List[Tuple[Any,float]] = None
+    children: List['MapCrossProductNode'] = None
+
+    def enumerate_exit_map_state_successors(self, enumerator: GraphEnumeration):
+        self.iteratively_expand(enumerator=enumerator)
+        map_successors = []
+        map_scores = []
+        for iteration_results, ps in self.traverse():
+            for vals_scores in product(*iteration_results):
+                vals, scores = zip(*vals_scores)
+                map_successors.append(ps.step(vals))
+                map_scores.append(sum(scores))
+        return map_successors, map_scores
+
+    def iteratively_expand(self, enumerator: GraphEnumeration):
+        frontier: List[MapCrossProductNode] = [self]
+        while frontier:
+            node = frontier.pop()
+            if node.iteration_terminated():
+                continue
+            node.expand(enumerator)
+            frontier.extend(node.children)
+
+    def expand(self, enumerator: GraphEnumeration):
+        assert self.children is None, "Node already expanded"
+
+        # enumerate values and scores for exiting the call
+        # we want to partition them by the next state
+        # (i.e., the subsequent global scope)
+        exit_call_ps_list, exit_scores = \
+            enumerator.enumerate_enter_call_state_successors(self.enter_call_ps)
+        next_state_exit_val_scores = defaultdict(list)
+        for exit_ps, score in zip(exit_call_ps_list, exit_scores):
+            next_ps = exit_ps.step()
+            next_state_exit_val_scores[next_ps].append((exit_ps.value, score))
+
+        # create child nodes
+        self.children = []
+        for next_ps, exit_val_scores in next_state_exit_val_scores.items():
+            self.children.append(MapCrossProductNode(next_ps, parent_exit_scores=exit_val_scores))
+
+    def iteration_terminated(self):
+        return isinstance(self.enter_call_ps, MapExit)
+
+    def traverse(self):
+        assert self.children is not None, "Node not expanded"
+        assert self.parent_exit_scores is None, "We should only traverse from the root node"
+        frontier: List[Tuple['MapCrossProductNode', ...]] = [(self, )]
+        while frontier:
+            seq = frontier.pop()
+            for node in seq[-1].children:
+                if node.iteration_terminated():
+                    response_cross_prod = [
+                        n.parent_exit_scores for n in seq[1:] + (node, )
+                    ]
+                    yield response_cross_prod, node.enter_call_ps
+                else:
+                    frontier.append(seq + (node, ))

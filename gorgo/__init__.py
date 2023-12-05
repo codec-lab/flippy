@@ -7,11 +7,12 @@ from gorgo.inference import _distribution_from_inference, \
 from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform, Element
 from gorgo.distributions.random import default_rng
 from gorgo.core import global_store
-from gorgo.types import CPSCallable, Continuation, Stack
+from gorgo.types import CPSCallable, Continuation
 from gorgo.hashable import hashabledict
+from gorgo.map import recursive_map
 
 if TYPE_CHECKING:
-    from gorgo.interpreter import CPSInterpreter
+    from gorgo.interpreter import CPSInterpreter, Stack
 
 __all__ = [
     # Core API
@@ -34,7 +35,7 @@ R = TypeVar('R')
 
 # def keep_deterministic(fn: Callable) -> CPSCallable: #note that this is the real type signature
 def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
-    def continuation(*args, _cont: Continuation=None, _cps: 'CPSInterpreter'=None, _stack: Stack=None, **kws):
+    def continuation(*args, _cont: Continuation=None, _cps: 'CPSInterpreter'=None, _stack: 'Stack'=None, **kws):
         rv = fn(*args, **kws)
         if _cont is None:
             return rv
@@ -76,11 +77,6 @@ def infer(
         wrapped = functools.lru_cache(maxsize=cache_size)(wrapped)
     wrapped = keep_deterministic(wrapped)
     return wrapped
-
-def recursive_map(fn, iter):
-    if not iter:
-        return []
-    return [fn(iter[0])] + recursive_map(fn, iter[1:])
 
 def recursive_filter(fn, iter):
     if not iter:

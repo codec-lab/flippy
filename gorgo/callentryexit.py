@@ -1,10 +1,10 @@
 from typing import Callable, TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 from gorgo.core import ProgramState
-from gorgo.types import CPSCallable, Continuation, Stack
+from gorgo.types import CPSCallable, Continuation
 from gorgo.transforms import CPSTransform
 from gorgo.hashable import hashabledict
 if TYPE_CHECKING:
-    from gorgo.interpreter import CPSInterpreter
+    from gorgo.interpreter import CPSInterpreter, Stack
 
 class EnterCallState(ProgramState):
     def __init__(
@@ -14,7 +14,7 @@ class EnterCallState(ProgramState):
         kwargs: Dict,
         continuation: Continuation=None,
         cps: 'CPSInterpreter'=None,
-        stack: Stack=None,
+        stack: 'Stack'=None,
     ):
         super().__init__(
             continuation=continuation,
@@ -35,7 +35,7 @@ class ExitCallState(ProgramState):
         value: Any,
         continuation: Continuation=None,
         cps: 'CPSInterpreter'=None,
-        stack: Stack=None,
+        stack: 'Stack'=None,
     ):
         super().__init__(
             continuation=continuation,
@@ -54,7 +54,7 @@ def call_event(
     kwargs: Dict,
     _cont: Continuation=None,
     _cps: 'CPSInterpreter'=None,
-    _stack: Stack=None,
+    _stack: 'Stack'=None,
 ):
     return EnterCallState(
         f=f,
@@ -73,7 +73,7 @@ def exit_event(
     value: Any,
     _cont: Continuation=None,
     _cps: 'CPSInterpreter'=None,
-    _stack: Stack=None,
+    _stack: 'Stack'=None,
 ):
     return ExitCallState(
         f=f,
