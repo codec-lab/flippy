@@ -66,13 +66,20 @@ class GraphEnumeration:
             if isinstance(ps, SampleState):
                 successors, scores = self.enumerate_sample_state_successors(ps)
             elif isinstance(ps, EnterCallState):
-                successors, scores = self.enumerate_enter_call_state_successors(ps)
+                exit_states, exit_scores = self.enumerate_enter_call_state_successors(ps)
                 # we need to take the next step for each successor
-                successors = [ps.step() for ps in successors]
+                successors = []
+                scores = []
+                for exit_state, exit_score in zip(exit_states, exit_scores):
+                    new_ps, new_score = self.next_choice_state(exit_state)
+                    if new_score == float('-inf'):
+                        continue
+                    successors.append(new_ps)
+                    scores.append(exit_score + new_score)
             elif isinstance(ps, MapEnter):
                 successors, scores = self.enumerate_enter_map_state_successors(ps)
             elif isinstance(ps, InitialState):
-                new_ps, step_score = self.next_state_score(ps)
+                new_ps, step_score = self.next_choice_state(ps)
                 if step_score > float('-inf'):
                     successors = [new_ps]
                     scores = [step_score]
@@ -134,12 +141,16 @@ class GraphEnumeration:
         return return_states, sp_return_logprobs
 
 
-    def next_state_score(
+    def next_choice_state(
         self,
         init_ps: ProgramState,
         value=None
     ) -> Tuple[ProgramState, float]:
-        if isinstance(init_ps, SampleState):
+        """
+        This runs a program state until it reaches a choice state or an exit
+        state. It returns the next choice state and score collected along the way.
+        """
+        if isinstance(init_ps, (SampleState, MapExit)):
             ps = init_ps.step(value)
         else:
             ps = init_ps.step()
@@ -162,7 +173,7 @@ class GraphEnumeration:
         successors, scores = [], []
         for value in ps.distribution.support:
             score = ps.distribution.log_probability(value)
-            new_ps, new_score = self.next_state_score(ps, value)
+            new_ps, new_score = self.next_choice_state(ps, value)
             if new_score == float('-inf'):
                 continue
             score += new_score
@@ -179,7 +190,7 @@ class GraphEnumeration:
         # and then take the subsequent step
         # if not, we enumerate the graph to get all the exit states, then for
         # each exit state, we take the next deterministic step
-        ps, init_score = self.next_state_score(init_ps)
+        ps, init_score = self.next_choice_state(init_ps)
         if isinstance(ps, ExitCallState):
             return [ps], [init_score]
         successors, scores = self.enumerate_graph(init_ps=ps, max_states=self.max_states)
@@ -218,8 +229,12 @@ class MapCrossProductNode:
         for iteration_results, ps in self.traverse():
             for vals_scores in product(*iteration_results):
                 vals, scores = zip(*vals_scores)
-                map_successors.append(ps.step(vals))
-                map_scores.append(sum(scores))
+                new_ps, new_score = enumerator.next_choice_state(ps, vals)
+                score = sum(scores) + new_score
+                if score == float('-inf'):
+                    continue
+                map_successors.append(new_ps)
+                map_scores.append(score)
         return map_successors, map_scores
 
     def iteratively_expand(self, enumerator: GraphEnumeration):
