@@ -239,6 +239,12 @@ class CPSInterpreter:
         return method_continuation
 
     def interpret_generic(self, call: 'NonCPSCallable') -> 'Continuation':
+        trans_func = self.non_cps_callable_to_cps_callable(call)
+        def generic_continuation(*args, _cont: 'Continuation'=lambda v: v, _stack: 'Stack'=None, **kws):
+            return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
+        return generic_continuation
+
+    def non_cps_callable_to_cps_callable(self, call: 'NonCPSCallable') -> 'CPSCallable':
         code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
             self.transform_from_func(call),
@@ -255,9 +261,7 @@ class CPSInterpreter:
         except SyntaxError as err :
             raise err
         trans_func = context[call.__name__]
-        def generic_continuation(*args, _cont: 'Continuation'=lambda v: v, _stack: 'Stack'=None, **kws):
-            return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
-        return generic_continuation
+        return trans_func
 
     def transform_from_func(self, func: 'NonCPSCallable') -> ast.AST:
         source = textwrap.dedent(inspect.getsource(func))

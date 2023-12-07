@@ -394,19 +394,20 @@ def test_global_store_programstate_hashing():
     assert i_ps.step(1).value == i_ps.step(0).value == 100
 
 def test_deterministic_nested_call_entryexit():
-    @register_call_entryexit
-    def f1():
-        return 'a'
+    def model():
+        @register_call_entryexit
+        def f1():
+            return 'a'
 
-    @register_call_entryexit
-    def f2():
-        return 'b' + f1()
+        @register_call_entryexit
+        def f2():
+            return 'b' + f1()
 
-    @register_call_entryexit
-    def f3():
-        return 'c' + f2()
-
-    ps = CPSInterpreter().initial_program_state(f3)
+        @register_call_entryexit
+        def f3():
+            return 'c' + f2()
+        return f3()
+    ps = CPSInterpreter().initial_program_state(model)
     ps_seq = []
     while not isinstance(ps, ReturnState):
         ps = ps.step()
@@ -425,6 +426,13 @@ def test_deterministic_nested_call_entryexit():
     assert ps_seq[5].function.__name__ == 'f3'
 
     assert ps.value == 'cba'
+
+def test_call_entry_exit_cps_function_requirement():
+    with pytest.raises(AssertionError) as e:
+        @register_call_entryexit
+        def f1():
+            return 'a'
+    assert 'can only be applied to transformed functions' in str(e)
 
 def test_program_state_identity_with_closures():
     def f():

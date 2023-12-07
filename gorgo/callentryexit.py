@@ -1,7 +1,7 @@
 from typing import Callable, TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 from gorgo.core import ProgramState
 from gorgo.types import CPSCallable, Continuation
-from gorgo.transforms import CPSTransform
+from gorgo.transforms import CPSTransform, CPSFunction
 from gorgo.hashable import hashabledict
 if TYPE_CHECKING:
     from gorgo.interpreter import CPSInterpreter, Stack
@@ -48,7 +48,7 @@ class ExitCallState(ProgramState):
         self.kwargs = kwargs
         self.value = value
 
-def call_event(
+def enter_call_event(
     f: CPSCallable,
     args: Tuple,
     kwargs: Dict,
@@ -60,13 +60,13 @@ def call_event(
         f=f,
         args=args,
         kwargs=kwargs,
-        continuation=lambda : _cont(None),
+        continuation=lambda run_func=True, res=None: _cont((run_func, res)),
         cps=_cps,
         stack=_stack,
     )
-setattr(call_event, CPSTransform.is_transformed_property, True)
+setattr(enter_call_event, CPSTransform.is_transformed_property, True)
 
-def exit_event(
+def exit_call_event(
     f: CPSCallable,
     args: Tuple,
     kwargs: Dict,
@@ -84,13 +84,16 @@ def exit_event(
         cps=_cps,
         stack=_stack,
     )
-setattr(exit_event, CPSTransform.is_transformed_property, True)
+setattr(exit_call_event, CPSTransform.is_transformed_property, True)
 
 def register_call_entryexit(f: CPSCallable) -> CPSCallable:
+    assert isinstance(f, CPSFunction), \
+        f'Error registering {f.__name__}: `register_call_entryexit` can only be applied to transformed functions'
     def call_entryexit_wrapper(*args, **kwargs):
         kwargs = hashabledict(kwargs)
-        call_event(f, args, kwargs)
-        res = f(*args, **kwargs)
-        exit_event(f, args, kwargs, res)
+        run_func, res = enter_call_event(f, args, kwargs)
+        if run_func:
+            res = f(*args, **kwargs)
+        exit_call_event(f, args, kwargs, res)
         return res
     return call_entryexit_wrapper

@@ -91,4 +91,5 @@ setattr(_independent_map, CPSTransform.is_transformed_property, True)
 # wrapper and gets CPS transformed.
 def _independent_map_iter(func, i):
     return func(i)
+_independent_map_iter = CPSInterpreter().non_cps_callable_to_cps_callable(_independent_map_iter)
 _independent_map_iter = register_call_entryexit(_independent_map_iter)

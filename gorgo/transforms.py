@@ -754,6 +754,9 @@ class CPSFunction:
             return False
         return self.func_src == other.func_src and self.closure == other.closure
 
+    def __getattr__(self, name):
+        return getattr(self.func, name)
+
 class CPSTransform(NodeTransformer):
     """
     Convert python to a form of continuation passing style.
