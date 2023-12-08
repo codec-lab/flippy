@@ -463,3 +463,25 @@ def test_program_state_identity_with_closures():
     #     assert id(ps.step(0).stack[1].locals['g']) != id(ps.step(0).stack[1].locals['g'])
     # except AssertionError:
     #     assert id(ps.step(0).stack[1].locals['g']) != id(ps.step(0).stack[1].locals['g'])
+
+def test_call_entryexit_skipping():
+    def model():
+        @register_call_entryexit
+        def f(p):
+            return flip(p) + flip(p)
+        return f(.6) + 20
+
+    ps = CPSInterpreter().initial_program_state(model)
+    enter_ps = ps.step()
+
+    # Don't run the model and return 100
+    exit_ps = enter_ps.step(False, 100)
+    assert exit_ps.value == 100
+    return_ps = exit_ps.step()
+    assert return_ps.value == 120
+
+    # Run the function and set bernoulli's to 1
+    exit_ps = enter_ps.step(True).step(1).step(1)
+    assert exit_ps.value == 2
+    return_ps = exit_ps.step()
+    assert return_ps.value == 22
