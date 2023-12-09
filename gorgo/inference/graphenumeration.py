@@ -1,7 +1,7 @@
 import queue
 from dataclasses import dataclass
 from itertools import product
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from typing import Any, Union, List, Tuple, Dict, Set
 
 import numpy as np
@@ -12,20 +12,23 @@ from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, Ini
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical
 from gorgo.tools import logsumexp
-from gorgo.types import ReturnValue
 from gorgo.callentryexit import EnterCallState, ExitCallState
 from gorgo.map import MapEnter, MapExit
 from gorgo.inference.enumeration import EnumerationStats, ProgramStateRecord
+from gorgo.hashable import hashabledict
 
 class GraphEnumeration:
     def __init__(
         self,
         function,
         max_states=float('inf'),
+        _call_cache_size=128,
     ):
         self.function = function
         self.max_states = max_states
         self._stats = None
+        self._call_cache_size = _call_cache_size
+        self._call_cache = OrderedDict()
 
     def run(self, *args, **kws):
         init_ps = CPSInterpreter().initial_program_state(self.function)
@@ -41,12 +44,11 @@ class GraphEnumeration:
             normalized_dist[rv] = normalized_dist.get(rv, 0.) + rp
         return Categorical.from_dict(normalized_dist)
 
-
     def enumerate_graph(
         self,
         init_ps: ProgramState,
         max_states: int = float('inf'),
-    ) -> Dict[ReturnValue, float]:
+    ) -> Dict[Union[ReturnState,ExitCallState], float]:
         transition_scores: Dict[Tuple[ProgramState, ProgramState], float] = \
             defaultdict(lambda: float('-inf'))
 
@@ -183,6 +185,30 @@ class GraphEnumeration:
 
 
     def enumerate_enter_call_state_successors(
+        self,
+        enter_state: EnterCallState,
+    ) -> Tuple[List[ExitCallState], List[float]]:
+        if self._call_cache_size == 0:
+            return self._enumerate_enter_call_state_successors(enter_state)
+
+        # This logic handles caching using an LRU cache
+        global_store_key = hashabledict(enter_state.init_global_store.store)
+        key = (enter_state.function, enter_state.args, enter_state.kwargs, global_store_key)
+
+        if key in self._call_cache:
+            exit_values, exit_scores = self._call_cache.pop(key)
+            exit_states = [enter_state.skip(rv) for rv in exit_values]
+        else:
+            exit_states, exit_scores = \
+                self._enumerate_enter_call_state_successors(enter_state)
+            exit_values = [rs.value for rs in exit_states]
+        self._call_cache[key] = (exit_values, exit_scores)
+        if len(self._call_cache) > self._call_cache_size:
+            self._call_cache.popitem(last=False)
+        return exit_states, exit_scores
+
+
+    def _enumerate_enter_call_state_successors(
         self,
         init_ps: EnterCallState
     ) -> Tuple[List[ExitCallState], List[float]]:

@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 class EnterCallState(ProgramState):
     def __init__(
         self,
-        f: CPSCallable,
+        f: CPSFunction,
         args: Tuple,
         kwargs: Dict,
         continuation: Continuation=None,
@@ -26,10 +26,13 @@ class EnterCallState(ProgramState):
         self.args = args
         self.kwargs = kwargs
 
+    def skip(self, value) -> 'ExitCallState':
+        return self.step(False, value)
+
 class ExitCallState(ProgramState):
     def __init__(
         self,
-        f: CPSCallable,
+        f: CPSFunction,
         args: Tuple,
         kwargs: Dict,
         value: Any,
@@ -49,7 +52,7 @@ class ExitCallState(ProgramState):
         self.value = value
 
 def enter_call_event(
-    f: CPSCallable,
+    f: CPSFunction,
     args: Tuple,
     kwargs: Dict,
     _cont: Continuation=None,
@@ -67,7 +70,7 @@ def enter_call_event(
 setattr(enter_call_event, CPSTransform.is_transformed_property, True)
 
 def exit_call_event(
-    f: CPSCallable,
+    f: CPSFunction,
     args: Tuple,
     kwargs: Dict,
     value: Any,

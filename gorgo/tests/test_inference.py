@@ -192,3 +192,50 @@ def test_hashing_program_states_with_list_and_dict():
     ps = CPSInterpreter().initial_program_state(f)
     assert id(ps.step()) != id(ps.step())
     assert hash(ps.step()) == hash(ps.step())
+
+def test_graph_enumeration_callsite_caching():
+    def model():
+        @register_call_entryexit
+        def f(p):
+            return flip(p) + flip(p)
+        x = f(.3) + f(.3) + f(.3)
+        return x
+
+    e_res = Enumeration(model).run()
+    ge_res_nocache = GraphEnumeration(model, _call_cache_size=0).run()
+    ge_res_cache = GraphEnumeration(model, _call_cache_size=1000).run()
+    assert e_res.isclose(ge_res_nocache)
+    assert e_res.isclose(ge_res_cache)
+
+def test_graph_enumeration_callsite_caching_with_mem():
+    def model():
+        @mem
+        def g(i):
+            return .3 if flip(.6) else .63
+        @register_call_entryexit
+        def f():
+            p = g(0)
+            return flip(p) + flip(p)
+        x = f() + f() + f()
+        return x
+
+    e_res = Enumeration(model).run()
+    ge_res_nocache = GraphEnumeration(model, _call_cache_size=0).run()
+    ge_res_cache = GraphEnumeration(model, _call_cache_size=1000).run()
+    assert e_res.isclose(ge_res_nocache)
+    assert e_res.isclose(ge_res_cache)
+
+def test_graph_enumeration_callsite_caching_lru_cache():
+    def model():
+        @register_call_entryexit
+        def f(p):
+            return flip(p)
+        x = f(.1) + f(.2) + f(.3) + f(.4)
+        return x
+
+    ge = GraphEnumeration(model, _call_cache_size=2)
+    e_res = Enumeration(model).run()
+    ge_res_cache = ge.run()
+    assert e_res.isclose(ge_res_cache)
+    assert len(ge._call_cache) == 2
+    assert [args[0] for _, args, _, _ in ge._call_cache.keys()] == [.3, .4]
