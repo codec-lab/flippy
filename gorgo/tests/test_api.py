@@ -3,7 +3,7 @@ from gorgo import flip, mem, infer, draw_from, factor, condition, \
     uniform, recursive_map, recursive_filter, recursive_reduce, \
     map_observe
 from gorgo.interpreter import CPSInterpreter
-from gorgo.inference import Enumeration, LikelihoodWeighting
+from gorgo.inference import SimpleEnumeration, LikelihoodWeighting
 from gorgo.core import ReturnState
 import math
 
@@ -155,8 +155,8 @@ def test_stochastic_memoization():
             return flip()
         return (g(1), g(1), g(2), g(2), flip())
 
-    assert len(Enumeration(stochastic_mem_func).run().support) == 2**3
-    assert len(Enumeration(no_stochastic_mem_func).run().support) == 2**5
+    assert len(SimpleEnumeration(stochastic_mem_func).run().support) == 2**3
+    assert len(SimpleEnumeration(no_stochastic_mem_func).run().support) == 2**5
 
 
 def test_mem_basic():
@@ -188,7 +188,7 @@ def test_mem_basic():
 def test_draw_from():
     def f():
         return draw_from(3)
-    assert Enumeration(f).run().isclose(Categorical.from_dict({0: 1/3, 1: 1/3, 2: 1/3}))
+    assert SimpleEnumeration(f).run().isclose(Categorical.from_dict({0: 1/3, 1: 1/3, 2: 1/3}))
 
 def test_factor_statement():
     def f():
@@ -204,7 +204,7 @@ def test_factor_statement():
         (1, 1): .2*.4*.7,
     }
     exp = Categorical.from_dict({k: v/sum(exp.values()) for k, v in exp.items()})
-    assert Enumeration(f).run().isclose(exp)
+    assert SimpleEnumeration(f).run().isclose(exp)
 
     def f_with_positive():
         x = flip()
@@ -215,7 +215,7 @@ def test_factor_statement():
         False: math.exp(-1),
     }
     exp = Categorical.from_dict({k: v/sum(exp.values()) for k, v in exp.items()})
-    assert Enumeration(f_with_positive).run().isclose(exp)
+    assert SimpleEnumeration(f_with_positive).run().isclose(exp)
 
 def test_condition_statement():
     def f():

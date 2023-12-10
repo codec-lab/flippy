@@ -1,8 +1,8 @@
 import math
 from gorgo import _distribution_from_inference, flip, mem, condition, draw_from
 from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal, Gamma, Uniform
-from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting
-from gorgo.inference.graphenumeration import GraphEnumeration
+from gorgo.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting
+from gorgo.inference.enumeration import Enumeration
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
 from gorgo.callentryexit import register_call_entryexit
@@ -31,7 +31,7 @@ def expectation(d: Distribution, projection=lambda s: s):
 def test_enumeration_geometric():
     param = 0.25
     expected = 1/param
-    rv = Enumeration(geometric, max_executions=100).run(param)
+    rv = SimpleEnumeration(geometric, max_executions=100).run(param)
     d = _distribution_from_inference(rv)
     assert isclose(expectation(d), expected)
 
@@ -96,7 +96,7 @@ def test_observations():
     ]:
         print('model', model)
 
-        dist = _distribution_from_inference(Enumeration(model).run())
+        dist = _distribution_from_inference(SimpleEnumeration(model).run())
         print('Enumeration', dist)
         assert dist.isclose(expected_dist)
 
@@ -179,8 +179,8 @@ def test_graph_enumeration():
     test_models = [f1, f2, f3, f4, f5, f6, f7, f8, f9, f10]
 
     for f in test_models:
-        e_res = Enumeration(f).run()
-        ge_res = GraphEnumeration(f).run()
+        e_res = SimpleEnumeration(f).run()
+        ge_res = Enumeration(f).run()
         assert e_res.isclose(ge_res), f"Results for {f.__name__} do not match"
 
 def test_hashing_program_states_with_list_and_dict():
@@ -201,9 +201,9 @@ def test_graph_enumeration_callsite_caching():
         x = f(.3) + f(.3) + f(.3)
         return x
 
-    e_res = Enumeration(model).run()
-    ge_res_nocache = GraphEnumeration(model, _call_cache_size=0).run()
-    ge_res_cache = GraphEnumeration(model, _call_cache_size=1000).run()
+    e_res = SimpleEnumeration(model).run()
+    ge_res_nocache = Enumeration(model, _call_cache_size=0).run()
+    ge_res_cache = Enumeration(model, _call_cache_size=1000).run()
     assert e_res.isclose(ge_res_nocache)
     assert e_res.isclose(ge_res_cache)
 
@@ -219,9 +219,9 @@ def test_graph_enumeration_callsite_caching_with_mem():
         x = f() + f() + f()
         return x
 
-    e_res = Enumeration(model).run()
-    ge_res_nocache = GraphEnumeration(model, _call_cache_size=0).run()
-    ge_res_cache = GraphEnumeration(model, _call_cache_size=1000).run()
+    e_res = SimpleEnumeration(model).run()
+    ge_res_nocache = Enumeration(model, _call_cache_size=0).run()
+    ge_res_cache = Enumeration(model, _call_cache_size=1000).run()
     assert e_res.isclose(ge_res_nocache)
     assert e_res.isclose(ge_res_cache)
 
@@ -233,8 +233,8 @@ def test_graph_enumeration_callsite_caching_lru_cache():
         x = f(.1) + f(.2) + f(.3) + f(.4)
         return x
 
-    ge = GraphEnumeration(model, _call_cache_size=2)
-    e_res = Enumeration(model).run()
+    ge = Enumeration(model, _call_cache_size=2)
+    e_res = SimpleEnumeration(model).run()
     ge_res_cache = ge.run()
     assert e_res.isclose(ge_res_cache)
     assert len(ge._call_cache) == 2

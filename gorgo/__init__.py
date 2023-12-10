@@ -3,7 +3,7 @@ import math
 from typing import Callable, Sequence, TYPE_CHECKING, Union, TypeVar, overload
 from gorgo.transforms import CPSTransform
 from gorgo.inference import _distribution_from_inference, \
-    Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
+    SimpleEnumeration, Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
 from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform, Element
 from gorgo.distributions.random import default_rng
 from gorgo.core import global_store
@@ -46,7 +46,7 @@ def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
 
 def infer(
     func: Callable[..., Element]=None,
-    method=Enumeration,
+    method=SimpleEnumeration,
     cache_size=0,
     **kwargs
 ) -> Callable[..., Distribution[Element]]:
@@ -62,6 +62,7 @@ def infer(
     if isinstance(method, str):
         method = {
             'Enumeration': Enumeration,
+            'SimpleEnumeration': SimpleEnumeration,
             'SamplePrior': SamplePrior,
             'MetropolisHastings': MetropolisHastings,
             'LikelihoodWeighting' : LikelihoodWeighting
