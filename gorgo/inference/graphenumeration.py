@@ -1,4 +1,5 @@
 import queue
+import heapq
 from dataclasses import dataclass
 from itertools import product
 from collections import defaultdict, OrderedDict
@@ -17,23 +18,43 @@ from gorgo.map import MapEnter, MapExit
 from gorgo.inference.enumeration import EnumerationStats, ProgramStateRecord
 from gorgo.hashable import hashabledict
 
+@dataclass
+class ScoredProgramState:
+    cumulative_score: float
+    program_state: tuple
+
+    def __lt__(self, other: 'ScoredProgramState'):
+        return self.cumulative_score > other.cumulative_score
+
+    def __eq__(self, other: 'ScoredProgramState'):
+        return self.cumulative_score == other.cumulative_score
+
+    def __gt__(self, other: 'ScoredProgramState'):
+        return self.cumulative_score < other.cumulative_score
+
+    def __iter__(self):
+        return iter((self.cumulative_score, self.program_state))
+
+
 class GraphEnumeration:
     def __init__(
         self,
         function,
         max_states=float('inf'),
         _call_cache_size=128,
+        _enumeration_strategy='tree',
     ):
         self.function = function
         self.max_states = max_states
         self._stats = None
         self._call_cache_size = _call_cache_size
         self._call_cache = OrderedDict()
+        self._enumeration_strategy = _enumeration_strategy
 
     def run(self, *args, **kws):
         init_ps = CPSInterpreter().initial_program_state(self.function)
         ps = init_ps.step(*args, **kws)
-        return_states, return_scores = self.enumerate_graph(ps, self.max_states)
+        return_states, return_scores = self.enumerate_return_states_scores(ps, self.max_states)
         if len(return_states) == 0:
             raise ValueError("No return states encountered during enumeration")
         return_values = [rs.value for rs in return_states]
@@ -43,6 +64,51 @@ class GraphEnumeration:
         for rv, rp in zip(return_values, return_probs):
             normalized_dist[rv] = normalized_dist.get(rv, 0.) + rp
         return Categorical.from_dict(normalized_dist)
+
+    def enumerate_return_states_scores(
+        self,
+        init_ps: ProgramState,
+        max_states: int = float('inf'),
+    ) -> Tuple[List[Union[ReturnState,ExitCallState]], List[float]]:
+        if self._enumeration_strategy == 'graph':
+            return self.enumerate_graph(init_ps, max_states)
+        elif self._enumeration_strategy == 'tree':
+            return self.enumerate_tree(init_ps, max_states)
+        else:
+            raise ValueError(f"Unrecognized enumeration strategy {self._enumeration_strategy}")
+
+
+    def enumerate_tree(
+        self,
+        init_ps: ProgramState,
+        max_states: int = float('inf'),
+    ) -> Dict[Union[ReturnState,ExitCallState], float]:
+        if isinstance(init_ps, (ReturnState, ExitCallState)):
+            return [init_ps], [0.]
+        frontier: List[ScoredProgramState] = []
+        n_visited = 0
+        return_states = []
+        return_scores = []
+        heapq.heappush(frontier, ScoredProgramState(0., init_ps))
+        while len(frontier) > 0:
+            if n_visited >= max_states:
+                break
+            cum_score, ps = heapq.heappop(frontier)
+            successors, scores = self.enumerate_successors_scores(ps)
+            for new_ps, score in zip(successors, scores):
+                if score == float('-inf'):
+                    continue
+                if isinstance(new_ps, (ReturnState, ExitCallState)):
+                    return_states.append(new_ps)
+                    return_scores.append(cum_score + score)
+                else:
+                    heapq.heappush(frontier, ScoredProgramState(cum_score + score, new_ps))
+            n_visited += 1
+            if self._stats is not None:
+                self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
+
+        return return_states, return_scores
+
 
     def enumerate_graph(
         self,
@@ -65,34 +131,7 @@ class GraphEnumeration:
             if len(visited) >= max_states:
                 break
             ps = frontier.get()
-
-            # we enumerate successors of a program state differently depending on
-            # what kind of state it is
-            if isinstance(ps, SampleState):
-                successors, scores = self.enumerate_sample_state_successors(ps)
-            elif isinstance(ps, EnterCallState):
-                exit_states, exit_scores = self.enumerate_enter_call_state_successors(ps)
-                # we need to take the next step for each successor
-                successors = []
-                scores = []
-                for exit_state, exit_score in zip(exit_states, exit_scores):
-                    new_ps, new_score = self.next_choice_state(exit_state)
-                    if new_score == float('-inf'):
-                        continue
-                    successors.append(new_ps)
-                    scores.append(exit_score + new_score)
-            elif isinstance(ps, MapEnter):
-                successors, scores = self.enumerate_enter_map_state_successors(ps)
-            elif isinstance(ps, InitialState):
-                new_ps, step_score = self.next_choice_state(ps)
-                if step_score > float('-inf'):
-                    successors = [new_ps]
-                    scores = [step_score]
-                else:
-                    successors = []
-                    scores = []
-            else:
-                raise ValueError("Unrecognized program state message")
+            successors, scores = self.enumerate_successors_scores(ps)
 
             # logic for updating graph
             for new_ps, score in zip(successors, scores):
@@ -144,6 +183,39 @@ class GraphEnumeration:
         else:
             sp_return_logprobs = np.log([sp_return_probs[0]])
         return return_states, sp_return_logprobs
+
+    def enumerate_successors_scores(
+        self,
+        ps: ProgramState,
+    ) -> Tuple[List[ProgramState], List[float]]:
+        # we enumerate successors of a program state differently depending on
+        # what kind of state it is
+        if isinstance(ps, SampleState):
+            successors, scores = self.enumerate_sample_state_successors(ps)
+        elif isinstance(ps, EnterCallState):
+            exit_states, exit_scores = self.enumerate_enter_call_state_successors(ps)
+            # we need to take the next step for each successor
+            successors = []
+            scores = []
+            for exit_state, exit_score in zip(exit_states, exit_scores):
+                new_ps, new_score = self.next_choice_state(exit_state)
+                if new_score == float('-inf'):
+                    continue
+                successors.append(new_ps)
+                scores.append(exit_score + new_score)
+        elif isinstance(ps, MapEnter):
+            successors, scores = self.enumerate_enter_map_state_successors(ps)
+        elif isinstance(ps, InitialState):
+            new_ps, step_score = self.next_choice_state(ps)
+            if step_score > float('-inf'):
+                successors = [new_ps]
+                scores = [step_score]
+            else:
+                successors = []
+                scores = []
+        else:
+            raise ValueError("Unrecognized program state message")
+        return successors, scores
 
 
     def next_choice_state(
@@ -222,7 +294,7 @@ class GraphEnumeration:
         ps, init_score = self.next_choice_state(init_ps)
         if isinstance(ps, ExitCallState):
             return [ps], [init_score]
-        successors, scores = self.enumerate_graph(init_ps=ps, max_states=self.max_states)
+        successors, scores = self.enumerate_return_states_scores(init_ps=ps, max_states=self.max_states)
         scores = [init_score + score for score in scores]
         return successors, scores
 
