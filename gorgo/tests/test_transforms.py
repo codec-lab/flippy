@@ -296,8 +296,7 @@ def test_cps():
     def fn(x):
         return x
     ''', '''
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: CPSFunction(fn, 'def fn(x):\\n    return x')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    return x'
         return lambda : _cont(x)
@@ -312,8 +311,7 @@ def test_cps():
         z = z + 1
         return x + y + z
     ''', '''
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: CPSFunction(fn, 'def fn(x):\\n    z = 0\\n    y = sum([1, 2, 3])\\n    x = x + 1\\n    z = z + 1\\n    return x + y + z')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    z = 0\\n    y = sum([1, 2, 3])\\n    x = x + 1\\n    z = z + 1\\n    return x + y + z'
         z = 0
@@ -340,8 +338,7 @@ def test_cps():
         y = sum([y, 2])
         return y
     ''', '''
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: CPSFunction(fn, 'def fn(y):\\n    y = sum([y, 1])\\n    y = sum([y, 2])\\n    return y')
     def fn(y, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(y):\\n    y = sum([y, 1])\\n    y = sum([y, 2])\\n    return y'
         _locals_3 = locals()
@@ -370,8 +367,7 @@ def test_cps():
         sum([])
         return y + z
     ''', '''
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: CPSFunction(fn, 'def fn(x):\\n    [y, z] = x\\n    sum([])\\n    return y + z')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    [y, z] = x\\n    sum([])\\n    return y + z'
         [y, z] = x
@@ -407,10 +403,10 @@ def check_cps_transform(src, exp_src, *, check_args=[]):
     )
     fn_name = node.body[0].name
 
-    src_context = {}
+    src_context = {'CPSFunction': CPSFunction}
     exec(src, src_context)
 
-    exp_context = {}
+    exp_context = {'CPSFunction': CPSFunction}
     interpreter = CPSInterpreter()
     exp_context[CPSTransform.cps_interpreter_name] = interpreter
     exec(exp_src, exp_context)
