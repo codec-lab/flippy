@@ -41,7 +41,8 @@ class Enumeration:
         self,
         function,
         max_states=float('inf'),
-        _call_cache_size=128,
+        _call_cache_size=0,
+        _map_cross_product=True,
         _enumeration_strategy='tree',
     ):
         self.function = function
@@ -50,6 +51,7 @@ class Enumeration:
         self._call_cache_size = _call_cache_size
         self._call_cache = OrderedDict()
         self._enumeration_strategy = _enumeration_strategy
+        self._map_cross_product = _map_cross_product
 
     def run(self, *args, **kws):
         init_ps = CPSInterpreter().initial_program_state(self.function)
@@ -204,7 +206,11 @@ class Enumeration:
                 successors.append(new_ps)
                 scores.append(exit_score + new_score)
         elif isinstance(ps, MapEnter):
-            successors, scores = self.enumerate_enter_map_state_successors(ps)
+            if self._map_cross_product:
+                successors, scores = self.enumerate_enter_map_state_successors(ps)
+            else:
+                successors = [ps.step(False)]
+                scores = [0.]
         elif isinstance(ps, InitialState):
             new_ps, step_score = self.next_choice_state(ps)
             if step_score > float('-inf'):
