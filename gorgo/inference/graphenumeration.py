@@ -49,6 +49,9 @@ class GraphEnumeration:
         init_ps: ProgramState,
         max_states: int = float('inf'),
     ) -> Dict[Union[ReturnState,ExitCallState], float]:
+        if isinstance(init_ps, (ReturnState, ExitCallState)):
+            return [init_ps], [0.]
+
         transition_scores: Dict[Tuple[ProgramState, ProgramState], float] = \
             defaultdict(lambda: float('-inf'))
 
