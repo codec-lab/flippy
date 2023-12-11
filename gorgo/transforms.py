@@ -953,3 +953,25 @@ class CPSTransform(NodeTransformer):
 
         # add node explicitly
         self.new_block.append(new_node)
+
+class HashableCollectionTransform(ast.NodeTransformer):
+    """
+    Wrap all lists and dicts in hashable versions.
+    """
+    def __call__(self, rootnode):
+        self.visit(rootnode)
+        return rootnode
+
+    def visit_List(self, node):
+        return ast.Call(
+            func=ast.Name(id='hashablelist', ctx=ast.Load()),
+            args=[node],
+            keywords=[]
+        )
+
+    def visit_Dict(self, node):
+        return ast.Call(
+            func=ast.Name(id='hashabledict', ctx=ast.Load()),
+            args=[node],
+            keywords=[]
+        )

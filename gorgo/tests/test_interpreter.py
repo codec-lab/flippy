@@ -5,6 +5,7 @@ from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
 from gorgo.transforms import CPSFunction
 from gorgo.callentryexit import EnterCallState, ExitCallState, register_call_entryexit
+from gorgo.hashable import hashablelist, hashabledict
 import ast
 import math
 import pytest
@@ -297,7 +298,13 @@ def test_global_store_proxy():
 
     cps = CPSInterpreter()
     code = cps.transform_from_func(f)
-    context = {"_cps": cps, 'global_store': cps.global_store_proxy, "CPSFunction": CPSFunction}
+    context = {
+        "_cps": cps,
+        'global_store': cps.global_store_proxy,
+        "CPSFunction": CPSFunction,
+        "hashablelist": hashablelist,
+        "hashabledict": hashabledict,
+    }
     exec(ast.unparse(code), context)
     f = context['f']
 

@@ -2,6 +2,7 @@ import itertools
 import textwrap
 from gorgo.transforms import *
 from gorgo.interpreter import CPSInterpreter
+from gorgo.hashable import hashablelist, hashabledict
 from gorgo import keep_deterministic
 
 def trampoline(thunk):
@@ -11,7 +12,13 @@ def trampoline(thunk):
 
 def interpret(func, *args, **kwargs):
     interpreter = CPSInterpreter()
-    context = {**func.__globals__, **interpreter.get_closure(func), "_cps": interpreter}
+    context = {
+        **func.__globals__,
+        **interpreter.get_closure(func),
+        "_cps": interpreter,
+        "hashablelist": hashablelist,
+        "hashabledict": hashabledict,
+    }
     print(func.__name__, context)
     code = interpreter.transform_from_func(func)
     print(code)

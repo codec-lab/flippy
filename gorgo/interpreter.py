@@ -10,10 +10,10 @@ from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
 from gorgo.distributions.base import Distribution, Element
 from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
-    GetLineNumber, CPSFunction
+    GetLineNumber, CPSFunction, HashableCollectionTransform
 from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.funcutils import method_cache
-from gorgo.hashable import hashabledict
+from gorgo.hashable import hashabledict, hashablelist
 import linecache
 import types
 import contextlib
@@ -109,6 +109,7 @@ class CPSInterpreter:
     def __init__(self):
         self.subset_validator = PythonSubsetValidator()
         self.desugaring_transform = DesugaringTransform()
+        self.hashable_collection_transform = HashableCollectionTransform()
         self.closure_scope_analysis = ClosureScopeAnalysis()
         self.setlines_transform = SetLineNumbers()
         self.cps_transform = CPSTransform()
@@ -255,6 +256,8 @@ class CPSInterpreter:
             "_cps": self,
             "global_store": self.global_store_proxy,
             "CPSFunction": CPSFunction,
+            "hashabledict": hashabledict,
+            "hashablelist": hashablelist,
         }
         try:
             exec(code, context)
@@ -274,6 +277,7 @@ class CPSInterpreter:
         trans_node = self.desugaring_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
+        trans_node = self.hashable_collection_transform(trans_node)
         return trans_node
 
     def compile(self, filename: str, node: ast.AST) -> types.CodeType:
