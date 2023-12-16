@@ -513,9 +513,9 @@ class DesugaringTransform(ast.NodeTransformer):
         raise ValueError("BoolOp is neither And nor Or")
 
     def visit_FunctionDef(self, node):
-        has_decorators = len(node.decorator_list) > 0
-        if has_decorators:
-            return self.de_decorate_FunctionDef(node)
+        # has_decorators = len(node.decorator_list) > 0
+        # if has_decorators:
+        #     return self.de_decorate_FunctionDef(node)
 
         node = self.generic_visit(node)
         # make return value of None function explicit
@@ -789,10 +789,11 @@ class CPSTransform(NodeTransformer):
             return self.generic_visit(node)
 
     def visit_Module(self, node):
-        # If we're in a module, the first statement must be a function definition.
-        # We only do the transform on that function.
-        assert isinstance(node.body[0], ast.FunctionDef), "Module must start with a function definition"
-        node.body[0] = self.visit(node.body[0])
+        # If we're in the outermost module scope, we only transform function definitions
+        # Everything else is executed as normal (deterministic) python
+        for stmt in node.body:
+            if isinstance(stmt, ast.FunctionDef):
+                self.visit(stmt)
         return node
 
     def visit_FunctionDef(self, node):

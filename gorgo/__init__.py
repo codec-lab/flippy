@@ -11,8 +11,7 @@ from gorgo.types import CPSCallable, Continuation
 from gorgo.hashable import hashabledict
 from gorgo.map import recursive_map
 
-if TYPE_CHECKING:
-    from gorgo.interpreter import CPSInterpreter, Stack
+from gorgo.interpreter import CPSInterpreter, Stack
 
 __all__ = [
     # Core API
@@ -31,9 +30,10 @@ __all__ = [
     'Bernoulli',
 ]
 
+# Note if we use python 3.10+ we can use typing.ParamSpec
+# so that combinators preserve the type signature of functions
 R = TypeVar('R')
 
-# def keep_deterministic(fn: Callable) -> CPSCallable: #note that this is the real type signature
 def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
     def continuation(*args, _cont: Continuation=None, _cps: 'CPSInterpreter'=None, _stack: 'Stack'=None, **kws):
         rv = fn(*args, **kws)
@@ -44,21 +44,39 @@ def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
     setattr(continuation, CPSTransform.is_transformed_property, True)
     return continuation
 
+def cps_transform_safe_decorator(dec):
+    """
+    A higher-order function that wraps a decorator so that it works with functions
+    that are CPS transformed or will be CPS transformed.
+    """
+    @keep_deterministic
+    def wrapped_decorator(fn=None, *args, **kws):
+        if fn is None:
+            return functools.partial(wrapped_decorator, *args, **kws)
+
+        # If the decorator is applied in the module scope, then we both CPS transform and
+        # wrap the function. But if it is applied in a function scope (i.e., nested),
+        # then it has already been CPS transformed and we only need to wrap it.
+        if not CPSTransform.is_transformed(fn):
+            fn = CPSInterpreter().non_cps_callable_to_cps_callable(fn)
+
+        # When the decorator gets compiled by the interpreter
+        # it will be passed in again. We simply return it.
+        if getattr(fn, "_wrapped_with", None) == dec:
+            return fn
+        wrapped_fn = dec(fn, *args, **kws)
+        setattr(wrapped_fn, "_wrapped_with", dec)
+        return wrapped_fn
+    wrapped_decorator = functools.wraps(dec)(wrapped_decorator)
+    return wrapped_decorator
+
+@cps_transform_safe_decorator
 def infer(
     func: Callable[..., Element]=None,
-    method=SimpleEnumeration,
+    method=Enumeration,
     cache_size=0,
     **kwargs
 ) -> Callable[..., Distribution[Element]]:
-    if func is None:
-        return functools.partial(infer, method=method, cache_size=cache_size, **kwargs)
-
-    # After the wrapped function is CPS transformed, it will be evaluated.
-    # If it is decorated with this function, the CPS-transformed function
-    # will be passed in again. We simply return it.
-    if CPSTransform.is_transformed(func):
-        return func
-
     if isinstance(method, str):
         method = {
             'Enumeration': Enumeration,
@@ -136,7 +154,8 @@ def draw_from(n: Sequence[Element]) -> Element:
 def draw_from(n: Union[Sequence[Element], int]) -> Element:
     return _draw_from_dist(n).sample()
 
-def mem(fn):
+@cps_transform_safe_decorator
+def mem(fn: Callable[..., Element]) -> Callable[..., Element]:
     def mem_wrapper(*args, **kws):
         key = (fn, args, tuple(sorted(kws.items())))
         kws = hashabledict(kws)

@@ -26,7 +26,7 @@ def algebra():
     return EQ()
 
 def test_algebra():
-    algebra2 = infer(max_executions=55)(algebra)
+    algebra2 = infer(method="SimpleEnumeration", max_executions=55)(algebra)
 
     results = algebra2()
 
@@ -238,3 +238,64 @@ def test_map_observe():
         [Bernoulli(p).observe(i) for i in [1, 1, 0, 1]]
         return p
     assert f2().isclose(f1())
+
+def test_nested_decorators():
+    @infer
+    def model():
+        def f(p):
+            return flip(p)
+        return f(.2)
+
+    @infer
+    def model2a():
+        @infer
+        def f(p):
+            return flip(p)
+        return f(.2).sample()
+    assert model().isclose(model2a())
+
+    @infer()
+    def model2b():
+        @infer()
+        def f(p):
+            return flip(p)
+        return f(.2).sample()
+    assert model().isclose(model2b())
+
+    @infer
+    def model3():
+        @mem
+        def f(p):
+            return flip(p)
+        return f(.2)
+    assert model().isclose(model3())
+
+def test_sibling_decorators():
+    @infer
+    def model():
+        def f(p):
+            return flip(p)
+        return f(.2)
+
+    def outer_f(p):
+        return flip(p)
+    @infer
+    def model4():
+        return outer_f(.2)
+    assert model().isclose(model4())
+
+    @infer
+    def outer_f_infer(p):
+        return flip(p)
+    @infer
+    def model5():
+        return outer_f_infer(.2).sample()
+    assert model().isclose(model5())
+
+    @mem
+    def outer_f_mem(p):
+        return flip(p)
+    @infer
+    def model6():
+        return outer_f_mem(.2)
+    assert model().isclose(model6())
