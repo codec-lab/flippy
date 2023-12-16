@@ -302,6 +302,11 @@ class Enumeration:
             return [ps], [init_score]
         successors, scores = self.enumerate_return_states_scores(init_ps=ps, max_states=self.max_states)
         scores = [init_score + score for score in scores]
+        if self._enumeration_strategy == 'tree':
+            successor_scores = defaultdict(lambda : float('-inf'))
+            for state, score in zip(successors, scores):
+                successor_scores[state] = logsumexp(successor_scores[state], score)
+            successors, scores = zip(*successor_scores.items())
         return successors, scores
 
     def enumerate_enter_map_state_successors(
