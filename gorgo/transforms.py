@@ -791,6 +791,8 @@ class CPSTransform(NodeTransformer):
     def visit_Module(self, node):
         # If we're in the outermost module scope, we only transform function definitions
         # Everything else is executed as normal (deterministic) python
+        # This is primarily to handle cases where non-function definition statements
+        # are created in the course of desugaring but still need to be executed.
         for stmt in node.body:
             if isinstance(stmt, ast.FunctionDef):
                 self.visit(stmt)
