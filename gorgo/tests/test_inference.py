@@ -176,12 +176,29 @@ def test_graph_enumeration():
         condition(1)
         return x
 
-    test_models = [f1, f2, f3, f4, f5, f6, f7, f8, f9, f10]
+    def f11():
+        @register_call_entryexit
+        def f(a, b):
+            condition(a == b)
+        a = flip()
+        b = flip()
+        f(a, b)
+        return a + b
 
+    test_models = [f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11]
+
+    failed = {}
     for f in test_models:
         e_res = SimpleEnumeration(f).run()
         ge_res = Enumeration(f).run()
-        assert e_res.isclose(ge_res), f"Results for {f.__name__} do not match"
+        if not e_res.isclose(ge_res):
+            failed[f] = (e_res, ge_res)
+
+    if failed:
+        raise AssertionError('\n'.join([
+            "Failed models:"
+            *[f"{f.__name__}:\n\t{e_res}\n\t{ge_res}" for f, (e_res, ge_res) in failed.items()]
+        ]))
 
 def test_hashing_program_states_with_list_and_dict():
     def f():

@@ -220,7 +220,7 @@ class Enumeration:
                 successors = []
                 scores = []
         else:
-            raise ValueError("Unrecognized program state message")
+            raise ValueError(f"Unrecognized program state message {ps}")
         return successors, scores
 
 
@@ -233,11 +233,14 @@ class Enumeration:
         This runs a program state until it reaches a choice state or an exit
         state. It returns the next choice state and score collected along the way.
         """
+        if isinstance(init_ps, ObserveState):
+            score = init_ps.distribution.log_probability(init_ps.value)
+        else:
+            score = 0.
         if isinstance(init_ps, (SampleState, MapExit)):
             ps = init_ps.step(value)
         else:
             ps = init_ps.step()
-        score = 0.
         while not isinstance(ps, (SampleState, EnterCallState, ReturnState, ExitCallState)):
             if isinstance(ps, ObserveState):
                 score += ps.distribution.log_probability(ps.value)
@@ -297,7 +300,10 @@ class Enumeration:
         # and then take the subsequent step
         # if not, we enumerate the graph to get all the exit states, then for
         # each exit state, we take the next deterministic step
+        assert isinstance(init_ps, EnterCallState)
         ps, init_score = self.next_choice_state(init_ps)
+        if init_score == float('-inf'):
+            return [], []
         if isinstance(ps, ExitCallState):
             return [ps], [init_score]
         successors, scores = self.enumerate_return_states_scores(init_ps=ps, max_states=self.max_states)
