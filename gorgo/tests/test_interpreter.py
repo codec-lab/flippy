@@ -492,3 +492,22 @@ def test_call_entryexit_skipping():
     assert exit_ps.value == 2
     return_ps = exit_ps.step()
     assert return_ps.value == 22
+
+def test_decorated_recursive_functions():
+    def decorator(fn):
+        def wrapper(*args, **kwargs):
+            return fn(*args, **kwargs)
+        return wrapper
+
+    def f():
+        @decorator
+        def wrapped():
+            inner_ref = wrapped
+            return inner_ref
+        outer_ref = wrapped
+        inner_ref = wrapped()
+        assert outer_ref is inner_ref
+        return 1
+
+    ps = CPSInterpreter().initial_program_state(f)
+    ps.step()
