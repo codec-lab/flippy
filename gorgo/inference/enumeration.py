@@ -308,7 +308,7 @@ class Enumeration:
             return [ps], [init_score]
         successors, scores = self.enumerate_return_states_scores(init_ps=ps, max_states=self.max_states)
         scores = [init_score + score for score in scores]
-        if self._enumeration_strategy == 'tree':
+        if self._enumeration_strategy == 'tree' and len(successors) > 0:
             successor_scores = defaultdict(lambda : float('-inf'))
             for state, score in zip(successors, scores):
                 successor_scores[state] = logsumexp(successor_scores[state], score)
