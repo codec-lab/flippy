@@ -513,10 +513,6 @@ class DesugaringTransform(ast.NodeTransformer):
         raise ValueError("BoolOp is neither And nor Or")
 
     def visit_FunctionDef(self, node):
-        # has_decorators = len(node.decorator_list) > 0
-        # if has_decorators:
-        #     return self.de_decorate_FunctionDef(node)
-
         node = self.generic_visit(node)
         # make return value of None function explicit
         # Note: this is required for CPSTransform to work
@@ -525,15 +521,15 @@ class DesugaringTransform(ast.NodeTransformer):
             node.body.append(return_none)
         return node
 
-    def de_decorate_FunctionDef(self, node):
-        decorator_list, node.decorator_list = node.decorator_list, []
-        new_block = [self.visit(node)]
-        for decorator in decorator_list[::-1]:
-            decorator_stmt = ast.parse(f"{node.name} = __dec__({node.name})").body[0]
-            decorator_stmt.value.func = decorator
-            decorator_stmt = self.visit(decorator_stmt)
-            new_block.append(decorator_stmt)
-        return new_block
+    # def de_decorate_FunctionDef(self, node):
+    #     decorator_list, node.decorator_list = node.decorator_list, []
+    #     new_block = [self.visit(node)]
+    #     for decorator in decorator_list[::-1]:
+    #         decorator_stmt = ast.parse(f"{node.name} = __dec__({node.name})").body[0]
+    #         decorator_stmt.value.func = decorator
+    #         decorator_stmt = self.visit(decorator_stmt)
+    #         new_block.append(decorator_stmt)
+    #     return new_block
 
     def visit_comprehension(self, node):
         '''
