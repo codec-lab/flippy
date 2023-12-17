@@ -317,6 +317,7 @@ def test_global_store_proxy():
 proxy_forking_bags = Categorical(['bag0', 'bag1', 'bag2'])
 def proxy_forking_value(_bag):
     return Categorical(range(10)).sample()
+proxy_forking_value = CPSInterpreter().non_cps_callable_to_cps_callable(proxy_forking_value)
 def proxy_forking():
     value = mem(proxy_forking_value)
     return [
@@ -363,6 +364,7 @@ def test_Distribution_generic_methods():
 def test_global_store_programstate_hashing():
     def g_base(i):
         return 100
+    g_base = CPSInterpreter().non_cps_callable_to_cps_callable(g_base)
     g = mem(g_base)
 
     def f_global_diff():
