@@ -54,14 +54,27 @@ def cps_transform_safe_decorator(dec):
         if fn is None:
             return functools.partial(wrapped_decorator, *args, **kws)
 
-        # If the decorator is applied in the module scope, then we both CPS transform and
-        # wrap the function. But if it is applied in a function scope (i.e., nested),
-        # then it has already been CPS transformed and we only need to wrap it.
+        # This code mainly supports two cases:
+        # 1. We need to CPS transform and wrap a function (e.g., when decorating in the module scope)
+        # 2. We only need to wrap a function (e.g., when decorating in a nested function scope)
+
+        # Case 1 is confusing because the transformation and wrapping occur in two different
+        # calls to the current code. Specifically, we visit the current
+        # code first from the module scope and then transform/wrap it using a CPSInterpreter
+        # object. The CPSInterpreter object transforms the source code and then executes the current
+        # code a second time on the transformed function (in an "exec" statement). This second
+        # call to the current code does not need to transform the function, but it
+        # does need to wrap it and then flag it as wrapped. Once we return from the second
+        # call to the first call, the function is both transformed and wrapped, so we will return it.
+
+        # Case 2 is simpler because we only need to wrap the function. This occurs when the function
+        # is nested inside another function that has already been CPS transformed.
+
         if not CPSTransform.is_transformed(fn):
             fn = CPSInterpreter().non_cps_callable_to_cps_callable(fn)
 
-        # When the decorator gets compiled by the interpreter
-        # it will be passed in again. We simply return it.
+        # After the function gets transformed and wrapped by the interpreter
+        # we will encounter it again. We simply return it.
         if getattr(fn, "_wrapped_with", None) == dec:
             return fn
         wrapped_fn = dec(fn, *args, **kws)
