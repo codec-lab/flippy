@@ -1,7 +1,7 @@
 from gorgo import flip, mem, infer, draw_from, factor, condition, \
     Bernoulli, Categorical, Uniform, \
     uniform, recursive_map, recursive_filter, recursive_reduce, \
-    map_observe
+    map_observe, cps_transform_safe_decorator
 from gorgo.interpreter import CPSInterpreter
 from gorgo.inference import SimpleEnumeration, LikelihoodWeighting
 from gorgo.core import ReturnState
@@ -26,7 +26,7 @@ def algebra():
     return EQ()
 
 def test_algebra():
-    algebra2 = infer(max_executions=55)(algebra)
+    algebra2 = infer(method="SimpleEnumeration", max_executions=55)(algebra)
 
     results = algebra2()
 
@@ -238,3 +238,102 @@ def test_map_observe():
         [Bernoulli(p).observe(i) for i in [1, 1, 0, 1]]
         return p
     assert f2().isclose(f1())
+
+def test_nested_decorators():
+    # module-scope decorator only
+    @infer
+    def model():
+        def f(p):
+            return flip(p)
+        return f(.2)
+
+    # module-scoped decorator + function-scoped decorator with different return type
+    @infer
+    def model2a():
+        @infer
+        def f(p):
+            return flip(p)
+        return f(.2).sample()
+    assert model().isclose(model2a())
+
+    # module-scoped decorator (called) + function-scoped decorator with different return type (called)
+    @infer()
+    def model2b():
+        @infer()
+        def f(p):
+            return flip(p)
+        return f(.2).sample()
+    assert model().isclose(model2b())
+
+    # module-scoped decorator + function-scoped decorator with same return type
+    @infer
+    def model3():
+        @mem
+        def f(p):
+            return flip(p)
+        return f(.2)
+    assert model().isclose(model3())
+
+def test_sibling_decorators():
+    @infer
+    def model():
+        def f(p):
+            return flip(p)
+        return f(.2)
+
+    def outer_f(p):
+        return flip(p)
+    @infer
+    def model4():
+        return outer_f(.2)
+    assert model().isclose(model4())
+
+    @infer
+    def outer_f_infer(p):
+        return flip(p)
+    @infer
+    def model5():
+        return outer_f_infer(.2).sample()
+    assert model().isclose(model5())
+
+    @mem
+    def outer_f_mem(p):
+        return flip(p)
+    @infer
+    def model6():
+        return outer_f_mem(.2)
+    assert model().isclose(model6())
+
+def test_chained_decorators():
+    @cps_transform_safe_decorator
+    def dec1(fn):
+        def wrapper(*args, **kwargs):
+            return fn(*args, **kwargs) + 'a'
+        return wrapper
+
+    @cps_transform_safe_decorator
+    def dec2(fn):
+        def wrapper(*args, **kwargs):
+            return fn(*args, **kwargs) + 'b'
+        return wrapper
+
+    @infer
+    def model_12():
+        @dec2
+        @dec1
+        def f(p):
+            x = '1' if flip(p) else '0'
+            return x + "_"
+        return f(0.4)
+
+    @infer
+    def model_21():
+        @dec1
+        @dec2
+        def f(p):
+            x = '1' if flip(p) else '0'
+            return x + "_"
+        return f(0.4)
+
+    assert model_12().isclose(Categorical.from_dict({'0_ab': 0.6, '1_ab': 0.4}))
+    assert model_21().isclose(Categorical.from_dict({'0_ba': 0.6, '1_ba': 0.4}))
