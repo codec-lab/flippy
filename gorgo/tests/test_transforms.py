@@ -2,6 +2,7 @@ import itertools
 import textwrap
 from gorgo.transforms import *
 from gorgo.interpreter import CPSInterpreter
+from gorgo.hashable import hashablelist, hashabledict
 from gorgo import keep_deterministic
 
 def trampoline(thunk):
@@ -11,7 +12,13 @@ def trampoline(thunk):
 
 def interpret(func, *args, **kwargs):
     interpreter = CPSInterpreter()
-    context = {**func.__globals__, **interpreter.get_closure(func), "_cps": interpreter}
+    context = {
+        **func.__globals__,
+        **interpreter.get_closure(func),
+        "_cps": interpreter,
+        "hashablelist": hashablelist,
+        "hashabledict": hashabledict,
+    }
     print(func.__name__, context)
     code = interpreter.transform_from_func(func)
     print(code)
@@ -233,20 +240,6 @@ def test_desugaring_transform():
             '''),
         ),
 
-        # de-decoration
-        (
-            textwrap.dedent("""
-            @decorator
-            def f():
-                return 1
-            """),
-            textwrap.dedent("""
-            def f():
-                return 1
-            __v0 = decorator(f)
-            f = __v0
-            """)
-        )
     ]
 
     for src, comp in src_compiled:
@@ -296,8 +289,7 @@ def test_cps():
     def fn(x):
         return x
     ''', '''
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: CPSFunction(fn, 'def fn(x):\\n    return x')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    return x'
         return lambda : _cont(x)
@@ -312,8 +304,7 @@ def test_cps():
         z = z + 1
         return x + y + z
     ''', '''
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: CPSFunction(fn, 'def fn(x):\\n    z = 0\\n    y = sum([1, 2, 3])\\n    x = x + 1\\n    z = z + 1\\n    return x + y + z')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    z = 0\\n    y = sum([1, 2, 3])\\n    x = x + 1\\n    z = z + 1\\n    return x + y + z'
         z = 0
@@ -330,7 +321,7 @@ def test_cps():
             x = x + 1
             z = z + 1
             return lambda : _cont(x + y + z)
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([1, 2, 3])
+        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([1, 2, 3])
     ''', check_args=[(0,), (1,), (2,)])
 
     # Making sure things still work well in nested continuations.
@@ -340,8 +331,7 @@ def test_cps():
         y = sum([y, 2])
         return y
     ''', '''
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: CPSFunction(fn, 'def fn(y):\\n    y = sum([y, 1])\\n    y = sum([y, 2])\\n    return y')
     def fn(y, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(y):\\n    y = sum([y, 1])\\n    y = sum([y, 2])\\n    return y'
         _locals_3 = locals()
@@ -359,8 +349,8 @@ def test_cps():
                     y = _scope_4['y']
                 y = _res_4
                 return lambda : _cont(y)
-            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([y, 2])
-        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=3)([y, 1])
+            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([y, 2])
+        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=1)([y, 1])
     ''', check_args=[(0,), (1,)])
 
     # Testing destructuring.
@@ -370,8 +360,7 @@ def test_cps():
         sum([])
         return y + z
     ''', '''
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
-    @lambda fn: (fn, setattr(fn, '_cps_transformed', True))[0]
+    @lambda fn: CPSFunction(fn, 'def fn(x):\\n    [y, z] = x\\n    sum([])\\n    return y + z')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    [y, z] = x\\n    sum([])\\n    return y + z'
         [y, z] = x
@@ -387,7 +376,7 @@ def test_cps():
                 z = _scope_4['z']
             _res_4
             return lambda : _cont(y + z)
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=4)([])
+        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([])
     ''', check_args=[([1, 2],), ([7, 3],)])
 
 def check_cps_transform(src, exp_src, *, check_args=[]):
@@ -407,10 +396,10 @@ def check_cps_transform(src, exp_src, *, check_args=[]):
     )
     fn_name = node.body[0].name
 
-    src_context = {}
+    src_context = {'CPSFunction': CPSFunction}
     exec(src, src_context)
 
-    exp_context = {}
+    exp_context = {'CPSFunction': CPSFunction}
     interpreter = CPSInterpreter()
     exp_context[CPSTransform.cps_interpreter_name] = interpreter
     exec(exp_src, exp_context)

@@ -8,8 +8,10 @@ def test_hashableset():
     assert hs == s, "Equality depends only on contents"
     hs2 = hashableset(s)
     assert hash(hs) == hash(hs2), "Hash equality depends only on contents"
-    assert type(hs | {4}) == set, "Adding a set to a hashableset returns a set"
-    assert type(hs2 & {4}) == set, "Intersecting a hashableset with a set returns a set"
+    assert type(hs | {4}) == hashableset, "Adding a set to a hashableset returns a hashableset"
+    assert type({4} | hs ) == hashableset, "Adding a set to a hashableset returns a hashableset"
+    assert type(hs2 & {4}) == hashableset, "Intersecting a hashableset with a set returns a hashableset"
+    assert type({4} & hs2) == hashableset, "Intersecting a hashableset with a set returns a hashableset"
     assert {hs: 1} == {hs2: 1}, "Hashableset is hashable"
     assert {hs: 1} != {hashableset(hs2 | {4}): 2}, "Hashableset is hashable"
 
@@ -44,8 +46,10 @@ def test_hashablelist():
     assert hl == l, "Equality depends only on contents"
     hl2 = hashablelist(l)
     assert hash(hl) == hash(hl2), "Hash equality depends only on contents"
-    assert type(hl + [4]) == list, "Adding a list to a hashablelist returns a list"
-    assert type(hl2 * 3) == list, "Multiplying a hashablelist returns a list"
+    assert type(hl + [4]) == hashablelist, "Adding a list to a hashablelist returns a hashablelist"
+    assert type([4] + hl) == hashablelist, "Adding a list to a hashablelist returns a hashablelist"
+    assert type(hl2 * 3) == hashablelist, "Multiplying a hashablelist returns a list"
+    assert type(3*hl2) == hashablelist, "Multiplying a hashablelist returns a list"
     assert {hl: 1} == {hl2: 1}, "Hashablelist is hashable"
     assert {hl: 1} != {hashablelist(hl2 + [4]): 2}, "Hashablelist is hashable"
 
@@ -79,7 +83,8 @@ def test_hashabledict():
     assert hd == d, "Equality depends only on keys and values, not order or hashability"
     hd2 = hashabledict(d)
     assert hash(hd) == hash(hd2), "Hashes are equal for equal keys and values"
-    assert type(hd | {'c': 3}) == dict, "Union of hashabledict is dict"
+    assert type(hd | {'c': 3}) == hashabledict, "Union of hashabledict is hashabledict"
+    assert type({'c': 3} | hd) == hashabledict, "Union of hashabledict is hashabledict"
     assert {hd: 1} == {hd: 1}, "hashabledict is hashable"
     assert {hd: 1} != {hashabledict(hd | {'c': 3}): 1}
 

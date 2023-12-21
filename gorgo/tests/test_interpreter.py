@@ -1,8 +1,11 @@
-from gorgo import recursive_map, recursive_filter, recursive_reduce, mem
+from gorgo import recursive_map, recursive_filter, recursive_reduce, mem, flip
 from gorgo.distributions import Bernoulli, Categorical
 from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
+from gorgo.transforms import CPSFunction
+from gorgo.callentryexit import EnterCallState, ExitCallState, register_call_entryexit
+from gorgo.hashable import hashablelist, hashabledict
 import ast
 import math
 import pytest
@@ -295,7 +298,13 @@ def test_global_store_proxy():
 
     cps = CPSInterpreter()
     code = cps.transform_from_func(f)
-    context = {"_cps": cps, 'global_store': cps.global_store_proxy}
+    context = {
+        "_cps": cps,
+        'global_store': cps.global_store_proxy,
+        "CPSFunction": CPSFunction,
+        "hashablelist": hashablelist,
+        "hashabledict": hashabledict,
+    }
     exec(ast.unparse(code), context)
     f = context['f']
 
@@ -308,6 +317,7 @@ def test_global_store_proxy():
 proxy_forking_bags = Categorical(['bag0', 'bag1', 'bag2'])
 def proxy_forking_value(_bag):
     return Categorical(range(10)).sample()
+proxy_forking_value = CPSInterpreter().non_cps_callable_to_cps_callable(proxy_forking_value)
 def proxy_forking():
     value = mem(proxy_forking_value)
     return [
@@ -350,3 +360,156 @@ def test_Distribution_generic_methods():
     check_trace(
         f, [], return_value=math.log(.5)
     )
+
+def test_global_store_programstate_hashing():
+    def g_base(i):
+        return 100
+    g_base = CPSInterpreter().non_cps_callable_to_cps_callable(g_base)
+    g = mem(g_base)
+
+    def f_global_diff():
+        i = flip(.2, name='i')
+        j = g(i)
+        return j
+
+    def f_global_same():
+        i = flip(.2, name='i')
+        j = g(0)
+        return j
+
+    def f_noglobal():
+        i = flip(.2, name='i')
+        j = g_base(i)
+        return j
+
+    ps = CPSInterpreter().initial_program_state(f_global_diff)
+    i_ps = ps.step()
+    assert i_ps.step(1) != i_ps.step(0)
+    assert (g_base, (True, ), ()) in i_ps.step(1).init_global_store.store
+    assert (g_base, (False, ), ()) in i_ps.step(0).init_global_store.store
+    assert i_ps.step(1).value == i_ps.step(0).value == 100
+
+    ps = CPSInterpreter().initial_program_state(f_global_same)
+    i_ps = ps.step()
+    assert i_ps.step(1) == i_ps.step(0)
+    assert (g_base, (False, ), ()) in i_ps.step(0).init_global_store.store
+    assert (g_base, (False, ), ()) in i_ps.step(1).init_global_store.store
+    assert i_ps.step(1).value == i_ps.step(0).value == 100
+
+    ps = CPSInterpreter().initial_program_state(f_noglobal)
+    i_ps = ps.step()
+    assert i_ps.step(1) == i_ps.step(0)
+    assert i_ps.step(0).init_global_store.store == i_ps.step(1).init_global_store.store == {}
+    assert i_ps.step(1).value == i_ps.step(0).value == 100
+
+def test_deterministic_nested_call_entryexit():
+    def model():
+        @register_call_entryexit
+        def f1():
+            return 'a'
+
+        @register_call_entryexit
+        def f2():
+            return 'b' + f1()
+
+        @register_call_entryexit
+        def f3():
+            return 'c' + f2()
+        return f3()
+    ps = CPSInterpreter().initial_program_state(model)
+    ps_seq = []
+    while not isinstance(ps, ReturnState):
+        ps = ps.step()
+        ps_seq.append(ps)
+    assert isinstance(ps_seq[0], EnterCallState)
+    assert ps_seq[0].function.__name__ == 'f3'
+    assert isinstance(ps_seq[1], EnterCallState)
+    assert ps_seq[1].function.__name__ == 'f2'
+    assert isinstance(ps_seq[2], EnterCallState)
+    assert ps_seq[2].function.__name__ == 'f1'
+    assert isinstance(ps_seq[3], ExitCallState)
+    assert ps_seq[3].function.__name__ == 'f1'
+    assert isinstance(ps_seq[4], ExitCallState)
+    assert ps_seq[4].function.__name__ == 'f2'
+    assert isinstance(ps_seq[5], ExitCallState)
+    assert ps_seq[5].function.__name__ == 'f3'
+
+    assert ps.value == 'cba'
+
+def test_call_entry_exit_cps_function_requirement():
+    with pytest.raises(AssertionError) as e:
+        @register_call_entryexit
+        def f1():
+            return 'a'
+    assert 'can only be applied to transformed functions' in str(e)
+
+def test_program_state_identity_with_closures():
+    def f():
+        i = flip(.65, name='i')
+        def g():
+            j = flip(.23, name='j')
+            return j + i
+        return g()
+
+    ps = CPSInterpreter().initial_program_state(f)
+    ps = ps.step()
+
+    # identity of program states depends on g() and its closure (which includes i)
+    ps_0a = ps.step(0)
+    ps_0b = ps.step(0)
+    ps_1 = ps.step(1)
+    assert ps_0a == ps_0b
+    assert hash(ps_0a) == hash(ps_0b)
+    assert id(ps_0a) != id(ps_0b)
+    assert ps_0a != ps_1
+    assert hash(ps_0a) != hash(ps_1)
+
+    # g in each thread are equal, but generally not identical objects
+    assert ps_0a.stack[1].locals['g'] == ps_0b.stack[1].locals['g']
+    assert id(ps_0a.stack[1].locals['g']) != id(ps_0b.stack[1].locals['g'])
+    # try:
+    #     # its possible but unlikely that they are identical due to memory reuse
+    #     assert id(ps.step(0).stack[1].locals['g']) != id(ps.step(0).stack[1].locals['g'])
+    # except AssertionError:
+    #     assert id(ps.step(0).stack[1].locals['g']) != id(ps.step(0).stack[1].locals['g'])
+
+def test_call_entryexit_skipping():
+    def model():
+        @register_call_entryexit
+        def f(p):
+            return flip(p) + flip(p)
+        return f(.6) + 20
+
+    ps = CPSInterpreter().initial_program_state(model)
+    enter_ps = ps.step()
+
+    # Don't run the model and return 100
+    exit_ps = enter_ps.step(False, 100)
+    assert exit_ps.value == 100
+    return_ps = exit_ps.step()
+    assert return_ps.value == 120
+
+    # Run the function and set bernoulli's to 1
+    exit_ps = enter_ps.step(True).step(1).step(1)
+    assert exit_ps.value == 2
+    return_ps = exit_ps.step()
+    assert return_ps.value == 22
+
+def test_decorated_recursive_functions():
+    def decorator(fn):
+        def wrapper(*args, **kwargs):
+            return fn(*args, **kwargs)
+        return wrapper
+
+    def f():
+        @decorator
+        def wrapped():
+            inner_ref = wrapped
+            return inner_ref
+        outer_ref = wrapped
+        inner_ref = wrapped()
+        assert outer_ref is inner_ref
+        return 1
+
+    ps = CPSInterpreter().initial_program_state(f)
+    ps.step()

@@ -8,6 +8,7 @@ from functools import cached_property
 
 from gorgo.distributions.support import Support
 from gorgo.types import Element
+from gorgo.hashable import hashabledict
 
 class Distribution(Generic[Element]):
     support : Support
@@ -84,6 +85,14 @@ class FiniteDistribution(Distribution):
 
     def __iter__(self):
         yield from self.support
+
+    def __hash__(self):
+        return hash(hashabledict(self.as_dict()))
+
+    def __eq__(self, other):
+        if not isinstance(other, FiniteDistribution):
+            return False
+        return self.as_dict() == other.as_dict()
 
 class Multivariate:
     size : int = 1

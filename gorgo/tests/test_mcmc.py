@@ -1,7 +1,7 @@
 import math
 from gorgo import condition
 from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal,  Gamma, Uniform, Beta
-from gorgo.inference import SamplePrior, Enumeration, LikelihoodWeighting, MetropolisHastings
+from gorgo.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting, MetropolisHastings
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
 from gorgo.inference.mcmc.trace import Trace
@@ -180,7 +180,7 @@ def test_mcmc_categorical_branching_model():
         samples=10000,
         seed=seed
     ).run()
-    enum_res = Enumeration(model).run()
+    enum_res = SimpleEnumeration(model).run()
     assert isclose(mcmc_res.expected_value(), enum_res.expected_value(), atol=.02)
 
 def test_mcmc_geometric():
@@ -213,7 +213,7 @@ def text_mcmc_categorical_branching_explicit_names():
         else:
             x = Categorical(['c', 'b'], probabilities=[.8, .2]).sample(name='x')
         return x
-    enum_dist = Enumeration(fn).run()
+    enum_dist = SimpleEnumeration(fn).run()
     mh_dist = MH(fn, samples=10000, seed=124).run()
     for e in enum_dist:
         assert isclose(enum_dist[e], mh_dist[e], atol=1e-2)

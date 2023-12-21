@@ -1,85 +1,401 @@
+import queue
 import heapq
-import math
-from collections import defaultdict, Counter
-import dataclasses
-from typing import Any, Union, List, Tuple
+from dataclasses import dataclass
+from itertools import product
+from collections import defaultdict, OrderedDict
+from typing import Any, Union, List, Tuple, Dict, Set
+
+import numpy as np
+from scipy.sparse.linalg import spsolve
+from scipy.sparse import eye as sp_eye, coo_array
 
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical
-from gorgo.tools import logsumexp, softmax_dict
+from gorgo.tools import logsumexp
+from gorgo.callentryexit import EnterCallState, ExitCallState
+from gorgo.map import MapEnter, MapExit
+from gorgo.inference.simpleenumeration import EnumerationStats, ProgramStateRecord
+from gorgo.hashable import hashabledict
 
-@dataclasses.dataclass(order=True)
-class PrioritizedItem:
-    priority: int
-    item: Any=dataclasses.field(compare=False)
+@dataclass
+class ScoredProgramState:
+    cumulative_score: float
+    program_state: tuple
 
-@dataclasses.dataclass(frozen=True)
-class ProgramStateRecord:
-    kind: type
-    name: str
+    def __lt__(self, other: 'ScoredProgramState'):
+        return self.cumulative_score > other.cumulative_score
 
-@dataclasses.dataclass
-class EnumerationStats:
-    states_visited: list[ProgramStateRecord] = dataclasses.field(default_factory=list)
+    def __eq__(self, other: 'ScoredProgramState'):
+        return self.cumulative_score == other.cumulative_score
 
-    def site_counts(self):
-        return Counter(self.states_visited)
+    def __gt__(self, other: 'ScoredProgramState'):
+        return self.cumulative_score < other.cumulative_score
+
+    def __iter__(self):
+        return iter((self.cumulative_score, self.program_state))
+
 
 class Enumeration:
-    def __init__(self, function, max_executions=float('inf')):
-        self.function = function
-        self.max_executions = max_executions
-        self._stats = None
-
-    def enumerate_tree(
+    def __init__(
         self,
-        ps: ProgramState,
-        max_executions: int,
+        function,
+        max_states=float('inf'),
+        _call_cache_size=0,
+        _map_cross_product=True,
+        _enumeration_strategy='tree',
     ):
-        frontier: List[PrioritizedItem] = []
-        return_scores = {}
-        # return_probs = defaultdict(float)
-        executions = 0
-        heapq.heappush(frontier, PrioritizedItem(0, ps))
-        while len(frontier) > 0:
-            if executions >= max_executions:
-                break
-            item = heapq.heappop(frontier)
-            cum_weight = -item.priority
-            ps = item.item
-            if isinstance(ps, SampleState):
-                for value in ps.distribution.support:
-                    weight = ps.distribution.log_probability(value)
-                    if weight > float('-inf'):
-                        new_ps = ps.step(value)
-                        heapq.heappush(frontier, PrioritizedItem(-(cum_weight + weight), new_ps))
-            elif isinstance(ps, ObserveState):
-                value = ps.value
-                weight = ps.distribution.log_probability(value)
-                if weight > float('-inf'):
-                    new_ps = ps.step()
-                    heapq.heappush(frontier, PrioritizedItem(-(cum_weight + weight), new_ps))
-            elif isinstance(ps, ReturnState):
-                return_scores[ps.value] = logsumexp(
-                    return_scores.get(ps.value, float('-inf')),
-                    cum_weight
-                )
-                executions += 1
-            else:
-                raise ValueError("Unrecognized program state message")
-            if self._stats is not None:
-                self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
-        return return_scores
+        self.function = function
+        self.max_states = max_states
+        self._stats = None
+        self._call_cache_size = _call_cache_size
+        self._call_cache = OrderedDict()
+        self._enumeration_strategy = _enumeration_strategy
+        self._map_cross_product = _map_cross_product
 
     def run(self, *args, **kws):
         init_ps = CPSInterpreter().initial_program_state(self.function)
         ps = init_ps.step(*args, **kws)
-        return_scores = self.enumerate_tree(ps, self.max_executions)
-        return Categorical.from_dict(softmax_dict(return_scores))
+        return_states, return_scores = self.enumerate_return_states_scores(ps, self.max_states)
+        if len(return_states) == 0:
+            raise ValueError("No return states encountered during enumeration")
+        return_values = [rs.value for rs in return_states]
+        return_probs = np.exp(return_scores)
+        return_probs = return_probs / return_probs.sum()
+        normalized_dist = {}
+        for rv, rp in zip(return_values, return_probs):
+            normalized_dist[rv] = normalized_dist.get(rv, 0.) + rp
+        return Categorical.from_dict(normalized_dist)
+
+    def enumerate_return_states_scores(
+        self,
+        init_ps: ProgramState,
+        max_states: int = float('inf'),
+    ) -> Tuple[List[Union[ReturnState,ExitCallState]], List[float]]:
+        if self._enumeration_strategy == 'graph':
+            return self.enumerate_graph(init_ps, max_states)
+        elif self._enumeration_strategy == 'tree':
+            return self.enumerate_tree(init_ps, max_states)
+        else:
+            raise ValueError(f"Unrecognized enumeration strategy {self._enumeration_strategy}")
+
+
+    def enumerate_tree(
+        self,
+        init_ps: ProgramState,
+        max_states: int = float('inf'),
+    ) -> Dict[Union[ReturnState,ExitCallState], float]:
+        if isinstance(init_ps, (ReturnState, ExitCallState)):
+            return [init_ps], [0.]
+        frontier: List[ScoredProgramState] = []
+        n_visited = 0
+        return_states = []
+        return_scores = []
+        heapq.heappush(frontier, ScoredProgramState(0., init_ps))
+        while len(frontier) > 0:
+            if n_visited >= max_states:
+                break
+            cum_score, ps = heapq.heappop(frontier)
+            successors, scores = self.enumerate_successors_scores(ps)
+            for new_ps, score in zip(successors, scores):
+                if score == float('-inf'):
+                    continue
+                if isinstance(new_ps, (ReturnState, ExitCallState)):
+                    return_states.append(new_ps)
+                    return_scores.append(cum_score + score)
+                else:
+                    heapq.heappush(frontier, ScoredProgramState(cum_score + score, new_ps))
+            n_visited += 1
+            if self._stats is not None:
+                self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
+
+        return return_states, return_scores
+
+
+    def enumerate_graph(
+        self,
+        init_ps: ProgramState,
+        max_states: int = float('inf'),
+    ) -> Dict[Union[ReturnState,ExitCallState], float]:
+        if isinstance(init_ps, (ReturnState, ExitCallState)):
+            return [init_ps], [0.]
+
+        transition_scores: Dict[Tuple[ProgramState, ProgramState], float] = \
+            defaultdict(lambda: float('-inf'))
+
+        # Queue for BFS, which lets us get states in topological order (?)
+        frontier: queue.Queue[SampleState] = queue.Queue()
+        frontier.put(init_ps)
+        visited : Set[SampleState] = set([init_ps])
+        return_states: List[Union[ReturnState, ExitCallState]] = []
+        state_idx = {init_ps: 0}
+        while not frontier.empty():
+            if len(visited) >= max_states:
+                break
+            ps = frontier.get()
+            successors, scores = self.enumerate_successors_scores(ps)
+
+            # logic for updating graph
+            for new_ps, score in zip(successors, scores):
+                if score == float('-inf'):
+                    continue
+                if new_ps not in visited and new_ps not in return_states:
+                    if isinstance(new_ps, (ReturnState, ExitCallState)):
+                        return_states.append(new_ps)
+                    else:
+                        state_idx[new_ps] = len(state_idx)
+                        visited.add(new_ps)
+                    if isinstance(new_ps, (SampleState, EnterCallState)):
+                        frontier.put(new_ps)
+                transition_scores[(ps, new_ps)] = \
+                    logsumexp(transition_scores[(ps, new_ps)], score)
+
+            if self._stats is not None:
+                self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
+
+        if len(return_states) == 0:
+            return [], []
+
+        for ps in return_states:
+            state_idx[ps] = len(state_idx)
+        n_states = len(visited) + len(return_states)
+
+        # Sparse matrix implementation
+        # construct probability/exp(score) matrix
+        ps1_ps2, scores = zip(*transition_scores.items())
+        ps1, ps2 = zip(*ps1_ps2)
+        ps1 = [state_idx[ps] for ps in ps1]
+        ps2 = [state_idx[ps] for ps in ps2]
+        sp_scores_matrix = coo_array(
+            (np.exp(scores), (ps1, ps2)),
+            (n_states, n_states)
+        ).tocsc()
+
+        # construct unnormalized return probability vector
+        sp_return_onehot = sp_eye(
+            n_states, len(return_states), k=-(n_states - len(return_states))
+        ).tocsc()
+        eye = sp_eye(n_states).tocsc()
+        sp_return_probs = spsolve(
+            A=eye - sp_scores_matrix,
+            b=sp_return_onehot
+        )
+        if sp_return_probs.ndim == 2:
+            sp_return_logprobs = np.log(sp_return_probs[0].toarray().flatten())
+        else:
+            sp_return_logprobs = np.log([sp_return_probs[0]])
+        return return_states, sp_return_logprobs
+
+    def enumerate_successors_scores(
+        self,
+        ps: ProgramState,
+    ) -> Tuple[List[ProgramState], List[float]]:
+        # we enumerate successors of a program state differently depending on
+        # what kind of state it is
+        if isinstance(ps, SampleState):
+            successors, scores = self.enumerate_sample_state_successors(ps)
+        elif isinstance(ps, EnterCallState):
+            exit_states, exit_scores = self.enumerate_enter_call_state_successors(ps)
+            # we need to take the next step for each successor
+            successors = []
+            scores = []
+            for exit_state, exit_score in zip(exit_states, exit_scores):
+                new_ps, new_score = self.next_choice_state(exit_state)
+                if new_score == float('-inf'):
+                    continue
+                successors.append(new_ps)
+                scores.append(exit_score + new_score)
+        elif isinstance(ps, MapEnter):
+            if self._map_cross_product:
+                successors, scores = self.enumerate_enter_map_state_successors(ps)
+            else:
+                successors = [ps.step(False)]
+                scores = [0.]
+        elif isinstance(ps, InitialState):
+            new_ps, step_score = self.next_choice_state(ps)
+            if step_score > float('-inf'):
+                successors = [new_ps]
+                scores = [step_score]
+            else:
+                successors = []
+                scores = []
+        else:
+            raise ValueError(f"Unrecognized program state message {ps}")
+        return successors, scores
+
+
+    def next_choice_state(
+        self,
+        init_ps: ProgramState,
+        value=None
+    ) -> Tuple[ProgramState, float]:
+        """
+        This runs a program state until it reaches a choice state or an exit
+        state. It returns the next choice state and score collected along the way.
+        """
+        if isinstance(init_ps, ObserveState):
+            score = init_ps.distribution.log_probability(init_ps.value)
+        else:
+            score = 0.
+        if isinstance(init_ps, (SampleState, MapExit)):
+            ps = init_ps.step(value)
+        else:
+            ps = init_ps.step()
+        while not isinstance(ps, (SampleState, EnterCallState, ReturnState, ExitCallState)):
+            if isinstance(ps, ObserveState):
+                score += ps.distribution.log_probability(ps.value)
+            if score == float('-inf'):
+                return None, float('-inf')
+            ps = ps.step()
+            if self._stats is not None:
+                self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
+        return ps, score
+
+
+    def enumerate_sample_state_successors(
+        self,
+        ps: SampleState,
+    ) -> Tuple[List[ProgramState], List[float]]:
+        successors, scores = [], []
+        for value in ps.distribution.support:
+            score = ps.distribution.log_probability(value)
+            new_ps, new_score = self.next_choice_state(ps, value)
+            if new_score == float('-inf'):
+                continue
+            score += new_score
+            successors.append(new_ps)
+            scores.append(score)
+        return successors, scores
+
+
+    def enumerate_enter_call_state_successors(
+        self,
+        enter_state: EnterCallState,
+    ) -> Tuple[List[ExitCallState], List[float]]:
+        if self._call_cache_size == 0:
+            return self._enumerate_enter_call_state_successors(enter_state)
+
+        # This logic handles caching using an LRU cache
+        global_store_key = hashabledict(enter_state.init_global_store.store)
+        key = (enter_state.function, enter_state.args, enter_state.kwargs, global_store_key)
+
+        if key in self._call_cache:
+            exit_values, exit_scores = self._call_cache.pop(key)
+            exit_states = [enter_state.skip(rv) for rv in exit_values]
+        else:
+            exit_states, exit_scores = \
+                self._enumerate_enter_call_state_successors(enter_state)
+            exit_values = [rs.value for rs in exit_states]
+        self._call_cache[key] = (exit_values, exit_scores)
+        if len(self._call_cache) > self._call_cache_size:
+            self._call_cache.popitem(last=False)
+        return exit_states, exit_scores
+
+
+    def _enumerate_enter_call_state_successors(
+        self,
+        init_ps: EnterCallState
+    ) -> Tuple[List[ExitCallState], List[float]]:
+        # when we enter a call, we take the first step, see if it returns immediately
+        # and then take the subsequent step
+        # if not, we enumerate the graph to get all the exit states, then for
+        # each exit state, we take the next deterministic step
+        assert isinstance(init_ps, EnterCallState)
+        ps, init_score = self.next_choice_state(init_ps)
+        if init_score == float('-inf'):
+            return [], []
+        if isinstance(ps, ExitCallState):
+            return [ps], [init_score]
+        successors, scores = self.enumerate_return_states_scores(init_ps=ps, max_states=self.max_states)
+        scores = [init_score + score for score in scores]
+        if self._enumeration_strategy == 'tree' and len(successors) > 0:
+            successor_scores = defaultdict(lambda : float('-inf'))
+            for state, score in zip(successors, scores):
+                successor_scores[state] = logsumexp(successor_scores[state], score)
+            successors, scores = zip(*successor_scores.items())
+        return successors, scores
+
+    def enumerate_enter_map_state_successors(
+        self,
+        map_enter_ps : MapEnter
+    ):
+        ps : EnterCallState = map_enter_ps.step(True)
+        init_node = MapCrossProductNode(ps)
+        successors, scores = init_node.enumerate_exit_map_state_successors(self)
+        return successors, scores
 
     def _run_with_stats(self, *args, **kws) -> Tuple[Categorical, EnumerationStats]:
         self._stats = EnumerationStats()
         result = self.run(*args, **kws)
         self._stats, stats = None, self._stats
         return result, stats
+
+@dataclass
+class MapCrossProductNode:
+    """
+    Helper class for keeping track of mapped values and scores.
+    This is needed to handle changes to the global store.
+    """
+    enter_call_ps: Union[EnterCallState, MapExit]
+    parent_exit_scores: List[Tuple[Any,float]] = None
+    children: List['MapCrossProductNode'] = None
+
+    def enumerate_exit_map_state_successors(self, enumerator: Enumeration):
+        self.iteratively_expand(enumerator=enumerator)
+        map_successors = []
+        map_scores = []
+        for iteration_results, ps in self.traverse():
+            for vals_scores in product(*iteration_results):
+                vals, scores = zip(*vals_scores)
+                new_ps, new_score = enumerator.next_choice_state(ps, vals)
+                score = sum(scores) + new_score
+                if score == float('-inf'):
+                    continue
+                map_successors.append(new_ps)
+                map_scores.append(score)
+        return map_successors, map_scores
+
+    def iteratively_expand(self, enumerator: Enumeration):
+        frontier: List[MapCrossProductNode] = [self]
+        while frontier:
+            node = frontier.pop()
+            if node.iteration_terminated():
+                continue
+            node.expand(enumerator)
+            frontier.extend(node.children)
+
+    def expand(self, enumerator: Enumeration):
+        assert self.children is None, "Node already expanded"
+
+        # enumerate values and scores for exiting the call
+        # we want to partition them by the next state
+        # (i.e., the subsequent global scope)
+        exit_call_ps_list, exit_scores = \
+            enumerator.enumerate_enter_call_state_successors(self.enter_call_ps)
+        next_state_exit_val_scores = defaultdict(list)
+        for exit_ps, score in zip(exit_call_ps_list, exit_scores):
+            next_ps = exit_ps.step()
+            next_state_exit_val_scores[next_ps].append((exit_ps.value, score))
+
+        # create child nodes
+        self.children = []
+        for next_ps, exit_val_scores in next_state_exit_val_scores.items():
+            self.children.append(MapCrossProductNode(next_ps, parent_exit_scores=exit_val_scores))
+
+    def iteration_terminated(self):
+        return isinstance(self.enter_call_ps, MapExit)
+
+    def traverse(self):
+        assert self.children is not None, "Node not expanded"
+        assert self.parent_exit_scores is None, "We should only traverse from the root node"
+        frontier: List[Tuple['MapCrossProductNode', ...]] = [(self, )]
+        while frontier:
+            seq = frontier.pop()
+            for node in seq[-1].children:
+                if node.iteration_terminated():
+                    response_cross_prod = [
+                        n.parent_exit_scores for n in seq[1:] + (node, )
+                    ]
+                    yield response_cross_prod, node.enter_call_ps
+                else:
+                    frontier.append(seq + (node, ))

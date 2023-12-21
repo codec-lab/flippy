@@ -1,9 +1,12 @@
 import ast
+from functools import cached_property
+from typing import Callable
 import textwrap
 import copy
 import contextlib
 import collections
 import dataclasses
+from gorgo.hashable import hashabledict
 
 class Placeholder(ast.NodeTransformer):
     '''
@@ -510,10 +513,6 @@ class DesugaringTransform(ast.NodeTransformer):
         raise ValueError("BoolOp is neither And nor Or")
 
     def visit_FunctionDef(self, node):
-        has_decorators = len(node.decorator_list) > 0
-        if has_decorators:
-            return self.de_decorate_FunctionDef(node)
-
         node = self.generic_visit(node)
         # make return value of None function explicit
         # Note: this is required for CPSTransform to work
@@ -522,15 +521,15 @@ class DesugaringTransform(ast.NodeTransformer):
             node.body.append(return_none)
         return node
 
-    def de_decorate_FunctionDef(self, node):
-        decorator_list, node.decorator_list = node.decorator_list, []
-        new_block = [self.visit(node)]
-        for decorator in decorator_list[::-1]:
-            decorator_stmt = ast.parse(f"{node.name} = __dec__({node.name})").body[0]
-            decorator_stmt.value.func = decorator
-            decorator_stmt = self.visit(decorator_stmt)
-            new_block.append(decorator_stmt)
-        return new_block
+    # def de_decorate_FunctionDef(self, node):
+    #     decorator_list, node.decorator_list = node.decorator_list, []
+    #     new_block = [self.visit(node)]
+    #     for decorator in decorator_list[::-1]:
+    #         decorator_stmt = ast.parse(f"{node.name} = __dec__({node.name})").body[0]
+    #         decorator_stmt.value.func = decorator
+    #         decorator_stmt = self.visit(decorator_stmt)
+    #         new_block.append(decorator_stmt)
+    #     return new_block
 
     def visit_comprehension(self, node):
         '''
@@ -697,6 +696,63 @@ class SetLineNumbers(ast.NodeTransformer):
         ast.NodeTransformer.generic_visit(self, node)
         return node
 
+class GetLineNumber(ast.NodeVisitor):
+    """
+    Reset line numbers by statement.
+    """
+    def __call__(self, node: ast.AST, lineno: int):
+        self.cur_line = 0
+        self.lineno = lineno
+        try:
+            self.visit(node)
+        except StopIteration as err:
+            return err.value
+        raise ValueError(f"Could not find line number {lineno} in {ast.dump(node)}")
+    def set_line(self, node):
+        node.lineno = self.cur_line
+        self.cur_line += 1
+    def generic_visit(self, node):
+        if isinstance(node, (ast.Expr, ast.stmt)):
+            if self.cur_line == self.lineno:
+                raise StopIteration(node)
+            self.cur_line += 1
+        ast.NodeVisitor.generic_visit(self, node)
+        return node
+
+class CPSFunction:
+    def __init__(self, func: Callable, func_src: str):
+        self.func = func
+        self.func_src = func_src
+        setattr(self, CPSTransform.is_transformed_property, True)
+
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+
+    @property
+    def closure(self) -> hashabledict:
+        if getattr(self.func, "__closure__", None) is not None:
+            closure_keys = self.func.__code__.co_freevars
+            closure_values = [cell.cell_contents for cell in self.func.__closure__]
+            return hashabledict(zip(closure_keys, closure_values))
+        else:
+            return hashabledict()
+
+    @cached_property
+    def _hash(self):
+        # we sort the closure and use repr to avoid circular references
+        return hash((self.func_src, repr(sorted(self.closure.items()))))
+
+    def __hash__(self):
+        return self._hash
+
+    def __eq__(self, other):
+        if not isinstance(other, CPSFunction):
+            return False
+        return self.func_src == other.func_src and self.closure == other.closure
+
+    def __getattr__(self, name):
+        return getattr(self.func, name)
+
 class CPSTransform(NodeTransformer):
     """
     Convert python to a form of continuation passing style.
@@ -712,6 +768,7 @@ class CPSTransform(NodeTransformer):
         self.remaining_stmts = None
         self.new_block = None
         self.cur_stmt = None
+        self.parent_function_lineno = 0
 
     def __call__(self, node):
         with self.in_scope():
@@ -728,10 +785,13 @@ class CPSTransform(NodeTransformer):
             return self.generic_visit(node)
 
     def visit_Module(self, node):
-        # If we're in a module, the first statement must be a function definition.
-        # We only do the transform on that function.
-        assert isinstance(node.body[0], ast.FunctionDef), "Module must start with a function definition"
-        node.body[0] = self.visit(node.body[0])
+        # If we're in the outermost module scope, we only transform function definitions
+        # Everything else is executed as normal (deterministic) python
+        # This is primarily to handle cases where non-function definition statements
+        # are created in the course of desugaring but still need to be executed.
+        for stmt in node.body:
+            if isinstance(stmt, ast.FunctionDef):
+                self.visit(stmt)
         return node
 
     def visit_FunctionDef(self, node):
@@ -741,18 +801,23 @@ class CPSTransform(NodeTransformer):
         node = self.add_keyword_to_FunctionDef(node, self.final_continuation_name, "lambda val: val")
         with self.in_scope():
             self.visit(node.args)
+            # we track this so that line numbers passed to interpreter are
+            # with respect to the start of the function definition
+            old_parent_lineno = self.parent_function_lineno
+            self.parent_function_lineno = node.lineno
             node.body = self.transform_block(node.body)
-        decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
+            self.parent_function_lineno = old_parent_lineno
+        # decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
 
         # This decorator position makes it the last decorator called.
         # This ensures that the outermost function has `is_transformed_property` set.
-        node.decorator_list.insert(0, decorator)
+        # node.decorator_list.insert(0, decorator)
         # This decorator position makes it the first decorator called.
         # This is important so that intermediate decorators can change their behavior
         # the second time that this function is executed.
         # Functions are executed a second time when being evaluted after being CPS-transformed
         # because decorators aren't removed by the transform.
-        node.decorator_list.append(decorator)
+        # node.decorator_list.append(decorator)
         return node
 
     def add_keyword_to_FunctionDef(self, node, key, value):
@@ -768,6 +833,9 @@ class CPSTransform(NodeTransformer):
         ctx_id = repr(ast.unparse(node))
         ctx_id_assn = ast.parse(f"{self.func_src_name} = {ctx_id}").body[0]
         node.body.insert(0, ctx_id_assn)
+        node.decorator_list.append(
+            ast.parse(f"lambda fn: CPSFunction(fn, {ctx_id})").body[0].value
+        )
         return node
 
     @contextlib.contextmanager
@@ -826,7 +894,7 @@ class CPSTransform(NodeTransformer):
                 stack={self.stack_name},
                 func_src={self.func_src_name},
                 locals_={locals_name},
-                lineno={node.lineno}
+                lineno={node.lineno - self.parent_function_lineno}
             )()
         ''')).body
         continuation_node, thunk_node = code[-2:]
@@ -884,3 +952,25 @@ class CPSTransform(NodeTransformer):
 
         # add node explicitly
         self.new_block.append(new_node)
+
+class HashableCollectionTransform(ast.NodeTransformer):
+    """
+    Wrap all lists and dicts in hashable versions.
+    """
+    def __call__(self, rootnode):
+        self.visit(rootnode)
+        return rootnode
+
+    def visit_List(self, node):
+        return ast.Call(
+            func=ast.Name(id='hashablelist', ctx=ast.Load()),
+            args=[node],
+            keywords=[]
+        )
+
+    def visit_Dict(self, node):
+        return ast.Call(
+            func=ast.Name(id='hashabledict', ctx=ast.Load()),
+            args=[node],
+            keywords=[]
+        )

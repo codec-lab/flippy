@@ -3,10 +3,10 @@ from gorgo.distributions import Distribution
 from gorgo.funcutils import cached_property
 from gorgo.hashable import hashabledict, hashablelist, hashableset
 
-from gorgo.types import Continuation, Stack, VariableName, ReturnValue
+from gorgo.types import Continuation, VariableName, ReturnValue
 
 if TYPE_CHECKING:
-    from gorgo.interpreter import CPSInterpreter
+    from gorgo.interpreter import CPSInterpreter, Stack
 
 ############################################
 #  Program State
@@ -28,13 +28,18 @@ class ProgramState:
         continuation : 'Continuation' = None,
         name: 'VariableName' = None,
         stack: 'Stack' = None,
-        cps : 'CPSInterpreter' = None
+        cps : 'CPSInterpreter' = None,
+        init_global_store : 'GlobalStore' = None,
     ):
         self.continuation = continuation
         self._name = name
         self.stack = stack
-        self.init_global_store = GlobalStore()
+        self.init_global_store = init_global_store
         self.cps = cps
+
+    def set_init_global_store(self, global_store : 'GlobalStore'):
+        assert self.init_global_store is None, "Cannot set global store twice"
+        self.init_global_store = global_store
 
     def step(self, *args, **kws) -> 'ProgramState':
         """
@@ -48,7 +53,7 @@ class ProgramState:
                 if callable(next_):
                     next_ = next_()
                 elif isinstance(next_, ProgramState):
-                    next_.init_global_store = global_store
+                    next_.set_init_global_store(global_store)
                     return next_
                 else:
                     raise TypeError(f"Unknown type {type(next_)}")
@@ -60,6 +65,24 @@ class ProgramState:
         if self.stack is None:
             return None
         return tuple((frame.func_src, frame.lineno) for frame in self.stack)
+
+    def __eq__(self, other: 'ProgramState'):
+        if not isinstance(other, ProgramState):
+            return False
+        if self._hash != other._hash:
+            return False
+        return (
+            self.__class__ == other.__class__ and
+            self.stack == other.stack and
+            self.init_global_store.store == other.init_global_store.store
+        )
+
+    @cached_property
+    def _hash(self):
+        return hash((self.__class__, self.stack, hashabledict(self.init_global_store.store)))
+
+    def __hash__(self):
+        return self._hash
 
 class ReadOnlyProxy(object):
     def __init__(self):
@@ -98,7 +121,16 @@ class GlobalStore:
 global_store = ReadOnlyProxy()
 
 class InitialState(ProgramState):
-    pass
+    def __init__(
+        self,
+        continuation : 'Continuation' = None,
+        cps : 'CPSInterpreter' = None,
+    ):
+        super().__init__(
+            continuation=continuation,
+            cps=cps,
+            init_global_store=GlobalStore()
+        )
 
 class ObserveState(ProgramState):
     def __init__(
@@ -137,7 +169,8 @@ class SampleState(ProgramState):
         self.distribution = distribution
 
 class ReturnState(ProgramState):
-    def __init__(self, value: 'ReturnValue'):
+    def __init__(self, value: 'ReturnValue', stack: 'Stack'):
+        super().__init__(stack=stack, name="RETURN_STATE")
         if isinstance(value, dict):
             value = hashabledict(value)
         elif isinstance(value, list):
@@ -145,7 +178,6 @@ class ReturnState(ProgramState):
         elif isinstance(value, set):
             value = hashableset(value)
         self.value = value
-        self._name = "RETURN_STATE"
 
     def step(self, *args, **kws):
         raise ValueError

@@ -3,27 +3,113 @@ import functools
 import inspect
 import textwrap
 import types
+import dataclasses
 from collections import namedtuple
 from typing import Union, TYPE_CHECKING
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
 from gorgo.distributions.base import Distribution, Element
 from gorgo.transforms import DesugaringTransform, \
-    SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis
+    SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
+    GetLineNumber, CPSFunction, HashableCollectionTransform
 from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.funcutils import method_cache
+from gorgo.hashable import hashabledict, hashablelist
 import linecache
 import types
 import contextlib
 
-from gorgo.types import NonCPSCallable, Method, Continuation, Stack, \
+from gorgo.types import NonCPSCallable, Method, Continuation, \
     SampleCallable, ObserveCallable, CPSCallable, VariableName
 
-StackFrame = namedtuple("StackFrame", "func_src lineno locals")
+@dataclasses.dataclass(frozen=True)
+class StackFrame:
+    func_src: str
+    lineno: int
+    locals: dict
+
+    def as_string(self):
+        func_string, line_match = self._func_src_string_line_match()
+        func_string = ['   '+r for r in func_string]
+        func_string[line_match] = func_string[line_match].replace('  ', '>>', 1)
+        func_string[line_match] = func_string[line_match] + f'  # {self.locals}'
+        return '\n'.join(func_string)
+
+    def _func_src_string_line_match(self):
+        try:
+            func_ast = ast.parse(self.func_src).body[0]
+            line = GetLineNumber()(func_ast, self.lineno)
+            func_string = ast.unparse(func_ast).split('\n')
+            line_string = ast.unparse(line)
+        except SyntaxError:
+            func_string = self.func_src.split('\n')
+            line_string = func_string[self.lineno]
+        line_match = [i for i, l in enumerate(func_string) if line_string in l]
+        assert len(line_match) == 1
+        line_match = line_match[0]
+        return func_string, line_match
+
+    def _repr_html_(self):
+        func_string, line_match = self._func_src_string_line_match()
+        func_string = [r.replace('<', '&lt;').replace('>', '&gt;') for r in func_string]
+        func_string[line_match] = '<span style="color:red;">'+func_string[line_match]+'</span>'
+        func_html = '<pre>'+'\n'.join(func_string)+'</pre>'
+        func_html = func_html.replace('  ', '&nbsp;&nbsp;')
+        locals_html = '<pre>'+'\n'.join([
+            f'{k}: {v}'.replace('<', '&lt;').replace('>', '&gt;')
+            for k, v in self.locals.items()
+        ])+'</pre>'
+        locals_keys = "<pre style='display:inline;'>"+', '.join(self.locals.keys())+'</pre>'
+        func_head = "<pre style='display:inline;'>"+func_string[0].replace(":", "").replace("def ", "")+"</pre>"
+        frame_html = [
+            f"<details><summary>Locals: {locals_keys}</summary>{locals_html}</details>",
+            f"<details><summary>Caller: {func_head} </summary>{func_html}</details>"
+        ]
+        frame_html = "<div style='cursor:default'>"+'\n'.join(frame_html)+"</div>"
+        return frame_html
+        # return f'<pre>{self.as_string()}</pre>'
+
+@dataclasses.dataclass(frozen=True)
+class Stack:
+    stack_frames: tuple = dataclasses.field(default_factory=tuple)
+
+    def update(
+        self,
+        func_src: str,
+        locals_: dict,
+        lineno: int
+    ) -> 'Stack':
+        if isinstance(locals_, dict):
+            locals_ = hashabledict({
+                k: v for k, v in locals_.items()
+                if (
+                    (k not in ['__func_src', '_cont', '_cps', '_stack']) and
+                    ('_scope_' not in k)
+                )
+            })
+        new_stack = self.stack_frames + (StackFrame(func_src, lineno, locals_),)
+        return Stack(new_stack)
+
+    def as_string(self):
+        return '\n'.join([f'Frame {i}:\n{frame.as_string()}\n' for i, frame in enumerate(self.stack_frames)])
+
+    def __getitem__(self, key):
+        return self.stack_frames[key]
+
+    def _repr_html_(self):
+        stack_html = []
+        for i, frame in enumerate(self.stack_frames):
+            frame_html = frame._repr_html_()
+            frame_html = "<div style='margin-left: 20px;'>"+frame_html+"</div>"
+            frame_html = f"<details open><summary>Frame {i}</summary>{frame_html}</details>"
+            stack_html.append(frame_html)
+        return '\n'.join(stack_html)
+
 
 class CPSInterpreter:
     def __init__(self):
         self.subset_validator = PythonSubsetValidator()
         self.desugaring_transform = DesugaringTransform()
+        self.hashable_collection_transform = HashableCollectionTransform()
         self.closure_scope_analysis = ClosureScopeAnalysis()
         self.setlines_transform = SetLineNumbers()
         self.cps_transform = CPSTransform()
@@ -32,11 +118,15 @@ class CPSInterpreter:
     def initial_program_state(self, call: Union['NonCPSCallable','CPSCallable']) -> InitialState:
         cps_call = self.interpret(
             call=call,
-            stack = ()
+            stack = Stack(),
+            func_src = "<root>",
+            locals_ = {},
+            lineno= 0
         )
         def return_continuation(value):
             return ReturnState(
-                value=value
+                value=value,
+                stack=Stack((StackFrame("<root>", 0, hashabledict({'__return__': value})), )),
             )
         def program_continuation(*args, **kws):
             return cps_call(
@@ -53,7 +143,7 @@ class CPSInterpreter:
         self,
         call : Union['NonCPSCallable', 'CPSCallable'],
         cont : 'Continuation' = None,
-        stack : 'Stack' = None,
+        stack : Stack = Stack(),
         func_src : str = None,
         locals_ : dict = None,
         lineno : int = None,
@@ -75,7 +165,9 @@ class CPSInterpreter:
 
         # cps python
         continuation = self.interpret_cps(call)
-        cur_stack = self.update_stack(stack, func_src, locals_, lineno)
+        if not isinstance(stack, Stack):
+            stack = Stack(stack)
+        cur_stack = stack.update(func_src, locals_, lineno)
         continuation = functools.partial(continuation, _stack=cur_stack, _cont=cont)
         return continuation
 
@@ -83,19 +175,6 @@ class CPSInterpreter:
         def builtin_continuation(*args, _cont: 'Continuation'=lambda val: val, **kws):
             return lambda : _cont(call(*args, **kws))
         return builtin_continuation
-
-    def update_stack(
-        self,
-        stack: 'Stack',
-        func_src: str,
-        locals_: dict,
-        lineno: int
-    ) -> Union[None,'Stack']:
-        if stack is None:
-            cur_stack = None
-        else:
-            cur_stack = stack + (StackFrame(func_src, lineno, locals_),)
-        return cur_stack
 
     @method_cache
     def interpret_cps(
@@ -161,19 +240,31 @@ class CPSInterpreter:
         return method_continuation
 
     def interpret_generic(self, call: 'NonCPSCallable') -> 'Continuation':
+        trans_func = self.non_cps_callable_to_cps_callable(call)
+        def generic_continuation(*args, _cont: 'Continuation'=lambda v: v, _stack: 'Stack'=None, **kws):
+            return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
+        return generic_continuation
+
+    def non_cps_callable_to_cps_callable(self, call: 'NonCPSCallable') -> 'CPSCallable':
         code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
             self.transform_from_func(call),
         )
-        context = {**call.__globals__, **self.get_closure(call), "_cps": self, "global_store": self.global_store_proxy}
+        context = {
+            **call.__globals__,
+            **self.get_closure(call),
+            "_cps": self,
+            "global_store": self.global_store_proxy,
+            "CPSFunction": CPSFunction,
+            "hashabledict": hashabledict,
+            "hashablelist": hashablelist,
+        }
         try:
             exec(code, context)
         except SyntaxError as err :
             raise err
         trans_func = context[call.__name__]
-        def generic_continuation(*args, _cont: 'Continuation'=lambda v: v, _stack: 'Stack'=None, **kws):
-            return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
-        return generic_continuation
+        return trans_func
 
     def transform_from_func(self, func: 'NonCPSCallable') -> ast.AST:
         source = textwrap.dedent(inspect.getsource(func))
@@ -186,6 +277,7 @@ class CPSInterpreter:
         trans_node = self.desugaring_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
+        trans_node = self.hashable_collection_transform(trans_node)
         return trans_node
 
     def compile(self, filename: str, node: ast.AST) -> types.CodeType:

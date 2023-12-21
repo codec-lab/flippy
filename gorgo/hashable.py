@@ -16,6 +16,10 @@ class hashabledict(dict):
         return super().__repr__()
     def _immutable_error(self, *args, **kwargs):
         raise TypeError(f"{self.__class__.__name__} is immutable; use {self.__class__.__name__}.copy() first")
+    def __or__(self, *args, **kwargs):
+        return hashabledict(super().__or__(*args, **kwargs))
+    def __ror__(self, *args, **kwargs):
+        return hashabledict(super().__ror__(*args, **kwargs))
     __setitem__ = _immutable_error
     __delitem__ = _immutable_error
     update = _immutable_error
@@ -35,6 +39,18 @@ class hashablelist(list):
         return super().__repr__()
     def _immutable_error(self, *args, **kwargs):
         raise TypeError(f"{self.__class__.__name__} is immutable; use {self.__class__.__name__}.copy() first")
+    def __add__(self, *args, **kwargs):
+        return hashablelist(super().__add__(*args, **kwargs))
+    def __radd__(self, other):
+        return self.__add__(other)
+    def __mul__(self, *args, **kwargs):
+        return hashablelist(super().__mul__(*args, **kwargs))
+    def __rmul__(self, other):
+        return self.__mul__(other)
+    def __getitem__(self, *args, **kwargs):
+        if isinstance(args[0], slice):
+            return hashablelist(super().__getitem__(*args, **kwargs))
+        return super().__getitem__(*args, **kwargs)
     __setitem__ = _immutable_error
     __delitem__ = _immutable_error
     append = _immutable_error
@@ -58,6 +74,14 @@ class hashableset(set):
         return repr(set(self))
     def _immutable_error(self, *args, **kwargs):
         raise TypeError(f"{self.__class__.__name__} is immutable; use {self.__class__.__name__}.copy() first")
+    def __or__(self, *args, **kwargs):
+        return hashableset(super().__or__(*args, **kwargs))
+    def __ror__(self, *args, **kwargs):
+        return hashableset(super().__ror__(*args, **kwargs))
+    def __and__(self, *args, **kwargs):
+        return hashableset(super().__and__(*args, **kwargs))
+    def __rand__(self, *args, **kwargs):
+        return hashableset(super().__rand__(*args, **kwargs))
     update = _immutable_error
     intersection_update = _immutable_error
     __ior__ = _immutable_error
