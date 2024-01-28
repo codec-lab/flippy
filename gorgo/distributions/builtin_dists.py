@@ -1,4 +1,4 @@
-from typing import Tuple, Sequence, Union, Any, Callable
+from typing import Tuple, Sequence, Union, Any, Callable, Generic
 from dataclasses import is_dataclass, asdict
 from itertools import combinations_with_replacement
 from collections import Counter, defaultdict
@@ -51,7 +51,7 @@ class Bernoulli(FiniteDistribution):
         return f"Bernoulli(p={self.p})"
 
 
-class Categorical(FiniteDistribution):
+class Categorical(FiniteDistribution, Generic[Element]):
     def __init__(self, support, *, probabilities=None, weights=None):
         if probabilities is not None:
             assert isclose(sum(probabilities), 1, atol=ISCLOSE_ATOL, rtol=ISCLOSE_RTOL)
@@ -67,6 +67,13 @@ class Categorical(FiniteDistribution):
     @classmethod
     def from_dict(cls, d):
         support, probs = zip(*d.items())
+        return cls(support=support, probabilities=probs)
+
+    @classmethod
+    def from_continuous(cls, dist: Distribution, support: Sequence[float]):
+        probs = [dist.prob(s) for s in support]
+        total = sum(probs)
+        probs = [p/total for p in probs]
         return cls(support=support, probabilities=probs)
 
     @property
