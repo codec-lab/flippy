@@ -64,7 +64,7 @@ class ProgramState:
             return self._name
         if self.stack is None:
             return None
-        return tuple((frame.func_src, frame.lineno) for frame in self.stack)
+        return self.stack.without_locals()
 
     def __eq__(self, other: 'ProgramState'):
         if not isinstance(other, ProgramState):

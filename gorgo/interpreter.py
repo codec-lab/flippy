@@ -5,7 +5,7 @@ import textwrap
 import types
 import dataclasses
 from collections import namedtuple
-from typing import Union, TYPE_CHECKING
+from typing import Union, TYPE_CHECKING, Tuple
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
 from gorgo.distributions.base import Distribution, Element
 from gorgo.transforms import DesugaringTransform, \
@@ -54,11 +54,15 @@ class StackFrame:
         func_string[line_match] = '<span style="color:red;">'+func_string[line_match]+'</span>'
         func_html = '<pre>'+'\n'.join(func_string)+'</pre>'
         func_html = func_html.replace('  ', '&nbsp;&nbsp;')
-        locals_html = '<pre>'+'\n'.join([
-            f'{k}: {v}'.replace('<', '&lt;').replace('>', '&gt;')
-            for k, v in self.locals.items()
-        ])+'</pre>'
-        locals_keys = "<pre style='display:inline;'>"+', '.join(self.locals.keys())+'</pre>'
+        if self.locals is None:
+            locals_html = '<pre>None</pre>'
+            locals_keys = "<pre style='display:inline;'></pre>"
+        else:
+            locals_html = '<pre>'+'\n'.join([
+                f'{k}: {v}'.replace('<', '&lt;').replace('>', '&gt;')
+                for k, v in self.locals.items()
+            ])+'</pre>'
+            locals_keys = "<pre style='display:inline;'>"+', '.join(self.locals.keys())+'</pre>'
         func_head = "<pre style='display:inline;'>"+func_string[0].replace(":", "").replace("def ", "")+"</pre>"
         frame_html = [
             f"<details><summary>Locals: {locals_keys}</summary>{locals_html}</details>",
@@ -70,7 +74,7 @@ class StackFrame:
 
 @dataclasses.dataclass(frozen=True)
 class Stack:
-    stack_frames: tuple = dataclasses.field(default_factory=tuple)
+    stack_frames: Tuple[StackFrame] = dataclasses.field(default_factory=tuple)
 
     def update(
         self,
@@ -103,6 +107,14 @@ class Stack:
             frame_html = f"<details open><summary>Frame {i}</summary>{frame_html}</details>"
             stack_html.append(frame_html)
         return '\n'.join(stack_html)
+
+    def without_locals(self):
+        return Stack(tuple([
+            StackFrame(f.func_src, f.lineno, None) for f in self.stack_frames
+        ]))
+
+    def __len__(self):
+        return len(self.stack_frames)
 
 
 class CPSInterpreter:

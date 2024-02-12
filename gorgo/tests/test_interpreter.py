@@ -513,3 +513,11 @@ def test_decorated_recursive_functions():
 
     ps = CPSInterpreter().initial_program_state(f)
     ps.step()
+
+def test_program_state_stack_name_with_local_change():
+    def f(i):
+        x = Bernoulli(0.5).sample()
+        return x
+
+    ps = CPSInterpreter().initial_program_state(f)
+    assert ps.step(0).name == ps.step(1).name
