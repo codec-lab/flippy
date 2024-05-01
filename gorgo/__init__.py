@@ -42,6 +42,7 @@ def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
         else:
             return lambda : _cont(rv)
     setattr(continuation, CPSTransform.is_transformed_property, True)
+    functools.update_wrapper(continuation, fn)
     return continuation
 
 def cps_transform_safe_decorator(dec):
