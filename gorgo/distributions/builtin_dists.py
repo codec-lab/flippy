@@ -1,4 +1,4 @@
-from typing import Tuple, Sequence, Union, Any, Callable, Generic
+from typing import Tuple, Sequence, Union, Any, Callable, Generic, TypeVar
 from dataclasses import is_dataclass, asdict
 from itertools import combinations_with_replacement
 from collections import Counter, defaultdict
@@ -50,6 +50,8 @@ class Bernoulli(FiniteDistribution):
     def __repr__(self):
         return f"Bernoulli(p={self.p})"
 
+
+MarginalElement = TypeVar('MarginalElement')
 
 class Categorical(FiniteDistribution, Generic[Element]):
     def __init__(self, support, *, probabilities=None, weights=None):
@@ -176,11 +178,22 @@ class Categorical(FiniteDistribution, Generic[Element]):
         ax.hist(self.support, weights=self.probabilities, bins=bins, **kwargs)
         return ax
 
-    def marginalize(self, projection: Callable[[Element], Any]):
+    def marginalize(self, projection: Callable[[Element], MarginalElement]) -> 'Categorical[MarginalElement]':
         d = defaultdict(float)
         for s, p in zip(self.support, self.probabilities):
             d[projection(s)] += p
         return Categorical.from_dict(d)
+
+    def condition(self, likelihood: Callable[[Element], float]) -> 'Categorical[Element]':
+        posterior = {}
+        for e, prior in self.items():
+            l = likelihood(e)
+            if l == 0:
+                continue
+            posterior[e] = prior * l
+        norm = sum(posterior.values())
+        return Categorical.from_dict({e: p/norm for e, p in posterior.items()})
+
 
 class Multinomial(FiniteDistribution):
     def __init__(self, categorical_support, trials, *, probabilities=None, weights=None):

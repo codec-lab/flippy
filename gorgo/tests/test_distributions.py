@@ -1,7 +1,9 @@
 import math
 import pytest
 from gorgo.distributions.scipy_dists import Uniform, NormalNormal, Normal, MultivariateNormal
+from gorgo.distributions.builtin_dists import Bernoulli, Categorical
 from gorgo.inference.likelihood_weighting import LikelihoodWeighting
+from gorgo.inference.enumeration import Enumeration
 from gorgo.tools import isclose
 from gorgo.distributions.random import default_rng
 
@@ -50,3 +52,19 @@ def test_multivariate_normal_multivariate_normal():
     mvnlogprob = mvn.log_probability(samples)
 
     assert isclose(uvnlogprob, mvnlogprob)
+
+def test_categorical_dist_equality():
+    def f():
+        if Bernoulli().sample():
+            return Categorical(['A', 'B'])
+        return Categorical(['A', 'B'])
+    dist = Enumeration(f).run()
+    assert dist.isclose(Categorical([
+        Categorical(['A', 'B'], probabilities=[.5, .5])
+    ]))
+
+def test_categorical_condition():
+    d = Categorical(range(10))
+    d = d.condition(lambda x : x % 2 == 0)
+    d = d.condition(lambda x : x % 3 == 0)
+    assert d.isclose(Categorical([0, 6], probabilities=[.5, .5]))
