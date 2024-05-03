@@ -171,11 +171,58 @@ class Categorical(FiniteDistribution, Generic[Element]):
         return self._default_repr_html_()
 
     def plot(self, ax=None, bins=100, **kwargs):
+        element = next(iter(self.support))
+        if isinstance(element, (int, float)):
+            return self._plot_1d(ax=ax, bins=bins, **kwargs)
+        elif isinstance(element, (list, tuple)) and len(element) == 2:
+            return self._plot_2d(ax=ax, bins=bins, **kwargs)
+        elif isinstance(element, dict):
+            if len(element) == 1:
+                key = next(iter(element.keys()))
+                dist = self.marginalize(lambda d : d[key])
+                ax = dist._plot_1d(ax=ax, bins=bins, **kwargs)
+                ax.set_xlabel(key)
+                return ax
+            if len(element) == 2:
+                xkey, ykey = list(element.keys())
+                dist = self.marginalize(lambda d : (d[xkey], d[ykey]))
+                ax = dist._plot_2d(ax=ax, bins=bins, **kwargs)
+                ax.set_xlabel(ykey)
+                ax.set_ylabel(xkey)
+                return ax
+        raise NotImplementedError("Can't plot this distribution")
+
+    def _plot_2d(self, ax=None, bins=100, **kwargs):
+        assert all(isinstance(s, (list, tuple)) and len(s) == 2 for s in self.support)
+        import matplotlib.pyplot as plt
+        import numpy as np
+        if ax is None:
+            fig, ax = plt.subplots()
+        kwargs = {
+            **{'origin': 'lower', 'aspect': 'auto'},
+            **kwargs
+        }
+        xs, ys = zip(*self.support)
+        hist, xedges, yedges = np.histogram2d(x=xs, y=ys, bins=bins, weights=self.probabilities)
+        xlen = xedges[-1] - xedges[0]
+        xmid = xlen/2
+        xedges = [xmid - (xlen/2)*1.05, xmid + (xlen/2)*1.05]
+        ymid = (yedges[0] + yedges[-1])/2
+        ylen = yedges[-1] - yedges[0]
+        yedges = [ymid - (ylen/2)*1.05, ymid + (ylen/2)*1.05]
+        extent = [yedges[0], yedges[-1], xedges[0], xedges[-1]]
+        ax.imshow(hist, extent=extent, **kwargs)
+        cbar = ax.figure.colorbar(ax.images[0], ax=ax, location='right')
+        cbar.set_label('Probability')
+        return ax
+
+    def _plot_1d(self, ax=None, bins=100, **kwargs):
         assert all(isinstance(s, (int, float)) for s in self.support)
         import matplotlib.pyplot as plt
         if ax is None:
             fig, ax = plt.subplots()
         ax.hist(self.support, weights=self.probabilities, bins=bins, **kwargs)
+        ax.set_ylabel("Probability")
         return ax
 
     def marginalize(self, projection: Callable[[Element], MarginalElement]) -> 'Categorical[MarginalElement]':
