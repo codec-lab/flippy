@@ -1,9 +1,11 @@
 import queue
 import heapq
+import inspect
 from dataclasses import dataclass
 from itertools import product
 from collections import defaultdict, OrderedDict
-from typing import Any, Union, List, Tuple, Dict, Set
+from typing import Any, Union, List, Tuple, Dict, Set, Callable
+from functools import cached_property
 
 import numpy as np
 from scipy.sparse.linalg import spsolve
@@ -53,9 +55,12 @@ class Enumeration:
         self._enumeration_strategy = _enumeration_strategy
         self._map_cross_product = _map_cross_product
 
+    @cached_property
+    def init_ps(self):
+        return CPSInterpreter().initial_program_state(self.function)
+
     def run(self, *args, **kws):
-        init_ps = CPSInterpreter().initial_program_state(self.function)
-        ps = init_ps.step(*args, **kws)
+        ps = self.init_ps.step(*args, **kws)
         return_states, return_scores = self.enumerate_return_states_scores(ps, self.max_states)
         if len(return_states) == 0:
             raise ValueError("No return states encountered during enumeration")
