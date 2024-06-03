@@ -53,6 +53,13 @@ class Bernoulli(FiniteDistribution):
 
 MarginalElement = TypeVar('MarginalElement')
 
+def is_namedtuple(obj):
+    return (
+        isinstance(obj, tuple) and
+        hasattr(obj, '_asdict') and
+        hasattr(obj, '_fields')
+    )
+
 class Categorical(FiniteDistribution, Generic[Element]):
     def __init__(self, support, *, probabilities=None, weights=None):
         if probabilities is not None:
@@ -130,6 +137,8 @@ class Categorical(FiniteDistribution, Generic[Element]):
             probs.append(prob)
             if is_dataclass(e):
                 e = asdict(e)
+            elif is_namedtuple(e):
+                e = e._asdict()
             assert isinstance(e, dict)
             support.append(e)
 
@@ -165,7 +174,8 @@ class Categorical(FiniteDistribution, Generic[Element]):
     def _repr_html_(self):
         if (
             all(isinstance(e, dict) for e in self.support) or \
-            all(is_dataclass(e) for e in self.support)
+            all(is_dataclass(e) for e in self.support) or \
+            all(is_namedtuple(e) for e in self.support)
         ):
             return self._ReturnDict_repr_html()
         return self._default_repr_html_()
