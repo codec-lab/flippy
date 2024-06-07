@@ -23,6 +23,7 @@ class ProgramState:
     Internally, a program state stores a continuation that is used to resume
     execution when the interpreter calls `step`.
     """
+    value = None
     def __init__(
         self,
         continuation : 'Continuation' = None,
@@ -79,7 +80,7 @@ class ProgramState:
 
     @cached_property
     def _hash(self):
-        return hash((self.__class__, self.stack, hashabledict(self.init_global_store.store)))
+        return hash((self.__class__, self.stack, hashabledict(self.init_global_store.store), self.value))
 
     def __hash__(self):
         return self._hash

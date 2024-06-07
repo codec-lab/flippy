@@ -6,10 +6,27 @@ They are immutable but otherwise behave like normal containers.
 The main use case for these is to be used as keys in return distributions
 """
 
+def make_hashable(obj):
+    if isinstance(obj, dict):
+        return hashabledict(obj)
+    elif isinstance(obj, list):
+        return hashablelist(obj)
+    elif isinstance(obj, set):
+        return hashableset(obj)
+    return obj
+
 class hashabledict(dict):
     @cached_property
     def _hash(self):
-        return hash(tuple(sorted(self.items())))
+        try:
+            return hash(frozenset(self.items()))
+        except TypeError:
+            return self._recursive_hash()
+    def _recursive_hash(self):
+        # This only handles cases where the immediate values that are containers
+        # can be coerced into hashable versions
+        items = ((k, make_hashable(v)) for k, v in self.items())
+        return hash(frozenset(items))
     def __hash__(self):
         return self._hash
     def __repr__(self) -> str:
@@ -32,7 +49,15 @@ class hashabledict(dict):
 class hashablelist(list):
     @cached_property
     def _hash(self):
-        return hash(tuple(self))
+        try:
+            return hash(tuple(self))
+        except TypeError:
+            return self._recursive_hash()
+    def _recursive_hash(self):
+        # This only handles cases where the immediate values that are containers
+        # can be coerced into hashable versions
+        items = (make_hashable(v) for v in self)
+        return hash(tuple(items))
     def __hash__(self):
         return self._hash
     def __repr__(self) -> str:

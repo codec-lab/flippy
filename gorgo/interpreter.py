@@ -8,6 +8,8 @@ import dataclasses
 from collections import namedtuple
 from typing import Union, TYPE_CHECKING, Tuple
 from gorgo.core import ReturnState, SampleState, ObserveState, InitialState
+from gorgo.callentryexit import EnterCallState, ExitCallState
+from typing import Any
 from gorgo.distributions.base import Distribution, Element
 from gorgo.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
@@ -117,7 +119,7 @@ class Stack:
 
 
 class CPSInterpreter:
-    def __init__(self):
+    def __init__(self, _emit_call_entryexit: bool = False):
         self.subset_validator = PythonSubsetValidator()
         self.desugaring_transform = DesugaringTransform()
         self.hashable_collection_transform = HashableCollectionTransform()
@@ -125,6 +127,7 @@ class CPSInterpreter:
         self.setlines_transform = SetLineNumbers()
         self.cps_transform = CPSTransform()
         self.global_store_proxy = ReadOnlyProxy()
+        self._emit_call_entryexit = _emit_call_entryexit
 
     def initial_program_state(self, call: Union['NonCPSCallable','CPSCallable']) -> InitialState:
         cps_call = self.interpret(
@@ -221,10 +224,44 @@ class CPSInterpreter:
             return self.interpret_transformed(call)
         return self.interpret_generic(call)
 
-    def interpret_transformed(self, call : 'CPSCallable') -> 'Continuation':
+    def interpret_transformed(self, call : CPSFunction) -> 'Continuation':
+        if not self._emit_call_entryexit:
+            return self.interpret_transformed_only(call)
+        else:
+            return self.interpret_transformed_and_emit_entryexit(call)
+
+    def interpret_transformed_only(self, call : CPSFunction) -> 'Continuation':
         def generic_continuation(*args, _cont: 'Continuation'=None, _stack: 'Stack'=None, **kws):
             return call(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
         return generic_continuation
+
+    def interpret_transformed_and_emit_entryexit(self, call : CPSFunction) -> 'Continuation':
+        def continuation(*args, _cont: 'Continuation'=None, _stack: 'Stack'=None, **kws):
+            kws = hashabledict(kws)
+            params = dict(f=call, args=args, kwargs=kws, cps=self, stack=_stack)
+            def process_controller_instructions(
+                run_func: bool = True,
+                cached_res: Any = None
+            ):
+                if run_func:
+                    def process_func_result(func_res):
+                        return ExitCallState(
+                            **params,
+                            value=func_res,
+                            continuation=lambda : _cont(func_res),
+                        )
+                    return call(*args, _stack=_stack, _cont=process_func_result, _cps=self, **kws)
+                else:
+                    return ExitCallState(
+                        **params,
+                        value=cached_res,
+                        continuation=lambda : _cont(cached_res),
+                    )
+            return EnterCallState(
+                **params,
+                continuation=process_controller_instructions,
+            )
+        return continuation
 
     def interpret_sample(self, call: 'SampleCallable[Element]') -> 'Continuation':
         def sample_continuation(
@@ -267,11 +304,9 @@ class CPSInterpreter:
 
     def interpret_generic(self, call: 'NonCPSCallable') -> 'Continuation':
         trans_func = self.non_cps_callable_to_cps_callable(call)
-        def generic_continuation(*args, _cont: 'Continuation'=lambda v: v, _stack: 'Stack'=None, **kws):
-            return trans_func(*args, **kws, _cps=self, _stack=_stack, _cont=_cont)
-        return generic_continuation
+        return self.interpret_transformed(trans_func)
 
-    def non_cps_callable_to_cps_callable(self, call: 'NonCPSCallable') -> 'CPSCallable':
+    def non_cps_callable_to_cps_callable(self, call: 'NonCPSCallable') -> CPSFunction:
         call_name = self.generate_unique_method_name(call)
         code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',

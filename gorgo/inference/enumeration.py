@@ -43,9 +43,10 @@ class Enumeration:
         self,
         function,
         max_states=float('inf'),
-        _call_cache_size=0,
+        _call_cache_size=128,
         _map_cross_product=True,
         _enumeration_strategy='tree',
+        _emit_call_entryexit=True,
     ):
         self.function = function
         self.max_states = max_states
@@ -54,10 +55,12 @@ class Enumeration:
         self._call_cache = OrderedDict()
         self._enumeration_strategy = _enumeration_strategy
         self._map_cross_product = _map_cross_product
+        self._emit_call_entryexit = _emit_call_entryexit
 
     @cached_property
     def init_ps(self):
-        return CPSInterpreter().initial_program_state(self.function)
+        cps = CPSInterpreter(_emit_call_entryexit=self._emit_call_entryexit)
+        return cps.initial_program_state(self.function)
 
     def run(self, *args, **kws):
         ps = self.init_ps.step(*args, **kws)
@@ -285,9 +288,11 @@ class Enumeration:
         key = (enter_state.function, enter_state.args, enter_state.kwargs, global_store_key)
 
         if key in self._call_cache:
+            self._call_cache.hits = getattr(self._call_cache, 'hits', 0) + 1
             exit_values, exit_scores = self._call_cache.pop(key)
             exit_states = [enter_state.skip(rv) for rv in exit_values]
         else:
+            self._call_cache.misses = getattr(self._call_cache, 'misses', 0) + 1
             exit_states, exit_scores = \
                 self._enumerate_enter_call_state_successors(enter_state)
             exit_values = [rs.value for rs in exit_states]

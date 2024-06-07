@@ -190,7 +190,7 @@ def test_graph_enumeration():
     failed = {}
     for f in test_models:
         e_res = SimpleEnumeration(f).run()
-        ge_res = Enumeration(f).run()
+        ge_res = Enumeration(f, _emit_call_entryexit=False).run()
         if not e_res.isclose(ge_res):
             failed[f] = (e_res, ge_res)
 
@@ -219,8 +219,8 @@ def test_graph_enumeration_callsite_caching():
         return x
 
     e_res = SimpleEnumeration(model).run()
-    ge_res_nocache = Enumeration(model, _call_cache_size=0).run()
-    ge_res_cache = Enumeration(model, _call_cache_size=1000).run()
+    ge_res_nocache = Enumeration(model, _call_cache_size=0, _emit_call_entryexit=False).run()
+    ge_res_cache = Enumeration(model, _call_cache_size=1000, _emit_call_entryexit=False).run()
     assert e_res.isclose(ge_res_nocache)
     assert e_res.isclose(ge_res_cache)
 
@@ -237,8 +237,8 @@ def test_graph_enumeration_callsite_caching_with_mem():
         return x
 
     e_res = SimpleEnumeration(model).run()
-    ge_res_nocache = Enumeration(model, _call_cache_size=0).run()
-    ge_res_cache = Enumeration(model, _call_cache_size=1000).run()
+    ge_res_nocache = Enumeration(model, _call_cache_size=0, _emit_call_entryexit=False).run()
+    ge_res_cache = Enumeration(model, _call_cache_size=1000, _emit_call_entryexit=False).run()
     assert e_res.isclose(ge_res_nocache)
     assert e_res.isclose(ge_res_cache)
 
@@ -250,13 +250,54 @@ def test_graph_enumeration_callsite_caching_lru_cache():
         x = f(.1) + f(.2) + f(.3) + f(.4)
         return x
 
-    ge = Enumeration(model, _call_cache_size=2)
+    ge = Enumeration(model, _call_cache_size=2, _emit_call_entryexit=False)
     e_res = SimpleEnumeration(model).run()
     ge_res_cache = ge.run()
     assert e_res.isclose(ge_res_cache)
     assert len(ge._call_cache) == 2
     assert [args[0] for _, args, _, _ in ge._call_cache.keys()] == [.3, .4]
 
+def test_Enumeration_call_cache_outside_function():
+    # total of 8 calls (2 to m, 6 to f)
+    # after m(1):
+    #     misses = {m(1), f(-1), f(-2)}     n = 3
+    #     hits = [f(-1)]    n = 1
+    # after m(2):
+    #     misses = {m(1), m(2), f(-1), f(-2), f(-3)}   n = 5
+    #     hits = [f(-1), f(-2), f(-2)]   n = 3
+    def f(i):
+        return 0
+    def m(i):
+        return f(-i) + f(-i) + f(-(i + 1))
+
+    enum = Enumeration(m, _call_cache_size=10, _emit_call_entryexit=True)
+    enum.run(1)
+    run_1 = enum._call_cache.misses, enum._call_cache.hits
+    assert run_1  == (3, 1)
+    enum.run(2)
+    run_2 = enum._call_cache.misses, enum._call_cache.hits
+    assert run_2 == (5, 3)
+
+def test_Enumeration_call_cache_nested_function():
+    # total of 8 calls (2 to m, 6 to f)
+    # after m(1):
+    #     misses = {m(1), f(-1), f(-2)}     n = 3
+    #     hits = [f(-1)]    n = 1
+    # after m(2):
+    #     misses = {m(1), m(2), f(-1), f(-2), f(-3)}   n = 5
+    #     hits = [f(-1), f(-2), f(-2)]   n = 3
+    def m(i):
+        def f(i):
+            return 0
+        return f(-i) + f(-i) + f(-(i + 1))
+
+    enum = Enumeration(m, _call_cache_size=10, _emit_call_entryexit=True)
+    enum.run(1)
+    run_1 = enum._call_cache.misses, enum._call_cache.hits
+    assert run_1  == (3, 1)
+    enum.run(2)
+    run_2 = enum._call_cache.misses, enum._call_cache.hits
+    assert run_2 == (5, 3), run_2
 def test_enumerating_class_method():
     def flip():
         p = .66

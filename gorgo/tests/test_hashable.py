@@ -107,3 +107,8 @@ def test_hashabledict():
         hd.fromkeys('abc') # this uses .__setitem__
     with pytest.raises(TypeError):
         hd |= {'c': 3}
+
+def test_recursive_coercing():
+    hash(hashabledict({'a': (), 'k': {}}))
+    hash(hashabledict({'a': [1,2,3], 'b': {'c': {4,5,6}}, 'd': {'e': 7}}))
+    hash(hashablelist([1,2,3, [4,5,6], {7,8,9}, {'a': 10, 'b': {}}]))
