@@ -256,3 +256,17 @@ def test_graph_enumeration_callsite_caching_lru_cache():
     assert e_res.isclose(ge_res_cache)
     assert len(ge._call_cache) == 2
     assert [args[0] for _, args, _, _ in ge._call_cache.keys()] == [.3, .4]
+
+def test_enumerating_class_method():
+    def flip():
+        p = .66
+        return Bernoulli(p).sample()
+
+    class C:
+        p = .66
+        def flip(self):
+            return Bernoulli(self.p).sample()
+    c = C()
+    method_res = Enumeration(C.flip).run(c)
+    func_res = Enumeration(flip).run()
+    assert method_res.isclose(func_res)

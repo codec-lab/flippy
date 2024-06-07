@@ -3,6 +3,7 @@ import functools
 import inspect
 import textwrap
 import types
+from types import MethodType
 import dataclasses
 from collections import namedtuple
 from typing import Union, TYPE_CHECKING, Tuple
@@ -15,7 +16,6 @@ from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.funcutils import method_cache
 from gorgo.hashable import hashabledict, hashablelist
 import linecache
-import types
 import contextlib
 
 from gorgo.types import NonCPSCallable, Method, Continuation, \
@@ -70,7 +70,6 @@ class StackFrame:
         ]
         frame_html = "<div style='cursor:default'>"+'\n'.join(frame_html)+"</div>"
         return frame_html
-        # return f'<pre>{self.as_string()}</pre>'
 
 @dataclasses.dataclass(frozen=True)
 class Stack:
@@ -170,13 +169,17 @@ class CPSInterpreter:
         if (
             isinstance(call, types.BuiltinFunctionType) or \
             isinstance(call, type) or
-            (hasattr(call, "__self__") and isinstance(call.__self__, GlobalStore))
+            (isinstance(call, MethodType) and isinstance(call.__self__, GlobalStore))
         ):
             continuation = self.interpret_builtin(call)
             return functools.partial(continuation, _cont=cont)
 
         # cps python
-        continuation = self.interpret_cps(call)
+        if isinstance(call, MethodType):
+            # Only instance/class methods (not static methods) follow this path
+            continuation = self.interpret_object_attribute_call(call)
+        else:
+            continuation = self.interpret_cps(call)
         if not isinstance(stack, Stack):
             stack = Stack(stack)
         cur_stack = stack.update(func_src, locals_, lineno)
@@ -188,14 +191,8 @@ class CPSInterpreter:
             return lambda : _cont(call(*args, **kws))
         return builtin_continuation
 
-    @method_cache
-    def interpret_cps(
-        self,
-        call : Union['NonCPSCallable', 'CPSCallable']
-    ) -> 'Continuation':
-        if CPSTransform.is_transformed(call):
-            return self.interpret_transformed(call)
-        if hasattr(call, "__self__") and isinstance(call.__self__, Distribution):
+    def interpret_object_attribute_call(self, call: 'NonCPSCallable') -> 'Continuation':
+        if isinstance(call.__self__, Distribution):
             if call.__name__ == "sample":
                 return self.interpret_sample(call)
             elif call.__name__ == "observe":
@@ -203,8 +200,25 @@ class CPSInterpreter:
             else:
                 # other than sample and observe, we interpret Distribution methods as deterministic
                 return self.interpret_method_deterministically(call)
-        elif hasattr(call, "__self__"):
-            raise NotImplementedError(f"CPSInterpreter does not support methods for {call.__self__.__class__.__name__}")
+        else:
+            # For instance and class methods, we transform and compile the
+            # function body like normal but need to ensure the right first
+            # argument is passed in.
+            # This handles both class and instance methods since
+            # call.__self__ refers to the the instance if a method,
+            # or the class if a classmethod
+            continuation = self.interpret_cps(call.__func__)
+            def method_continuation(*args, _cont: 'Continuation'=None, _stack: 'Stack'=None, **kws):
+                return lambda : continuation(call.__self__, *args, _cont=_cont, _stack=_stack, **kws)
+            return method_continuation
+
+    @method_cache
+    def interpret_cps(
+        self,
+        call : Union['NonCPSCallable', 'CPSCallable']
+    ) -> 'Continuation':
+        if CPSTransform.is_transformed(call):
+            return self.interpret_transformed(call)
         return self.interpret_generic(call)
 
     def interpret_transformed(self, call : 'CPSCallable') -> 'Continuation':
@@ -258,9 +272,10 @@ class CPSInterpreter:
         return generic_continuation
 
     def non_cps_callable_to_cps_callable(self, call: 'NonCPSCallable') -> 'CPSCallable':
+        call_name = self.generate_unique_method_name(call)
         code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
-            self.transform_from_func(call),
+            self.transform_from_func(call, call_name),
         )
         context = {
             **call.__globals__,
@@ -275,14 +290,34 @@ class CPSInterpreter:
             exec(code, context)
         except SyntaxError as err :
             raise err
-        trans_func = context[call.__name__]
+        trans_func = context[call.__name__] if call_name is None else context[call_name]
+        if isinstance(trans_func, (classmethod, staticmethod)):
+            # not the most elegant fix but it works
+            trans_func = trans_func.__func__
         return trans_func
 
-    def transform_from_func(self, func: 'NonCPSCallable') -> ast.AST:
-        source = textwrap.dedent(inspect.getsource(func))
+    def generate_unique_method_name(self, call: 'NonCPSCallable') -> Union[str, None]:
+        # this function generates a name that won't override a non-method
+        # check if the qualified name indicates it's a class method
+        # see https://peps.python.org/pep-3155/
+        qualname_suffix = call.__qualname__.split("<locals>.")[-1]
+        defined_in_class = len(qualname_suffix.split('.')) > 1
+        if defined_in_class:
+            return "__"+qualname_suffix.replace('.', '_')
+        return None
+
+    def transform_from_func(self, call: 'NonCPSCallable', call_name: str = None) -> ast.AST:
+        source = textwrap.dedent(inspect.getsource(call))
         trans_node = ast.parse(source)
+        if call_name is not None:
+            self.rename_class_method_in_source(trans_node, call_name)
         self.subset_validator(trans_node, source)
         return self.transform(trans_node)
+
+    def rename_class_method_in_source(self, node: ast.Module, name: str):
+        assert len(node.body) == 1 and isinstance(node.body[0], ast.FunctionDef), \
+            "We assume there's only a single function definition in the source"
+        node.body[0].name = name
 
     def transform(self, trans_node: ast.AST) -> ast.AST:
         self.closure_scope_analysis(trans_node)

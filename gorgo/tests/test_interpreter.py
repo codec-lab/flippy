@@ -521,3 +521,194 @@ def test_program_state_stack_name_with_local_change():
 
     ps = CPSInterpreter().initial_program_state(f)
     assert ps.step(0).name == ps.step(1).name
+
+def test_sampling_in_instance_method_call():
+    class C:
+        def flip(self, p):
+            return Bernoulli(p).sample()
+
+    def call_as_instance_attribute():
+        c = C()
+        return c.flip(.63)
+
+    def call_as_class_attribute():
+        c = C()
+        return C.flip(c, .63)
+
+    def tests(f):
+        # Execute to the sample statement in the class method
+        in_class_flip_ps = CPSInterpreter().initial_program_state(f).step()
+        assert isinstance(in_class_flip_ps, SampleState)
+        assert in_class_flip_ps.distribution.isclose(Bernoulli(.63))
+
+        # Check that instance is referenced in transformed method
+        class_flip_locals = in_class_flip_ps.stack[-1].locals
+        assert isinstance(class_flip_locals['self'], C)
+
+        # Check instance properties in main function scope
+        f_class_locals = in_class_flip_ps.stack[-2].locals
+        assert class_flip_locals['self'] is f_class_locals['c']
+        assert isinstance(f_class_locals['c'], C)
+        assert f_class_locals['c'].flip.__qualname__[-len("C.flip"):] == "C.flip"
+
+    tests(call_as_instance_attribute)
+    tests(call_as_class_attribute)
+
+def test_transformed_class_method_does_not_shadow():
+    def func(p):
+        return 100
+    nonlocal_func = func
+
+    # Test instance method
+    class C:
+        def func(self):
+            assert func is nonlocal_func, "nonlocal function has been redefined"
+            return 101
+
+    def f():
+        c = C()
+        return c.func()
+
+    assert f() == 101
+    assert CPSInterpreter().initial_program_state(f).step().value == 101
+
+    # Now test class method
+    class C:
+        @classmethod
+        def func(cls):
+            assert func is nonlocal_func, "nonlocal function has been redefined"
+            return 101
+
+    def f_class():
+        return C.func()
+
+    assert f_class() == 101
+    assert CPSInterpreter().initial_program_state(f_class).step().value == 101
+
+    # Now test static method
+    class C:
+        @staticmethod
+        def func():
+            assert func is nonlocal_func, "nonlocal function has been redefined"
+            return 101
+
+    def f_static():
+        return C.func()
+
+    assert f_static() == 101
+    assert CPSInterpreter().initial_program_state(f_static).step().value == 101
+
+    # Now test nested class method
+    class C1:
+        class C2:
+            def func(self):
+                assert func is nonlocal_func, "nonlocal function has been redefined"
+                return 101
+
+    def f_nested():
+        c1 = C1()
+        c2 = c1.C2()
+        return c2.func()
+
+    assert CPSInterpreter().initial_program_state(f_nested).step().value == 101
+
+def test_calling_transformed_staticmethod():
+    class C:
+        @staticmethod
+        def flip():
+            p = .66
+            return Bernoulli(p).sample()
+
+        @staticmethod
+        def flip2(p):
+            return Bernoulli(p).sample()
+
+        def flip_no_decorator():
+            p = .66
+            return Bernoulli(p).sample()
+
+    def call_from_class():
+        return C.flip()
+
+    def call_from_class_with_arg():
+        return C.flip2(.66)
+
+    def call_from_class_no_decorator():
+        return C.flip_no_decorator()
+
+    def call_from_instance():
+        c = C()
+        return c.flip()
+
+    def call_from_instance_no_decorator():
+        c = C()
+        return c.flip_no_decorator()
+
+    ps = CPSInterpreter().initial_program_state(call_from_class).step()
+    assert ps.distribution.isclose(Bernoulli(.66))
+
+    ps = CPSInterpreter().initial_program_state(call_from_class_with_arg).step()
+    assert ps.distribution.isclose(Bernoulli(.66))
+
+    ps = CPSInterpreter().initial_program_state(call_from_class_no_decorator).step()
+    assert ps.distribution.isclose(Bernoulli(.66))
+
+    ps = CPSInterpreter().initial_program_state(call_from_instance).step()
+    assert ps.distribution.isclose(Bernoulli(.66))
+
+    with pytest.raises(TypeError) as e:
+        ps = CPSInterpreter().initial_program_state(call_from_instance_no_decorator).step()
+        assert isinstance(e.value, TypeError) and "0 positional argument" in str(e.value)
+
+def test_calling_transformed_classmethod():
+    class C:
+        p = .66
+        def __init__(self):
+            self.p = .22
+        @classmethod
+        def flip(cls):
+            return Bernoulli(cls.p).sample()
+
+    def call_from_instance():
+        c = C()
+        return c.flip()
+
+    def call_from_class():
+        return C.flip()
+
+    ps = CPSInterpreter().initial_program_state(call_from_instance).step()
+    assert ps.distribution.isclose(Bernoulli(.66))
+
+    ps = CPSInterpreter().initial_program_state(call_from_class).step()
+    assert ps.distribution.isclose(Bernoulli(.66))
+
+def test_generate_unique_method_name():
+    def func(): pass
+
+    class C:
+        def func(self): pass
+        class NC: #nested class
+            def func(self): pass
+    c = C()
+    nc = C.NC()
+
+    def class_factory():
+        class LC: #locally defined class
+            def func(self): pass
+        return LC
+
+    LC = class_factory()
+    lc = LC()
+
+    funcs_names = [
+        (func, None),
+        (C.func, '__C_func'),
+        (c.func, '__C_func'),
+        (C.NC.func, "__C_NC_func"),
+        (nc.func, "__C_NC_func"),
+        (LC.func, '__LC_func'),
+        (lc.func, '__LC_func')
+    ]
+    for f, n in funcs_names:
+        gen_name = CPSInterpreter().generate_unique_method_name(f)
+        assert n == gen_name, (f, n, gen_name)
