@@ -38,8 +38,8 @@ class ProgramState:
         self.init_global_store = init_global_store
         self.cps = cps
 
-    def set_init_global_store(self, global_store : 'GlobalStore'):
-        assert self.init_global_store is None, "Cannot set global store twice"
+    def set_init_global_store(self, global_store : 'GlobalStore', force=False):
+        assert self.init_global_store is None or force, "Cannot set global store twice"
         self.init_global_store = global_store
 
     def step(self, *args, **kws) -> 'ProgramState':
@@ -96,6 +96,10 @@ class ReadOnlyProxy(object):
         if self.proxied is None:
             raise NotImplementedError("Proxying to None")
         return key in self.proxied
+    def __getstate__(self):
+        return self.__dict__
+    def __setstate__(self, state):
+        self.__dict__ = state
 
 class GlobalStore:
     def __init__(self, initial : dict = None):

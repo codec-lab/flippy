@@ -125,14 +125,14 @@ def test_graph_enumeration():
         return i + j
 
     def f4():
-        @register_call_entryexit
+        # @register_call_entryexit
         def g(i):
             return flip(.61, name='a') + flip(.77, name='b')
         x = flip(.3, name='x')
         return x + g(1)
 
     def f5():
-        @register_call_entryexit
+        # @register_call_entryexit
         def g(i):
             Bernoulli(.3).observe(i)
             return flip(.61, name='a') + flip(.77, name='b')
@@ -162,7 +162,7 @@ def test_graph_enumeration():
         return x
 
     def f9():
-        @register_call_entryexit
+        # @register_call_entryexit
         def g(i):
             return flip(i)
         x = g(.2)
@@ -177,7 +177,7 @@ def test_graph_enumeration():
         return x
 
     def f11():
-        @register_call_entryexit
+        # @register_call_entryexit
         def f(a, b):
             condition(a == b)
         a = flip()
@@ -190,13 +190,13 @@ def test_graph_enumeration():
     failed = {}
     for f in test_models:
         e_res = SimpleEnumeration(f).run()
-        ge_res = Enumeration(f, _emit_call_entryexit=False).run()
+        ge_res = Enumeration(f).run()
         if not e_res.isclose(ge_res):
             failed[f] = (e_res, ge_res)
 
     if failed:
         raise AssertionError('\n'.join([
-            "Failed models:"
+            "Failed models:",
             *[f"{f.__name__}:\n\t{e_res}\n\t{ge_res}" for f, (e_res, ge_res) in failed.items()]
         ]))
 

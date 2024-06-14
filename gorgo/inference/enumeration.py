@@ -11,7 +11,7 @@ import numpy as np
 from scipy.sparse.linalg import spsolve
 from scipy.sparse import eye as sp_eye, coo_array
 
-from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
+from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState, GlobalStore
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical
 from gorgo.tools import logsumexp
@@ -290,12 +290,16 @@ class Enumeration:
         if key in self._call_cache:
             self._call_cache.hits = getattr(self._call_cache, 'hits', 0) + 1
             exit_values, exit_scores = self._call_cache.pop(key)
-            exit_states = [enter_state.skip(rv) for rv in exit_values]
+            exit_states = []
+            for rv, gs in exit_values:
+                gs: GlobalStore
+                next_state = enter_state.skip(rv)
+                next_state.set_init_global_store(gs.copy(), force=True)
+                exit_states.append(next_state)
         else:
             self._call_cache.misses = getattr(self._call_cache, 'misses', 0) + 1
-            exit_states, exit_scores = \
-                self._enumerate_enter_call_state_successors(enter_state)
-            exit_values = [rs.value for rs in exit_states]
+            exit_states, exit_scores = self._enumerate_enter_call_state_successors(enter_state)
+            exit_values = [(rs.value, rs.init_global_store) for rs in exit_states]
         self._call_cache[key] = (exit_values, exit_scores)
         if len(self._call_cache) > self._call_cache_size:
             self._call_cache.popitem(last=False)
