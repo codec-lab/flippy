@@ -24,6 +24,10 @@ class Placeholder(ast.NodeTransformer):
     @classmethod
     def fill(cls, node, replacement_map, **kwargs):
         return cls(replacement_map, **kwargs).visit(node)
+    @classmethod
+    def fill_from_source(cls, src, *args, **kwargs):
+        node = ast.parse(textwrap.dedent(src))
+        return cls.fill(node, *args, **kwargs)
 
     def visit_Name(self, node):
         if node.id.startswith(__class__.prefix):
@@ -365,7 +369,7 @@ class PythonSubsetValidator(ast.NodeVisitor):
 
     visit_Subscript = visit_Attribute
 
-class DesugaringTransform(ast.NodeTransformer):
+class DesugaringTransform(NodeTransformer):
     """
     This "desugars" the AST by
     - separating out function calls to individual assignments
@@ -379,6 +383,7 @@ class DesugaringTransform(ast.NodeTransformer):
     Currently not implemented desugaring:
     - de-decorating function definitions
     """
+    temporary_var_prefix = '__v'
     def __call__(self, rootnode):
         self.new_stmt_stack = [[],]
         self.in_expression = False
@@ -441,7 +446,7 @@ class DesugaringTransform(ast.NodeTransformer):
 
     def generate_name(self):
         self.n_temporary_vars += 1
-        return f"__v{self.n_temporary_vars - 1}"
+        return f"{DesugaringTransform.temporary_var_prefix}{self.n_temporary_vars - 1}"
 
     def visit_Call(self, node):
         node = ast.NodeTransformer.generic_visit(self, node)
@@ -647,6 +652,48 @@ class DesugaringTransform(ast.NodeTransformer):
             lineno=node.lineno,
         ))
 
+    def visit_While(self, node):
+        loop, = Placeholder.fill_from_source(f'''
+        while True:
+            if not ({Placeholder.new('test')}):
+                break
+            {Placeholder.new('body')}
+        ''', dict(
+            test=node.test,
+            body=node.body,
+        )).body
+        # Doing this out of completeness, but it's a constant so nothing will change.
+        self.generic_visit_field(loop, 'test')
+        self.generic_visit_field(loop, 'body')
+        return loop
+
+    def visit_For(self, node):
+        '''
+        We implement a CPS-compatible `for` by assuming a loop argument that can be indexed and has a length.
+        '''
+
+        assert not node.orelse
+
+        iter_sym = f'_for_iter_{node.lineno}'
+        idx_sym = f'_for_idx_{node.lineno}'
+        code = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+        {iter_sym} = {Placeholder.new('iter')}
+        {idx_sym} = 0
+        while {idx_sym} < len({iter_sym}):
+            {Placeholder.new('target')} = {iter_sym}[{idx_sym}]
+            {Placeholder.new('body')}
+            {idx_sym} += 1
+        ''')), dict(
+            iter=node.iter,
+            target=node.target,
+            body=node.body,
+        )).body
+
+        return [
+            self.visit(s)
+            for s in code
+        ]
+
     def desugar_to_IfElse_block(
         self,
         test_expr,
@@ -765,10 +812,9 @@ class CPSTransform(NodeTransformer):
 
     def __init__(self):
         self.scopes = []
-        self.remaining_stmts = None
-        self.new_block = None
-        self.cur_stmt = None
+        self.current_continuation_stmts = None
         self.parent_function_lineno = 0
+        self.continue_break_replacement = None
 
     def __call__(self, node):
         with self.in_scope():
@@ -805,7 +851,7 @@ class CPSTransform(NodeTransformer):
             # with respect to the start of the function definition
             old_parent_lineno = self.parent_function_lineno
             self.parent_function_lineno = node.lineno
-            node.body = self.transform_block(node.body)
+            node.body, _ = self.transform_block(node.body)
             self.parent_function_lineno = old_parent_lineno
         # decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
 
@@ -860,8 +906,29 @@ class CPSTransform(NodeTransformer):
         self.add_name_to_scope(node.arg)
         return node
 
+    def scope_packing_for_current_scope(self, locals_name, scope_name):
+        '''
+        Our general scheme for scope packing is to pack the possibly-present names
+        into a dictionary, if they are defined. Variables are unpacked in a way that
+        handles the issue of definition, by only conditionally defining variables.
+        '''
+        names = sorted(self.scopes[-1])
+        pack = f'''
+        # We capture locals before we enter any other scope (like a lambda or list comprehension)
+        {locals_name} = locals()
+        {scope_name} = {{name: {locals_name}[name] for name in {names} if name in {locals_name}}}
+        '''
+        unpack = '\n'.join(f'''
+        if "{name}" in {scope_name}:
+            {name} = {scope_name}["{name}"]
+        ''' for name in names) or 'pass'
+        return (
+            ast.parse(textwrap.dedent(pack)).body,
+            ast.parse(textwrap.dedent(unpack)).body,
+        )
+
     def visit_Name(self, node):
-        if type(node.ctx) == ast.Store:
+        if isinstance(node.ctx, ast.Store):
             self.add_name_to_scope(node.id)
         return node
 
@@ -873,85 +940,172 @@ class CPSTransform(NodeTransformer):
         return node
 
     def visit_Call(self, node):
+        '''
+        Replace the Call node with a continuation and call to the interpreter
+        that picks up at the continuation.
+        '''
         continuation_name = f"_cont_{node.lineno}"
         result_name = f"_res_{node.lineno}"
-        scope_name = f"_scope_{node.lineno}"
         locals_name = f"_locals_{node.lineno}"
-        names = sorted(self.scopes[-1])
-        unpack = '\n'.join(f'''
-                if "{name}" in {scope_name}:
-                    {name} = {scope_name}["{name}"]
-        ''' for name in names) or 'pass'
-        code = ast.parse(textwrap.dedent(f'''
-            # We capture locals before we enter any other scope (like a lambda or list comprehension)
-            {locals_name} = locals()
-            {scope_name} = {{name: {locals_name}[name] for name in {names} if name in {locals_name}}}
+        pack, unpack = self.scope_packing_for_current_scope(locals_name, f"_scope_{node.lineno}")
+        code = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+            {Placeholder.new('pack')}
             def {continuation_name}({result_name}):
-                {unpack}
+                {Placeholder.new('unpack')}
             return lambda : {self.cps_interpreter_name}.interpret(
-                _func,
+                {Placeholder.new('func')},
                 cont={continuation_name},
                 stack={self.stack_name},
                 func_src={self.func_src_name},
                 locals_={locals_name},
                 lineno={node.lineno - self.parent_function_lineno}
             )()
-        ''')).body
+        ''')), dict(
+            func=node.func,
+            pack=pack,
+            unpack=unpack,
+        )).body
         continuation_node, thunk_node = code[-2:]
-        thunk_node.value.body.func.args = [node.func]
         thunk_node.value.body.args = node.args
         thunk_node.value.body.keywords = node.keywords
-        continuation_node.body += \
-            [self.cur_stmt] + \
-            self.transform_block(self.remaining_stmts)
-
-        self.remaining_stmts = []
-        self.new_block.extend(code)
+        self.current_continuation_stmts.extend(code)
+        # Update CCS to the continuation of our function.
+        self.current_continuation_stmts = continuation_node.body
         return ast.Name(id=result_name, ctx=ast.Load())
 
-    def transform_block(self, block):
+    def visit_While(self, node):
+        '''
+        We transform While nodes into a CPS style, by having
+        1) a conditionally-recursive (dependent on loop test) continuation that executes the loop body and
+        2) a final continuation, visited on loop break or False value from loop test.
+        We have to carefully pack and unpack scope through all these functions. The current implementation
+        handles temporary variables and changes to scope before a continue/break.
+        '''
+        # Store previous continue/break replacements, for recursive processing
+        previous = self.continue_break_replacement
+
+        loop_name = f"_loop_fn_{node.lineno}"
+        loop_exit_name = f"_loop_exit_fn_{node.lineno}"
+        scope_name = f"_scope_{node.lineno}"
+
+        # We process body, replacing continue/break with placeholders.
+        # We initially replace with placeholders because continue/break requires packing any
+        # variables that could be defined in loop body. Once we know the variables that
+        # need to be packed, we replace with the appropriate calls (below).
+        self.continue_break_replacement = (
+            ast.Expr(ast.Name(Placeholder.new('continue_'))),
+            ast.Expr(ast.Name(Placeholder.new('break_'))))
+        node_body, continuation_block = self.transform_block(node.body)
+
+        # Now that we've transformed the loop body, we know all variables that can be defined.
+        pack, unpack = self.scope_packing_for_current_scope(f"_locals_{node.lineno}", scope_name)
+        loop_recur_call = pack + ast.parse(f'return lambda: {loop_name}({scope_name})').body
+        loop_exit_call = pack + ast.parse(f'return lambda: {loop_exit_name}({scope_name})').body
+        # At the end of body execution, we recurse. Must happen before filling placeholders in node_body.
+        continuation_block.extend(loop_recur_call)
+        # Replace continue/break with call that has appropriate variable packing.
+        node_body = [Placeholder.fill(s, dict(continue_=loop_recur_call, break_=loop_exit_call)) for s in node_body]
+
+        code = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+            def {loop_name}({scope_name}):
+                {Placeholder.new('unpack')}
+                if {Placeholder.new('test')}:
+                    {Placeholder.new('body')}
+                else:
+                    # When exiting, we have no further assignments, so we could reuse initial scope, but don't.
+                    {Placeholder.new('loop_exit_call')}
+            def {loop_exit_name}({scope_name}):
+                {Placeholder.new('unpack')}
+            {Placeholder.new('loop_recur_call')}
+        ''')), dict(
+            test=node.test,
+            body=node_body,
+            unpack=unpack,
+            loop_recur_call=loop_recur_call,
+            loop_exit_call=loop_exit_call,
+        )).body
+        _, loop_exit_fn = code[:2]
+        self.current_continuation_stmts.extend(code)
+        # Execution continues in the loop exit continuation.
+        self.current_continuation_stmts = loop_exit_fn.body
+        # Restore, for recursive processing
+        self.continue_break_replacement = previous
+        return None
+
+    def visit_Continue(self, node):
+        c, b = self.continue_break_replacement
+        return c
+    def visit_Break(self, node):
+        c, b = self.continue_break_replacement
+        return b
+
+    def transform_block(self, untransformed_stmts):
+        '''
+        This function transforms each statement in the argument `untransformed_stmts`, in order,
+        into CPS. It maintains a list to hold the transformed statements. However,
+        in the course of the CPS transform, Call/If/While will produce new continuations.
+        So, this algorithm maintains a pointer to the current continuation, updated by
+        continuation-generating visitor methods.
+        '''
+
         # Store current state, so we can recursively transform.
-        previous = self.remaining_stmts, self.new_block, self.cur_stmt
+        previous = self.current_continuation_stmts
 
-        self.remaining_stmts = block
-        self.new_block = []
-        while True:
-            self.cur_stmt = self.remaining_stmts.pop(0)
-            # cur_stmt gets added or updated explicitly in visit methods
-            self.visit(self.cur_stmt)
-            if len(self.remaining_stmts) == 0:
-                break
-            self.new_block.append(self.cur_stmt)
+        # We create a block to hold CPS-transformed statements.
+        # Initially, these refer to the same list, but self.current_continuation_stmts
+        # will change after we process a statement that needs a CPS-transform
+        # (i.e. after a Call, While, or If).
+        transformed_stmts = self.current_continuation_stmts = []
 
-        block[:] = self.new_block
+        for us in untransformed_stmts:
+            rv = self.visit(us)
+            # We drop return values that are None. This happens in visit_If and visit_While.
+            if rv is not None:
+                # Note: self.current_continuation_stmts can be modified in other functions,
+                # which means this doesn't always append into transformed_stmts.
+                if isinstance(rv, list):
+                    self.current_continuation_stmts.extend(rv)
+                else:
+                    self.current_continuation_stmts.append(rv)
 
+        # Hold onto a reference before we restore state.
+        ccs = self.current_continuation_stmts
         # Restore previous state.
-        self.remaining_stmts, self.new_block, self.cur_stmt = previous
+        self.current_continuation_stmts = previous
 
-        return block
+        return transformed_stmts, ccs
 
     def visit_If(self, node):
         """
-        if <cond>:
-            <stmts>
-        else:
-            <stmts>
+        We transform each branch of the If node individually, making sure they each wind up
+        executing the same continuation, which contains future statements.
         """
-        if_branch = node.body + copy.deepcopy(self.remaining_stmts)
-        else_branch = node.orelse + self.remaining_stmts
-        node.body = self.transform_block(if_branch)
-        node.orelse = self.transform_block(else_branch)
-        self.remaining_stmts = []
 
-        # add node explicitly
-        self.new_block.append(node)
+        node.body, body_continuation = self.transform_block(node.body)
+        node.orelse, orelse_continuation = self.transform_block(node.orelse)
+
+        continuation_name = f"_cont_{node.lineno}"
+        scope_name = f"_scope_{node.lineno}"
+        # Should only do scope packing after variables from both branches have been analyzed.
+        pack, unpack = self.scope_packing_for_current_scope(f"_locals_{node.lineno}", scope_name)
+        continuation_node, = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+            def {continuation_name}({scope_name}):
+                {Placeholder.new('unpack')}
+        ''')), dict(unpack=unpack)).body
+        conditional_done_call = pack + ast.parse(f'return lambda: {continuation_name}({scope_name})').body
+        # Add the continuation
+        self.current_continuation_stmts.extend([continuation_node, node])
+        # Make branches go to continuation
+        body_continuation += conditional_done_call
+        orelse_continuation += conditional_done_call
+        # Future statements go in continuation body
+        self.current_continuation_stmts = continuation_node.body
+        return None
 
     def visit_Return(self, node):
         new_node = ast.parse(f"return lambda : {self.final_continuation_name}(_res)").body[0]
         new_node.value.body.args[0] = node.value
-
-        # add node explicitly
-        self.new_block.append(new_node)
+        return new_node
 
 class HashableCollectionTransform(ast.NodeTransformer):
     """

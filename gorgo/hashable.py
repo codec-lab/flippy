@@ -1,3 +1,4 @@
+import collections.abc
 from functools import cached_property
 
 """
@@ -13,6 +14,10 @@ def make_hashable(obj):
         return hashablelist(obj)
     elif isinstance(obj, set):
         return hashableset(obj)
+    elif isinstance(obj, (collections.abc.ItemsView, collections.abc.KeysView)):
+        return hashableset(obj)
+    elif isinstance(obj, collections.abc.ValuesView):
+        return hashablelist(obj)
     return obj
 
 class hashabledict(dict):
