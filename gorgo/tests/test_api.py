@@ -92,6 +92,45 @@ def test_scalar_implicature():
         probabilities=[4/9, 4/9, 1/9],
     ))
 
+def test_planning_as_inference():
+    import math
+    class MDP:
+        '''
+        This simple task has an always-increasing state, until a terminal
+        limit is reached. Rewards are directly based on action indices
+        selected.
+        '''
+        def __init__(self, limit=2):
+            self.limit = limit
+        def initial_state(self):
+            return 0
+        def actions(self):
+            return [0, 1]
+        def is_terminal(self, s):
+            return s == self.limit
+        def next_state(self, s, a):
+            return s + 1
+        def reward(self, s, a, ns):
+            return -a
+    @infer
+    def fn(mdp):
+        s = mdp.initial_state()
+        actions = ()
+        while not mdp.is_terminal(s):
+            a = Categorical(mdp.actions()).sample()
+            actions += (a,)
+            ns = mdp.next_state(s, a)
+            r = mdp.reward(s, a, ns)
+            assert r <= 0
+            Bernoulli(math.exp(r)).observe(1)
+            s = ns
+        return actions
+    # Enumerate all action sequences
+    s = [(a, b) for a in range(2) for b in range(2)]
+    # Total reward for a sequence is exp(-sum(actions))
+    expected = Categorical(s, weights=[math.exp(-sum(ev)) for ev in s])
+    assert fn(MDP()).isclose(expected)
+
 def test_infer():
     def f0():
         return Bernoulli(.4).sample()
