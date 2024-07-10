@@ -200,6 +200,20 @@ class Categorical(FiniteDistribution, Generic[Element]):
                 ax.set_xlabel(ykey)
                 ax.set_ylabel(xkey)
                 return ax
+        elif is_dataclass(element):
+            if len(element.__annotations__) == 1:
+                key = next(iter(element.__annotations__))
+                dist = self.marginalize(lambda d : getattr(d, key))
+                ax = dist._plot_1d(ax=ax, bins=bins, **kwargs)
+                ax.set_xlabel(key)
+                return ax
+            if len(element.__annotations__) == 2:
+                xkey, ykey = element.__annotations__
+                dist = self.marginalize(lambda d : (getattr(d, xkey), getattr(d, ykey)))
+                ax = dist._plot_2d(ax=ax, bins=bins, **kwargs)
+                ax.set_xlabel(ykey)
+                ax.set_ylabel(xkey)
+                return ax
         raise NotImplementedError("Can't plot this distribution")
 
     def _plot_2d(self, ax=None, bins=100, **kwargs):
