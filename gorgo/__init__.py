@@ -1,17 +1,18 @@
 import functools
 import math
-from typing import Callable, Sequence, TYPE_CHECKING, Union, TypeVar, overload
+import inspect
+from typing import Callable, Sequence, Union, TypeVar, overload, Generic
 from gorgo.transforms import CPSTransform
-from gorgo.inference import _distribution_from_inference, \
+from gorgo.inference import \
     SimpleEnumeration, Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
 from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform, Element
 from gorgo.distributions.random import default_rng
 from gorgo.core import global_store
-from gorgo.types import CPSCallable, Continuation
 from gorgo.hashable import hashabledict
 from gorgo.map import recursive_map
+from gorgo.tools import LRUCache
 
-from gorgo.interpreter import CPSInterpreter, Stack
+from gorgo.interpreter import CPSInterpreter
 
 __all__ = [
     # Core API
@@ -34,18 +35,60 @@ __all__ = [
 # so that combinators preserve the type signature of functions
 R = TypeVar('R')
 
-def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
-    def continuation(*args, _cont: Continuation=None, _cps: 'CPSInterpreter'=None, _stack: 'Stack'=None, **kws):
-        rv = fn(*args, **kws)
+class DescriptorMixIn:
+    """
+    A mixin class that provides a descriptor interface for a callable object.
+    """
+    def __init__(self, wrapped_func):
+        if inspect.ismethod(wrapped_func):
+            raise ValueError("Cannot wrap a method outside the class namespace")
+        self.is_classmethod = isinstance(wrapped_func, classmethod)
+        self.is_staticmethod = isinstance(wrapped_func, staticmethod)
+
+    def __call__(self, *args, _cont=None, _cps=None, _stack=None, **kws):
+        raise NotImplementedError
+
+    def __get__(self, obj, objtype=None):
+        # if we wrapped a class method, we return a partial function with cls
+        if self.is_classmethod:
+            objtype = objtype if objtype is not None else type(obj)
+            partial_call = functools.partial(self.__call__, objtype)
+            setattr(partial_call, CPSTransform.is_transformed_property, True)
+            return partial_call
+
+        # if we wrapped a static method, we return the function itself
+        if self.is_staticmethod:
+            return self
+
+        # if we wrapped a normal method, we return the function itself or
+        # a partial function with obj
+        if obj is None:
+            return self
+        partial_call = functools.partial(self.__call__, obj)
+        setattr(partial_call, CPSTransform.is_transformed_property, True)
+        return partial_call
+
+class KeepDeterministicCallable(DescriptorMixIn):
+    def __init__(self, func):
+        DescriptorMixIn.__init__(self, func)
+        self.wrapped_func = func
+        if isinstance(func, (classmethod, staticmethod)):
+            self.wrapped_func = func.__func__
+        functools.update_wrapper(self, func)
+        setattr(self, CPSTransform.is_transformed_property, True)
+
+    def __call__(self, *args, _cont=None, _cps=None, _stack=None, **kws):
+        rv = self.wrapped_func(*args, **kws)
         if _cont is None:
             return rv
         else:
             return lambda : _cont(rv)
-    setattr(continuation, CPSTransform.is_transformed_property, True)
-    functools.update_wrapper(continuation, fn)
-    return continuation
 
-def cps_transform_safe_decorator(dec):
+
+def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
+    return KeepDeterministicCallable(fn)
+
+def cps_transform_safe_decorator(dec: Callable) -> Callable:
     """
     A higher-order function that wraps a decorator so that it works with functions
     that are CPS transformed or will be CPS transformed.
@@ -64,52 +107,74 @@ def cps_transform_safe_decorator(dec):
         # code first from the module scope and then transform/wrap it using a CPSInterpreter
         # object. The CPSInterpreter object transforms the source code and then executes the current
         # code a second time on the transformed function (in an "exec" statement). This second
-        # call to the current code does not need to transform the function, but it
-        # does need to wrap it and then flag it as wrapped. Once we return from the second
-        # call to the first call, the function is both transformed and wrapped, so we will return it.
+        # call to the current code does not need to transform the function, and this is indicated
+        # by a _compile_mode flag associated with the CPSInterpreter class.
 
         # Case 2 is simpler because we only need to wrap the function. This occurs when the function
         # is nested inside another function that has already been CPS transformed.
-
-        if not CPSTransform.is_transformed(fn):
-            fn = CPSInterpreter().non_cps_callable_to_cps_callable(fn)
-
-        # After the function gets transformed and wrapped by the interpreter
-        # we will encounter it again. We simply return it.
-        if getattr(fn, "_wrapped_with", None) == dec:
+        if CPSInterpreter._compile_mode:
             return fn
         wrapped_fn = dec(fn, *args, **kws)
-        setattr(wrapped_fn, "_wrapped_with", dec)
         return wrapped_fn
     wrapped_decorator = functools.wraps(dec)(wrapped_decorator)
     return wrapped_decorator
+
+class InferCallable(Generic[Element], DescriptorMixIn):
+    def __init__(
+        self,
+        func: Callable[..., Element],
+        method="Enumeration",
+        cache_size=0,
+        **kwargs
+    ):
+        DescriptorMixIn.__init__(self, func)
+
+        if isinstance(method, str):
+            method = {
+                'Enumeration': Enumeration,
+                'SimpleEnumeration': SimpleEnumeration,
+                'SamplePrior': SamplePrior,
+                'MetropolisHastings': MetropolisHastings,
+                'LikelihoodWeighting' : LikelihoodWeighting
+            }[method]
+        self.cache_size = cache_size
+        self.cache = LRUCache(cache_size)
+        self.method = method
+        self.kwargs = kwargs
+        if isinstance(func, (classmethod, staticmethod)):
+            func = func.__func__
+        if not CPSTransform.is_transformed(func):
+            func = CPSInterpreter().non_cps_callable_to_cps_callable(func)
+        self.inference_alg = self.method(func, **self.kwargs)
+        setattr(self, CPSTransform.is_transformed_property, True)
+
+    def __call__(self, *args, _cont=None, _cps=None, _stack=None, **kws) -> Distribution[Element]:
+        if self.cache_size > 0:
+            kws_tuple = tuple(sorted(kws.items()))
+            if (args, kws_tuple) in self.cache:
+                dist = self.cache[args, kws_tuple]
+            else:
+                dist = self.inference_alg.run(*args, **kws)
+                self.cache[args, kws_tuple] = dist
+        else:
+            dist = self.inference_alg.run(*args, **kws)
+        if _cont is None:
+            return dist
+        else:
+            return lambda : _cont(dist)
 
 @cps_transform_safe_decorator
 def infer(
     func: Callable[..., Element]=None,
     method=Enumeration,
-    cache_size=0,
+    cache_size=1024,
     **kwargs
-) -> Callable[..., Distribution[Element]]:
-    if isinstance(method, str):
-        method = {
-            'Enumeration': Enumeration,
-            'SimpleEnumeration': SimpleEnumeration,
-            'SamplePrior': SamplePrior,
-            'MetropolisHastings': MetropolisHastings,
-            'LikelihoodWeighting' : LikelihoodWeighting
-        }[method]
+) -> InferCallable[Element]:
+    return InferCallable(func, method, cache_size, **kwargs)
 
-    func = method(func, **kwargs)
-
-    def wrapped(*args, _cont=None, _cps=None, **kws) -> Distribution[Element]:
-        dist = func.run(*args, **kws)
-        return _distribution_from_inference(dist)
-
-    if cache_size > 0:
-        wrapped = functools.lru_cache(maxsize=cache_size)(wrapped)
-    wrapped = keep_deterministic(wrapped)
-    return wrapped
+# type hints for infer - if we can use ParamSpecs this will be cleaner
+InferenceType = Callable[[Callable[..., Element]], InferCallable[Element]]
+infer : Callable[..., Union[InferCallable, InferenceType]]
 
 def recursive_filter(fn, iter):
     if not iter:

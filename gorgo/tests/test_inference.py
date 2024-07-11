@@ -1,7 +1,7 @@
 import math
-from gorgo import _distribution_from_inference, flip, mem, condition, draw_from
+from gorgo import flip, mem, condition, draw_from
 from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal, Gamma, Uniform
-from gorgo.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting
+from gorgo.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting, _distribution_from_inference
 from gorgo.inference.enumeration import Enumeration
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState

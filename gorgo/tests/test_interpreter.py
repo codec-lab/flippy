@@ -3,6 +3,7 @@ from gorgo.distributions import Bernoulli, Categorical
 from gorgo.core import GlobalStore, ReadOnlyProxy
 from gorgo.core import SampleState, ReturnState
 from gorgo.interpreter import CPSInterpreter
+from gorgo.transforms import CPSTransform
 from gorgo.transforms import CPSFunction
 from gorgo.callentryexit import EnterCallState, ExitCallState, register_call_entryexit
 from gorgo.hashable import hashablelist, hashabledict
@@ -11,7 +12,7 @@ import math
 import pytest
 import traceback
 
-from test_transforms import trampoline
+from gorgo.tests.test_transforms import trampoline
 
 def geometric(p):
     x = Bernoulli(p).sample()
@@ -712,3 +713,19 @@ def test_generate_unique_method_name():
     for f, n in funcs_names:
         gen_name = CPSInterpreter().generate_unique_method_name(f)
         assert n == gen_name, (f, n, gen_name)
+
+def test_CPSFunction_hashing_and_equality():
+    # We assume functions are equal up to source code and closure
+    # This doesn't include global scope since that's handled by program state
+    def model():
+        i = Bernoulli(0.5).sample() + Bernoulli(0.5).sample()
+        def f():
+            return i + 1
+        return f
+
+    ps = CPSInterpreter().initial_program_state(model)
+    fs = [ps.step().step(b1).step(b2).value for b1 in [0, 1] for b2 in [0, 1]]
+    assert len(set(fs)) == 3, "Functions are unique up to their source code and closures"
+    assert len(set(f.func_src for f in fs)) == 1
+    assert len(set(f.closure for f in fs)) == 3
+    assert set(f.closure['i'] for f in fs) == {0, 1, 2}

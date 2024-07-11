@@ -1,12 +1,16 @@
 import ast
 from functools import cached_property
-from typing import Callable
+from typing import Callable, TYPE_CHECKING
 import textwrap
 import copy
 import contextlib
 import collections
 import dataclasses
 from gorgo.hashable import hashabledict
+from gorgo.types import CPSCallable
+
+if TYPE_CHECKING:
+    from gorgo.interpreter import CPSInterpreter
 
 class Placeholder(ast.NodeTransformer):
     '''
@@ -767,19 +771,23 @@ class GetLineNumber(ast.NodeVisitor):
         return node
 
 class CPSFunction:
-    def __init__(self, func: Callable, func_src: str):
-        self.func = func
+    def __init__(
+        self,
+        cps_func: Callable,
+        func_src: str,
+    ):
+        self.cps_func = cps_func
         self.func_src = func_src
         setattr(self, CPSTransform.is_transformed_property, True)
 
     def __call__(self, *args, **kwargs):
-        return self.func(*args, **kwargs)
+        return self.cps_func(*args, **kwargs)
 
     @property
     def closure(self) -> hashabledict:
-        if getattr(self.func, "__closure__", None) is not None:
-            closure_keys = self.func.__code__.co_freevars
-            closure_values = [cell.cell_contents for cell in self.func.__closure__]
+        if getattr(self.cps_func, "__closure__", None) is not None:
+            closure_keys = self.cps_func.__code__.co_freevars
+            closure_values = [cell.cell_contents for cell in self.cps_func.__closure__]
             return hashabledict(zip(closure_keys, closure_values))
         else:
             return hashabledict()
@@ -795,10 +803,13 @@ class CPSFunction:
     def __eq__(self, other):
         if not isinstance(other, CPSFunction):
             return False
-        return self.func_src == other.func_src and self.closure == other.closure
+        return \
+            self.func_src == other.func_src and \
+            self.closure == other.closure
 
-    def __getattr__(self, name):
-        return getattr(self.func, name)
+    @property
+    def __name__(self):
+        return self.cps_func.__name__
 
 class CPSTransform(NodeTransformer):
     """

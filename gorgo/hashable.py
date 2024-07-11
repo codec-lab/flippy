@@ -50,6 +50,11 @@ class hashabledict(dict):
     popitem = _immutable_error
     setdefault = _immutable_error
     __ior__ = _immutable_error
+    def __reduce__(self):
+        return (
+            hashabledict,
+            (dict(self),)
+        )
 
 class hashablelist(list):
     @cached_property
@@ -93,6 +98,11 @@ class hashablelist(list):
     sort = _immutable_error
     __imul__ = _immutable_error
     reverse = _immutable_error
+    def __reduce__(self):
+        return (
+            hashablelist,
+            (list(self),)
+        )
 
 class hashableset(set):
     @cached_property
@@ -124,4 +134,9 @@ class hashableset(set):
     discard = _immutable_error
     pop = _immutable_error
     clear = _immutable_error
+    def __reduce__(self):
+        return (
+            hashableset,
+            (set(self),)
+        )
 

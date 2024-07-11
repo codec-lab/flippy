@@ -1,11 +1,15 @@
+import math
+import linecache
+import joblib
+import pytest
+
 from gorgo import flip, mem, infer, draw_from, factor, condition, \
-    Bernoulli, Categorical, Uniform, \
+    Bernoulli, Categorical, Uniform, keep_deterministic,\
     uniform, recursive_map, recursive_filter, recursive_reduce, \
     map_observe, cps_transform_safe_decorator
 from gorgo.interpreter import CPSInterpreter
-from gorgo.inference import SimpleEnumeration, LikelihoodWeighting
+from gorgo.inference import SimpleEnumeration, LikelihoodWeighting, Enumeration
 from gorgo.core import ReturnState
-import math
 
 
 def algebra():
@@ -376,3 +380,321 @@ def test_chained_decorators():
 
     assert model_12().isclose(Categorical.from_dict({'0_ab': 0.6, '1_ab': 0.4}))
     assert model_21().isclose(Categorical.from_dict({'0_ba': 0.6, '1_ba': 0.4}))
+
+def test_keep_deterministic__wrapping_function():
+    @keep_deterministic
+    def function(i):
+        return i + flip()
+    assert function(1) in (1, 2)
+    assert function(2) in (2, 3)
+
+def test_keep_deterministic__wrapping_methods():
+    def tests(MyClass):
+        c = MyClass()
+        assert c.normal_method(1) in (100, 101)
+        assert MyClass.normal_method(c, 1) in (100, 101)
+
+        c2 = MyClass(200)
+        assert c2.normal_method(1) in (200, 201)
+        assert MyClass.normal_method(c2, 1) in (200, 201)
+
+        assert c.class_method(1) in (100, 101)
+        assert c2.class_method(1) in (100, 101)
+        assert MyClass.class_method(1) in (100, 101)
+
+        assert c.static_method(1) in (100, 101)
+        assert c2.static_method(1) in (100, 101)
+        assert MyClass.static_method(1) in (100, 101)
+
+    class MyClass:
+        x = 100
+        def __init__(self, x=None):
+            if x is not None:
+                self.x = x
+
+        @keep_deterministic
+        def normal_method(self, i):
+            return flip()*i + self.x
+
+        @keep_deterministic
+        @classmethod
+        def class_method(cls, i):
+            return flip()*i + cls.x
+
+        @keep_deterministic
+        @staticmethod
+        def static_method(i):
+            return flip()*i + MyClass.x
+
+    tests(MyClass)
+
+    # now test calling method from within model
+    @infer
+    def model():
+        tests(MyClass)
+    model()
+
+
+def test_infer_wrapping_instance_method():
+    class MyClass:
+        @infer
+        def stochastic_method(self):
+            return flip(.65)
+
+    @infer
+    def stochastic_function():
+        return flip(.65)
+
+    c = MyClass()
+
+    assert c.stochastic_method().isclose(stochastic_function())
+    assert MyClass.stochastic_method(c).isclose(stochastic_function())
+
+    # now test calling method from within model
+    @infer
+    def model_1():
+        return c.stochastic_method().sample()
+    assert model_1().isclose(stochastic_function())
+
+    @infer
+    def model_2():
+        return MyClass.stochastic_method(c).sample()
+    assert model_2().isclose(stochastic_function())
+
+def test_keep_deterministic_wrapping_instance_method():
+    class MyClass:
+        @keep_deterministic
+        def deterministic_method(self):
+            return 1
+
+    c = MyClass()
+    assert c.deterministic_method() == 1
+    assert MyClass.deterministic_method(c) == 1
+
+    # now test calling method from within model
+    @infer
+    def model():
+        c = MyClass()
+        x = c.deterministic_method()
+        y = MyClass.deterministic_method(c)
+        return x + y
+
+    assert model().isclose(Categorical.from_dict({2: 1}))
+
+def test_infer__called_by_function_in_joblib_Parallel_loky():
+    @infer(method=Enumeration, cache_size=0)
+    def model():
+        return 123
+
+    def f(_linecache):
+        linecache.cache.update(_linecache)
+        return model()
+
+    res = joblib.Parallel(n_jobs=1, backend="loky")(joblib.delayed(f)(linecache.cache) for _ in range(2))
+    assert all([r.isclose(Categorical([123])) for r in res])
+
+def test_infer__called_by_function_in_joblib_Parallel_loky_with_caching():
+    @infer(method=SimpleEnumeration, cache_size=5)
+    def model(p):
+        return flip(p) + flip(p)
+
+    model(.5)
+    model(.7)
+
+    def f(p, linecache_cache):
+        linecache.cache.update(linecache_cache)
+        assert len(model.cache) == 2
+        model(p)
+        if p not in (.5, .7):
+            assert len(model.cache) == 3
+        else:
+            assert len(model.cache) == 2
+        return model(p)
+
+    joblib.Parallel(n_jobs=2)(joblib.delayed(f)(p, linecache.cache) for p in [.5, .6, .7, .8])
+    assert len(model.cache) == 2
+
+def test_infer__multi_cpu_method_decorator():
+    @infer(method=Enumeration, _cpus=2)
+    def f_dec() -> bool:
+        return flip(.67)
+    assert f_dec().isclose(Bernoulli(.67))
+
+def test_infer__multi_cpu_method_nondecorator():
+    def f_nodec():
+        return flip(.67)
+    f_nodec = infer(f_nodec, method=Enumeration, _cpus=2)
+    assert f_nodec().isclose(Bernoulli(.67))
+
+# Combinations of situations in which we want to to test infer on methods:
+# - is infer being used as a decorator?
+# - is infer applied to a normal method / classmethod / staticmethod?
+# - is the inferred method accessed from instance or from the class?
+# - is infer using a multi-cpu inference method?
+# - is the inferred method being used in some other parallelized code?
+# - is infer applied inside class or outside class scope? (see notes below)
+
+def _test_infer__on_class_defined_method_serial(MyClass):
+    @infer
+    def stochastic_function():
+        return flip(.65)
+
+    c = MyClass()
+    assert c.normal_method().isclose(stochastic_function())
+    assert c.cls_method().isclose(stochastic_function())
+    assert c.static_method().isclose(stochastic_function())
+
+    assert MyClass.normal_method(c).isclose(stochastic_function())
+    assert MyClass.cls_method().isclose(stochastic_function())
+    assert MyClass.static_method().isclose(stochastic_function())
+
+def _test_infer__on_class_defined_method_parallel(MyClass):
+    def parallelized_func(linecache_):
+        @infer
+        def stochastic_function():
+            return flip(.65)
+        linecache.cache.update(linecache_)
+        c = MyClass()
+        assert c.normal_method().isclose(stochastic_function())
+        assert c.cls_method().isclose(stochastic_function())
+        assert c.static_method().isclose(stochastic_function())
+
+        assert MyClass.normal_method(c).isclose(stochastic_function())
+        assert MyClass.cls_method().isclose(stochastic_function())
+        assert MyClass.static_method().isclose(stochastic_function())
+    joblib.Parallel(n_jobs=2, backend='loky')(
+        joblib.delayed(parallelized_func)(linecache.cache) for _ in range(2)
+    )
+
+def _test_infer__on_class_defined_method_nested(MyClass):
+    @infer(method=SimpleEnumeration)
+    def model():
+        c = MyClass()
+        assert c.normal_method().sample() in (0, 1)
+        assert c.cls_method().sample() in (0, 1)
+        assert c.static_method().sample() in (0, 1)
+        assert MyClass.normal_method(c).sample() in (0, 1)
+        assert MyClass.cls_method().sample() in (0, 1)
+        assert MyClass.static_method().sample() in (0, 1)
+        return 100
+    assert model().isclose(Categorical([100]))
+
+def _test_infer__on_class_defined_method_nested_multicpu_method(MyClass):
+    @infer(method=Enumeration, _cpus=2)
+    def model():
+        c = MyClass()
+        assert c.normal_method().sample() in (0, 1)
+        assert c.cls_method().sample() in (0, 1)
+        assert c.static_method().sample() in (0, 1)
+        assert MyClass.normal_method(c).sample() in (0, 1)
+        assert MyClass.cls_method().sample() in (0, 1)
+        assert MyClass.static_method().sample() in (0, 1)
+        return 100
+    assert model().isclose(Categorical([100]))
+
+def test_infer__decorating_methods__inside_class():
+    class MyClass:
+        @infer
+        def normal_method(self, p=.65):
+            return flip(p)
+
+        @infer
+        @classmethod
+        def cls_method(cls, p=.65):
+            return flip(p)
+
+        @infer
+        @staticmethod
+        def static_method(p=.65):
+            return flip(p)
+    _test_infer__on_class_defined_method_serial(MyClass)
+    _test_infer__on_class_defined_method_parallel(MyClass)
+    _test_infer__on_class_defined_method_nested(MyClass)
+    _test_infer__on_class_defined_method_nested_multicpu_method(MyClass)
+
+def test_infer__not_decorating_methods__inside_class():
+    class MyClass:
+        def normal_method(self, p=.65):
+            return flip(p)
+        normal_method = infer(normal_method)
+
+        @classmethod
+        def cls_method(cls, p=.65):
+            return flip(p)
+        cls_method = infer(cls_method)
+
+        @staticmethod
+        def static_method(p=.65):
+            return flip(p)
+        static_method = infer(static_method)
+
+    _test_infer__on_class_defined_method_serial(MyClass)
+    _test_infer__on_class_defined_method_parallel(MyClass)
+    _test_infer__on_class_defined_method_nested(MyClass)
+    _test_infer__on_class_defined_method_nested_multicpu_method(MyClass)
+
+def test_infer__decorating_methods__inside_class__multicpu_inference_alg():
+    class MyClass:
+        @infer(method=Enumeration, _cpus=2)
+        def normal_method(self, p=.65):
+            return flip(p)
+
+        @infer(method=Enumeration, _cpus=2)
+        @classmethod
+        def cls_method(cls, p=.65):
+            return flip(p)
+
+        @infer(method=Enumeration, _cpus=2)
+        @staticmethod
+        def static_method(p=.65):
+            return flip(p)
+    _test_infer__on_class_defined_method_serial(MyClass)
+    _test_infer__on_class_defined_method_parallel(MyClass)
+    _test_infer__on_class_defined_method_nested(MyClass)
+    _test_infer__on_class_defined_method_nested_multicpu_method(MyClass)
+
+def test_infer__applied_to_methods__outside_class_invalid():
+    class MyClass:
+        def normal_method(self, p=.65):
+            return flip(p)
+
+        @classmethod
+        def cls_method(cls, p=.65):
+            return flip(p)
+
+        @staticmethod
+        def static_method(p=.65):
+            return flip(p)
+
+    with pytest.raises(ValueError) as e:
+        MyClass.cls_method = infer(MyClass.cls_method)
+    assert "Cannot wrap a method outside the class namespace" in str(e.value)
+
+    c = MyClass()
+    with pytest.raises(ValueError) as e:
+        c.normal_method = infer(c.normal_method, method=Enumeration)
+    assert "Cannot wrap a method outside the class namespace" in str(e.value)
+
+    # applying infer on a static method outside the class is not supported
+    # when its called from an instance
+    MyClass.static_method = infer(MyClass.static_method, method=Enumeration)
+    c = MyClass()
+    with pytest.raises(TypeError) as e:
+        c.static_method(.33)
+    assert "takes from 0 to 1 positional arguments" in str(e.value)
+
+def test_infer__applied_to_methods__outside_class_valid():
+    class MyClass:
+        def normal_method(self, p=.65):
+            return flip(p)
+
+        @staticmethod
+        def static_method(p=.65):
+            return flip(p)
+
+    MyClass.normal_method = infer(MyClass.normal_method)
+    MyClass.static_method = infer(MyClass.static_method)
+    c = MyClass()
+    assert c.normal_method(.6).isclose(Bernoulli(.6))
+    assert MyClass.normal_method(c, .6).isclose(Bernoulli(.6))
+    assert MyClass.static_method(.6).isclose(Bernoulli(.6))

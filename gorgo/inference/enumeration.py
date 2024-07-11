@@ -1,6 +1,6 @@
 import queue
 import heapq
-import inspect
+import linecache
 from dataclasses import dataclass
 from itertools import product
 from collections import defaultdict, OrderedDict
@@ -13,12 +13,19 @@ from scipy.sparse import eye as sp_eye, coo_array
 
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState, GlobalStore
 from gorgo.interpreter import CPSInterpreter
+from gorgo.transforms import CPSTransform
 from gorgo.distributions import Categorical
 from gorgo.tools import logsumexp
 from gorgo.callentryexit import EnterCallState, ExitCallState
 from gorgo.map import MapEnter, MapExit
 from gorgo.inference.simpleenumeration import EnumerationStats, ProgramStateRecord
 from gorgo.hashable import hashabledict
+from gorgo.tools import LRUCache
+
+try:
+    from joblib import Parallel, delayed, cpu_count
+except ImportError:
+    pass
 
 @dataclass
 class ScoredProgramState:
@@ -46,28 +53,81 @@ class Enumeration:
         _call_cache_size=128,
         _map_cross_product=True,
         _enumeration_strategy='tree',
+        _cpus=1,
         _emit_call_entryexit=True,
     ):
+        self.cps = CPSInterpreter(_emit_call_entryexit=_emit_call_entryexit)
+        if not CPSTransform.is_transformed(function):
+            function = self.cps.non_cps_callable_to_cps_callable(function)
         self.function = function
         self.max_states = max_states
         self._stats = None
-        self._call_cache_size = _call_cache_size
-        self._call_cache = OrderedDict()
+        if _call_cache_size > 0:
+            self._call_cache = LRUCache(max_size=_call_cache_size)
+        else:
+            self._call_cache = None
         self._enumeration_strategy = _enumeration_strategy
         self._map_cross_product = _map_cross_product
+        self._cpus = _cpus
         self._emit_call_entryexit = _emit_call_entryexit
 
     @cached_property
     def init_ps(self):
-        cps = CPSInterpreter(_emit_call_entryexit=self._emit_call_entryexit)
-        return cps.initial_program_state(self.function)
+        return self.cps.initial_program_state(self.function)
 
-    def run(self, *args, **kws):
+    def _run_partition(self, *args, _partition_idx, _partitions, _linecache, **kws):
+        # restore linecache so inspect.getsource works for interactively defined functions
+        linecache.cache = _linecache
+
+        ps = self.init_ps.step(*args, **kws)
+        # This skips the initial call entry state when the outermost function is called
+        # otherwise partitioning would only happen after all possible executions have been
+        # fully enumerated
+        # TODO: fixing partitioning scheme to handle recursive enumeration calls would
+        # also deal with this
+        if isinstance(ps, EnterCallState):
+            assert len(ps.stack) == 1
+            ps = ps.step()
+        states, scores = self.enumerate_return_states_scores(
+            init_ps=ps,
+            max_states=self.max_states,
+            _partition_idx=_partition_idx,
+            _partitions=_partitions
+        )
+        values = [state.value for state in states]
+        return values, scores
+
+    def _run_parallel(self, *args, **kws):
+        assert CPSTransform.is_transformed(self.function), \
+            "Function must be CPS transformed prior to creating workers"
+        if self._cpus < 0:
+            cpus = cpu_count() + 1 + self._cpus
+        else:
+            cpus = self._cpus
+
+        all_value_scores = Parallel(n_jobs=cpus, backend="loky")(
+            delayed(self._run_partition)(
+                *args, **kws,
+                _partition_idx=i,
+                _partitions=cpus,
+                _linecache=linecache.cache,
+            )
+        for i in range(cpus))
+        values = sum([s for s, _ in all_value_scores], [])
+        scores = sum([s for _, s in all_value_scores], [])
+        return values, scores
+
+    def _run_single(self, *args, **kws):
         ps = self.init_ps.step(*args, **kws)
         return_states, return_scores = self.enumerate_return_states_scores(ps, self.max_states)
-        if len(return_states) == 0:
-            raise ValueError("No return states encountered during enumeration")
-        return_values = [rs.value for rs in return_states]
+        return_vals = [rs.value for rs in return_states]
+        return return_vals, return_scores
+
+    def run(self, *args, **kws):
+        if self._cpus == 1:
+            return_values, return_scores = self._run_single(*args, **kws)
+        else:
+            return_values, return_scores = self._run_parallel(*args, **kws)
         return_probs = np.exp(return_scores)
         return_probs = return_probs / return_probs.sum()
         normalized_dist = {}
@@ -79,11 +139,14 @@ class Enumeration:
         self,
         init_ps: ProgramState,
         max_states: int = float('inf'),
+        _partition_idx=0,
+        _partitions=1
     ) -> Tuple[List[Union[ReturnState,ExitCallState]], List[float]]:
+        assert _partition_idx < _partitions, "Partition index must be less than the number of partitions"
         if self._enumeration_strategy == 'graph':
-            return self.enumerate_graph(init_ps, max_states)
+            return self.enumerate_graph(init_ps, max_states, _partition_idx=_partition_idx, _partitions=_partitions)
         elif self._enumeration_strategy == 'tree':
-            return self.enumerate_tree(init_ps, max_states)
+            return self.enumerate_tree(init_ps, max_states, _partition_idx=_partition_idx, _partitions=_partitions)
         else:
             raise ValueError(f"Unrecognized enumeration strategy {self._enumeration_strategy}")
 
@@ -92,6 +155,8 @@ class Enumeration:
         self,
         init_ps: ProgramState,
         max_states: int = float('inf'),
+        _partition_idx=0,
+        _partitions=1
     ) -> Dict[Union[ReturnState,ExitCallState], float]:
         if isinstance(init_ps, (ReturnState, ExitCallState)):
             return [init_ps], [0.]
@@ -100,11 +165,29 @@ class Enumeration:
         return_states = []
         return_scores = []
         heapq.heappush(frontier, ScoredProgramState(0., init_ps))
+        in_partition = _partitions == 1
         while len(frontier) > 0:
+            if not in_partition and len(frontier) >= _partitions:
+                # This block of code only occurs once in each worker during
+                # multi-cpu enumeration (and never in single-cpu enumeration).
+                # We partition trace space by expanding the frontier until there
+                # are at least as many program states as there are partitions.
+                # Then we assign a subset of the frontier to each worker.
+                if _partition_idx != 0:
+                    return_states, return_scores = [], []
+                sub_frontier = []
+                for i, ps in enumerate(frontier):
+                    if i % _partitions == _partition_idx:
+                        sub_frontier.append(ps)
+                frontier = sub_frontier
+                in_partition = True
+                continue
+
             if n_visited >= max_states:
                 break
             cum_score, ps = heapq.heappop(frontier)
             successors, scores = self.enumerate_successors_scores(ps)
+
             for new_ps, score in zip(successors, scores):
                 if score == float('-inf'):
                     continue
@@ -124,9 +207,12 @@ class Enumeration:
         self,
         init_ps: ProgramState,
         max_states: int = float('inf'),
+        _partition_idx=0,
+        _partitions=1
     ) -> Dict[Union[ReturnState,ExitCallState], float]:
         if isinstance(init_ps, (ReturnState, ExitCallState)):
             return [init_ps], [0.]
+        assert _partitions == 1, "Graph enumeration does not support partitioning"
 
         transition_scores: Dict[Tuple[ProgramState, ProgramState], float] = \
             defaultdict(lambda: float('-inf'))
@@ -280,16 +366,14 @@ class Enumeration:
         self,
         enter_state: EnterCallState,
     ) -> Tuple[List[ExitCallState], List[float]]:
-        if self._call_cache_size == 0:
+        if self._call_cache is None:
             return self._enumerate_enter_call_state_successors(enter_state)
 
         # This logic handles caching using an LRU cache
         global_store_key = hashabledict(enter_state.init_global_store.store)
         key = (enter_state.function, enter_state.args, enter_state.kwargs, global_store_key)
-
         if key in self._call_cache:
-            self._call_cache.hits = getattr(self._call_cache, 'hits', 0) + 1
-            exit_values, exit_scores = self._call_cache.pop(key)
+            exit_values, exit_scores = self._call_cache[key]
             exit_states = []
             for rv, gs in exit_values:
                 gs: GlobalStore
@@ -297,31 +381,29 @@ class Enumeration:
                 next_state.set_init_global_store(gs.copy(), force=True)
                 exit_states.append(next_state)
         else:
-            self._call_cache.misses = getattr(self._call_cache, 'misses', 0) + 1
             exit_states, exit_scores = self._enumerate_enter_call_state_successors(enter_state)
             exit_values = [(rs.value, rs.init_global_store) for rs in exit_states]
-        self._call_cache[key] = (exit_values, exit_scores)
-        if len(self._call_cache) > self._call_cache_size:
-            self._call_cache.popitem(last=False)
+            self._call_cache[key] = (exit_values, exit_scores)
         return exit_states, exit_scores
-
 
     def _enumerate_enter_call_state_successors(
         self,
         init_ps: EnterCallState
     ) -> Tuple[List[ExitCallState], List[float]]:
-        # when we enter a call, we take the first step, see if it returns immediately
-        # and then take the subsequent step
-        # if not, we enumerate the graph to get all the exit states, then for
-        # each exit state, we take the next deterministic step
+        # when we enter a call, we take the first step, see if it halts or returns immediately
         assert isinstance(init_ps, EnterCallState)
         ps, init_score = self.next_choice_state(init_ps)
         if init_score == float('-inf'):
             return [], []
         if isinstance(ps, ExitCallState):
             return [ps], [init_score]
+
+        # if it doesn't immediately exit, we enumerate to get all the exit states/scores
         successors, scores = self.enumerate_return_states_scores(init_ps=ps, max_states=self.max_states)
         scores = [init_score + score for score in scores]
+
+        # if we're using a tree enumeration strategy, we need to collapse over exit states
+        # note this is similar to return site caching
         if self._enumeration_strategy == 'tree' and len(successors) > 0:
             successor_scores = defaultdict(lambda : float('-inf'))
             for state, score in zip(successors, scores):

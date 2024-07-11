@@ -117,8 +117,9 @@ class Stack:
     def __len__(self):
         return len(self.stack_frames)
 
-
 class CPSInterpreter:
+    _compile_mode = False
+    _decorator_var_name = "__decorator_vars__"
     def __init__(self, _emit_call_entryexit: bool = False):
         self.subset_validator = PythonSubsetValidator()
         self.desugaring_transform = DesugaringTransform()
@@ -221,11 +222,16 @@ class CPSInterpreter:
         call : Union['NonCPSCallable', 'CPSCallable']
     ) -> 'Continuation':
         if CPSTransform.is_transformed(call):
-            return self.interpret_transformed(call)
-        return self.interpret_generic(call)
+            continuation = self.interpret_transformed(call)
+        else:
+            continuation = self.interpret_generic(call)
+        return continuation
 
     def interpret_transformed(self, call : CPSFunction) -> 'Continuation':
-        if not self._emit_call_entryexit:
+        if (
+            (not self._emit_call_entryexit) or \
+            (not getattr(call, "_emit_call_entryexit", True)) # hook for debugging
+        ):
             return self.interpret_transformed_only(call)
         else:
             return self.interpret_transformed_and_emit_entryexit(call)
@@ -307,24 +313,38 @@ class CPSInterpreter:
         return self.interpret_transformed(trans_func)
 
     def non_cps_callable_to_cps_callable(self, call: 'NonCPSCallable') -> CPSFunction:
+        assert not CPSTransform.is_transformed(call), "Callable already transformed"
         call_name = self.generate_unique_method_name(call)
-        code = self.compile(
+        code = self.transform_from_func(call, call_name)
+        return self.compile_cps_transformed_code_to_function(code, call, call_name)
+
+    def compile_cps_transformed_code_to_function(
+        self,
+        code: ast.AST,
+        call: 'NonCPSCallable',
+        call_name: str
+    ) -> CPSFunction:
+        compiled_code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
-            self.transform_from_func(call, call_name),
+            code,
         )
         context = {
             **call.__globals__,
             **self.get_closure(call),
-            "_cps": self,
+            CPSTransform.cps_interpreter_name: self,
             "global_store": self.global_store_proxy,
-            "CPSFunction": CPSFunction,
-            "hashabledict": hashabledict,
-            "hashablelist": hashablelist,
+            CPSFunction.__name__: CPSFunction,
+            hashabledict.__name__: hashabledict,
+            hashablelist.__name__: hashablelist,
         }
         try:
-            exec(code, context)
+            assert CPSInterpreter._compile_mode is False
+            CPSInterpreter._compile_mode = True
+            exec(compiled_code, context)
         except SyntaxError as err :
             raise err
+        finally:
+            CPSInterpreter._compile_mode = False
         trans_func = context[call.__name__] if call_name is None else context[call_name]
         if isinstance(trans_func, (classmethod, staticmethod)):
             # not the most elegant fix but it works
@@ -342,7 +362,8 @@ class CPSInterpreter:
         return None
 
     def transform_from_func(self, call: 'NonCPSCallable', call_name: str = None) -> ast.AST:
-        source = textwrap.dedent(inspect.getsource(call))
+        source = inspect.getsource(call)
+        source = textwrap.dedent(source)
         trans_node = ast.parse(source)
         if call_name is not None:
             self.rename_class_method_in_source(trans_node, call_name)
@@ -375,7 +396,8 @@ class CPSInterpreter:
         )
         return compile(source, filename, 'exec')
 
-    def get_closure(self, func: 'NonCPSCallable') -> dict:
+    @staticmethod
+    def get_closure(func: 'NonCPSCallable') -> dict:
         if getattr(func, "__closure__", None) is not None:
             closure_keys = func.__code__.co_freevars
             closure_values = [cell.cell_contents for cell in func.__closure__]
