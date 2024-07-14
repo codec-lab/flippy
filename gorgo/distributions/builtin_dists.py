@@ -99,7 +99,7 @@ class Categorical(FiniteDistribution, Generic[Element]):
             return float('-inf')
 
     def __repr__(self):
-        return f"Categorical(support={self.support}, probabilities={self.probabilities})"
+        return f"{self.__class__.__name__}(support={self.support}, probabilities={self._probabilities})"
 
     def _default_repr_html_(self):
         format_prob = lambda p: f"{p:.3f}" if p > 0.001 else f"{p:.2e}"
