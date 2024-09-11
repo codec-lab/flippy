@@ -229,6 +229,19 @@ def test_control_flow_and():
         (Bernoulli(0.5), 0),
     ], return_value=0)
 
+def test_control_flow_for_continue_break():
+    def fn():
+        rv = []
+        for i in range(10):
+            if i == 3:
+                continue
+            if i == 7:
+                break
+            rv += [i]
+        return rv
+
+    check_trace(fn, [], return_value=[0, 1, 2, 4, 5, 6])
+
 def test_conditional_reassign():
     def fn():
         x = 0
@@ -465,6 +478,10 @@ def test_program_state_identity_with_closures():
     assert ps_0a != ps_1
     assert hash(ps_0a) != hash(ps_1)
 
+    # Names are the same regardless of locals
+    assert ps_0a.name == ps_0b.name
+    assert ps_0a.name == ps_1.name
+
     # g in each thread are equal, but generally not identical objects
     assert ps_0a.stack[1].locals['g'] == ps_0b.stack[1].locals['g']
     assert id(ps_0a.stack[1].locals['g']) != id(ps_0b.stack[1].locals['g'])
@@ -473,6 +490,57 @@ def test_program_state_identity_with_closures():
     #     assert id(ps.step(0).stack[1].locals['g']) != id(ps.step(0).stack[1].locals['g'])
     # except AssertionError:
     #     assert id(ps.step(0).stack[1].locals['g']) != id(ps.step(0).stack[1].locals['g'])
+
+def _assert_stack_frame_fn_match(stack, fn_names):
+    assert len(stack.stack_frames) == len(fn_names)
+    for frame, fn_name in zip(stack.stack_frames, fn_names):
+        if fn_name == '<root>':
+            prefix = fn_name
+        else:
+            prefix = f'def {fn_name}('
+        assert frame.func_src.startswith(prefix), (prefix, frame.func_src[:100])
+
+def test_program_state_identity_with_loops():
+    def f():
+        ct = 0
+        for _ in range(3):
+            ct += Bernoulli(0.5).sample()
+        return ct
+
+    ps = CPSInterpreter().initial_program_state(f)
+    ps = ps.step()
+    ps0 = ps.step(0)
+    ps00 = ps0.step(0)
+    assert ps0 != ps00
+    assert hash(ps0) != hash(ps00)
+    assert ps0.name != ps00.name
+    _assert_stack_frame_fn_match(ps0.name, ['<root>', 'f', '_loop_fn_5', '_loop_fn_5'])
+    _assert_stack_frame_fn_match(ps00.name, ['<root>', 'f', '_loop_fn_5', '_loop_fn_5', '_loop_fn_5'])
+
+def test_program_state_identity_with_loop_continue():
+    def f():
+        ct = 0
+        for i in range(3):
+            if Bernoulli(0.5).sample():
+                ct += i * 2
+                continue
+            ct += i
+        return ct
+
+    ps = CPSInterpreter().initial_program_state(f)
+    ps = ps.step()
+    ps0 = ps.step(0)
+    ps00 = ps0.step(0)
+    ps1 = ps.step(1)
+    ps10 = ps1.step(0)
+    assert ps00 != ps10
+    assert hash(ps00) != hash(ps10)
+    # TODO FIX THIS
+    with pytest.raises(AssertionError):
+        assert ps00.name != ps10.name
+        # HACK: make this check for line numbers
+        _assert_stack_frame_fn_match(ps0.name, ['<root>', 'f', '_loop_fn_5', '_loop_fn_5'])
+        _assert_stack_frame_fn_match(ps00.name, ['<root>', 'f', '_loop_fn_5', '_loop_fn_5', '_loop_fn_5'])
 
 def test_call_entryexit_skipping():
     def model():

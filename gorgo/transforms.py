@@ -685,8 +685,8 @@ class DesugaringTransform(NodeTransformer):
         {idx_sym} = 0
         while {idx_sym} < len({iter_sym}):
             {Placeholder.new('target')} = {iter_sym}[{idx_sym}]
-            {Placeholder.new('body')}
             {idx_sym} += 1
+            {Placeholder.new('body')}
         ''')), dict(
             iter=node.iter,
             target=node.target,
@@ -917,17 +917,20 @@ class CPSTransform(NodeTransformer):
         self.add_name_to_scope(node.arg)
         return node
 
-    def scope_packing_for_current_scope(self, locals_name, scope_name):
+    def scope_packing_for_current_scope(self, locals_name, scope_name, *, hashabledict=False):
         '''
         Our general scheme for scope packing is to pack the possibly-present names
         into a dictionary, if they are defined. Variables are unpacked in a way that
         handles the issue of definition, by only conditionally defining variables.
         '''
         names = sorted(self.scopes[-1])
+        import_ = 'from gorgo.hashable import hashabledict' if hashabledict else ''
+        scope_type = 'hashabledict' if hashabledict else ''
         pack = f'''
+        {import_}
         # We capture locals before we enter any other scope (like a lambda or list comprehension)
         {locals_name} = locals()
-        {scope_name} = {{name: {locals_name}[name] for name in {names} if name in {locals_name}}}
+        {scope_name} = {scope_type}({{name: {locals_name}[name] for name in {names} if name in {locals_name}}})
         '''
         unpack = '\n'.join(f'''
         if "{name}" in {scope_name}:
@@ -998,6 +1001,7 @@ class CPSTransform(NodeTransformer):
         loop_name = f"_loop_fn_{node.lineno}"
         loop_exit_name = f"_loop_exit_fn_{node.lineno}"
         scope_name = f"_scope_{node.lineno}"
+        locals_name = f"_locals_{node.lineno}"
 
         # We process body, replacing continue/break with placeholders.
         # We initially replace with placeholders because continue/break requires packing any
@@ -1009,9 +1013,22 @@ class CPSTransform(NodeTransformer):
         node_body, continuation_block = self.transform_block(node.body)
 
         # Now that we've transformed the loop body, we know all variables that can be defined.
-        pack, unpack = self.scope_packing_for_current_scope(f"_locals_{node.lineno}", scope_name)
-        loop_recur_call = pack + ast.parse(f'return lambda: {loop_name}({scope_name})').body
-        loop_exit_call = pack + ast.parse(f'return lambda: {loop_exit_name}({scope_name})').body
+        pack, unpack = self.scope_packing_for_current_scope(locals_name, scope_name, hashabledict=True)
+        def loop_call_template(cont):
+            return textwrap.dedent(f'''
+                return lambda: {self.cps_interpreter_name}.interpret(
+                    {loop_name},
+                    cont={cont},
+                    stack={self.stack_name},
+                    func_src={self.func_src_name},
+                    locals_={locals_name},
+                    lineno={node.lineno - self.parent_function_lineno}
+                )({scope_name})''')
+        # For the loop's initial call, we supply the post-loop continuation. However, for the
+        # recursive calls (at end of loop body or for continue statements), we use final_continuation_name
+        loop_init_call = pack + ast.parse(loop_call_template(loop_exit_name)).body
+        loop_recur_call = pack + ast.parse(loop_call_template(self.final_continuation_name)).body
+        loop_exit_call = pack + ast.parse(f'return lambda: {self.final_continuation_name}({scope_name})').body
         # At the end of body execution, we recurse. Must happen before filling placeholders in node_body.
         continuation_block.extend(loop_recur_call)
         # Replace continue/break with call that has appropriate variable packing.
@@ -1027,15 +1044,24 @@ class CPSTransform(NodeTransformer):
                     {Placeholder.new('loop_exit_call')}
             def {loop_exit_name}({scope_name}):
                 {Placeholder.new('unpack')}
-            {Placeholder.new('loop_recur_call')}
+            {Placeholder.new('loop_init_call')}
         ''')), dict(
             test=node.test,
             body=node_body,
             unpack=unpack,
+            loop_init_call=loop_init_call,
             loop_recur_call=loop_recur_call,
             loop_exit_call=loop_exit_call,
         )).body
-        _, loop_exit_fn = code[:2]
+        loop_fn, loop_exit_fn = code[:2]
+
+        # Next few lines are copied from visit_FunctionDef
+        loop_fn = self.add_function_src_to_FunctionDef_body(loop_fn)
+        loop_fn = self.add_keyword_to_FunctionDef(loop_fn, self.stack_name, "()")
+        loop_fn = self.add_keyword_to_FunctionDef(loop_fn, self.cps_interpreter_name, self.cps_interpreter_name)
+        loop_fn = self.add_keyword_to_FunctionDef(loop_fn, self.final_continuation_name, "lambda val: val")
+        assert loop_fn is code[0], 'Making sure the object was mutated'
+
         self.current_continuation_stmts.extend(code)
         # Execution continues in the loop exit continuation.
         self.current_continuation_stmts = loop_exit_fn.body

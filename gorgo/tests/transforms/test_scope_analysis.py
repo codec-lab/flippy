@@ -163,6 +163,18 @@ def test_scope_analysis_AugAssign():
         ''')
     assert 'immutable' in str(err)
 
+def test_scope_analysis_shadowing():
+    _analyze('''
+    def fn():
+        x = 3
+        x = 3
+        def inner():
+            x = 4
+            x = 4
+            return x
+        return inner() + x
+    ''')
+
 def test_scope_analysis_Comp():
     for begin, end, elt in [
         # List comprehension

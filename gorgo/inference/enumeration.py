@@ -369,6 +369,11 @@ class Enumeration:
         if self._call_cache is None:
             return self._enumerate_enter_call_state_successors(enter_state)
 
+        # we never cache the root call
+        is_root_call = len(enter_state.stack) == 1
+        if is_root_call:
+            return self._enumerate_enter_call_state_successors(enter_state)
+
         # This logic handles caching using an LRU cache
         global_store_key = hashabledict(enter_state.init_global_store.store)
         key = (enter_state.function, enter_state.args, enter_state.kwargs, global_store_key)

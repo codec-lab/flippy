@@ -1,4 +1,7 @@
+import collections
 import math
+
+from frozendict import frozendict
 from gorgo import flip, mem, condition, draw_from
 from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal, Gamma, Uniform
 from gorgo.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting, _distribution_from_inference
@@ -18,6 +21,12 @@ def geometric(p):
         return 1
     return 1 + geometric(p)
 
+def geometric_iter(p):
+    ct = 1
+    while Bernoulli(p).sample() == 0:
+        ct += 1
+    return ct
+
 def expectation(d: Distribution, projection=lambda s: s):
     total = 0
     partition = 0
@@ -31,17 +40,18 @@ def expectation(d: Distribution, projection=lambda s: s):
 def test_enumeration_geometric():
     param = 0.25
     expected = 1/param
-    rv = SimpleEnumeration(geometric, max_executions=100).run(param)
-    d = _distribution_from_inference(rv)
-    assert isclose(expectation(d), expected)
+    for fn in [geometric, geometric_iter]:
+        rv = SimpleEnumeration(fn, max_executions=100).run(param)
+        d = _distribution_from_inference(rv)
+        assert isclose(expectation(d), expected)
 
-    assert len(rv) == 100
-    assert set(rv.keys()) == set(range(1, 101)), set(rv.keys()) - set(range(1, 101))
-    for k, sampled_prob in rv.items():
-        pmf = (1-param) ** (k - 1) * param
-        # This will only be true when executions is high enough, since
-        # sampled_prob is normalized.
-        assert isclose(sampled_prob, pmf), (k, sampled_prob, pmf)
+        assert len(rv) == 100
+        assert set(rv.keys()) == set(range(1, 101)), set(rv.keys()) - set(range(1, 101))
+        for k, sampled_prob in rv.items():
+            pmf = (1-param) ** (k - 1) * param
+            # This will only be true when executions is high enough, since
+            # sampled_prob is normalized.
+            assert isclose(sampled_prob, pmf), (k, sampled_prob, pmf)
 
 def test_likelihood_weighting_and_sample_prior():
     param = 0.98
@@ -258,12 +268,11 @@ def test_graph_enumeration_callsite_caching_lru_cache():
     assert [args[0] for _, args, _, _ in ge._call_cache.keys()] == [.3, .4]
 
 def test_Enumeration_call_cache_outside_function():
-    # total of 8 calls (2 to m, 6 to f)
     # after m(1):
-    #     misses = {m(1), f(-1), f(-2)}     n = 3
+    #     misses = {f(-1), f(-2)}     n = 2
     #     hits = [f(-1)]    n = 1
     # after m(2):
-    #     misses = {m(1), m(2), f(-1), f(-2), f(-3)}   n = 5
+    #     misses = {f(-1), f(-2), f(-3)}   n = 3
     #     hits = [f(-1), f(-2), f(-2)]   n = 3
     def f(i):
         return 0
@@ -272,19 +281,20 @@ def test_Enumeration_call_cache_outside_function():
 
     enum = Enumeration(m, _call_cache_size=10, _emit_call_entryexit=True)
     enum.run(1)
-    run_1 = enum._call_cache.misses, enum._call_cache.hits
-    assert run_1  == (3, 1)
+    assert enum._call_cache.hits == 1
+    assert enum._call_cache.misses == 2
+    assert len(enum._call_cache) == 2
     enum.run(2)
-    run_2 = enum._call_cache.misses, enum._call_cache.hits
-    assert run_2 == (5, 3)
+    assert enum._call_cache.hits == 3
+    assert enum._call_cache.misses == 3
+    assert len(enum._call_cache) == 3
 
 def test_Enumeration_call_cache_nested_function():
-    # total of 8 calls (2 to m, 6 to f)
     # after m(1):
-    #     misses = {m(1), f(-1), f(-2)}     n = 3
+    #     misses = {f(-1), f(-2)}     n = 2
     #     hits = [f(-1)]    n = 1
     # after m(2):
-    #     misses = {m(1), m(2), f(-1), f(-2), f(-3)}   n = 5
+    #     misses = {f(-1), f(-2), f(-3)}   n = 3
     #     hits = [f(-1), f(-2), f(-2)]   n = 3
     def m(i):
         def f(i):
@@ -293,11 +303,61 @@ def test_Enumeration_call_cache_nested_function():
 
     enum = Enumeration(m, _call_cache_size=10, _emit_call_entryexit=True)
     enum.run(1)
-    run_1 = enum._call_cache.misses, enum._call_cache.hits
-    assert run_1  == (3, 1)
+    assert enum._call_cache.hits == 1
+    assert enum._call_cache.misses == 2
+    assert len(enum._call_cache) == 2
     enum.run(2)
-    run_2 = enum._call_cache.misses, enum._call_cache.hits
-    assert run_2 == (5, 3), run_2
+    assert enum._call_cache.hits == 3
+    assert enum._call_cache.misses == 3
+    assert len(enum._call_cache) == 3
+
+def test_Enumeration_binom():
+    def binom(k, p):
+        ct = 0
+        for i in range(k):
+            ct += Bernoulli(p).sample()
+        return ct
+
+    enum = Enumeration(binom, _call_cache_size=100, _emit_call_entryexit=True)
+    enum.run(2, .5)
+    assert enum._call_cache.hits == 0
+    assert enum._call_cache.misses == 7
+    assert len(enum._call_cache) == 7
+
+    simpler_keys = [
+        (scope.get('i'), scope.get('ct'))
+        for (_, (scope,), _, _) in enum._call_cache.keys()
+    ]
+    assert len(set(simpler_keys)) == 6
+    binom2keys = {
+        (None, 0): 1,
+        (0, 0): 1,
+        (0, 1): 1,
+        (1, 0): 1,
+        (1, 1): 2,
+        (1, 2): 1,
+    }
+    assert collections.Counter(simpler_keys) == binom2keys
+
+    enum = Enumeration(binom, _call_cache_size=100, _emit_call_entryexit=True)
+    enum.run(3, .5)
+    assert enum._call_cache.hits == 2
+    assert enum._call_cache.misses == 13
+    assert len(enum._call_cache) == 13
+
+    simpler_keys = [
+        (scope.get('i'), scope.get('ct'))
+        for (_, (scope,), _, _) in enum._call_cache.keys()
+    ]
+    assert len(set(simpler_keys)) == 10
+    assert collections.Counter(simpler_keys) == {
+        **binom2keys,
+        (2, 0): 1,
+        (2, 1): 2,
+        (2, 2): 2,
+        (2, 3): 1,
+    }
+
 def test_enumerating_class_method():
     def flip():
         p = .66
@@ -311,3 +371,23 @@ def test_enumerating_class_method():
     method_res = Enumeration(C.flip).run(c)
     func_res = Enumeration(flip).run()
     assert method_res.isclose(func_res)
+
+def test_enumerating_loops():
+    # HACK Goal here was for bad naming with continue to break things, but this works
+    # TODO make test that breaks with continue naming issues
+    def loop_continue_fn():
+        ct = 0
+        i = 0
+        while i < 3:
+            if Bernoulli(.5).sample():
+                ct += i * 2
+                i += 1
+                continue
+            ct += i
+            i += 1
+        return ct
+
+    p = .25
+    rv1 = SimpleEnumeration(loop_continue_fn).run(p)
+    rv2 = Enumeration(loop_continue_fn).run(p)
+    assert rv1.isclose(rv2)
