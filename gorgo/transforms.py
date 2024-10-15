@@ -964,7 +964,7 @@ class CPSTransform(NodeTransformer):
         self.call_count += 1
         continuation_name = f"_cont_{call_id}"
         result_name = f"_res_{call_id}"
-        locals_name = f"_locals_{node.lineno}"
+        locals_name = f"_locals_{call_id}" #NOTE: could optimize with _locals_{node.lineno}
         pack, unpack = self.scope_packing_for_current_scope(locals_name, f"_scope_{call_id}")
         code = Placeholder.fill(ast.parse(textwrap.dedent(f'''
             {Placeholder.new('pack')}
