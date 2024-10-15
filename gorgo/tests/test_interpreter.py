@@ -191,7 +191,7 @@ def test_check_exception():
     _, exc, tb = e._excinfo
     # We show compiled code, which in this case isn't particularly readable.
     # This line will have to change depending on our compiled output.
-    exception_line = 'raise __v0'
+    exception_line = 'raise _res_0'
 
     # First, we just check that the traceback will render the code.
     formatted = ''.join(traceback.format_exception(exc, None, tb))
@@ -514,8 +514,8 @@ def test_program_state_identity_with_loops():
     assert ps0 != ps00
     assert hash(ps0) != hash(ps00)
     assert ps0.name != ps00.name
-    _assert_stack_frame_fn_match(ps0.name, ['<root>', 'f', '_loop_fn_5', '_loop_fn_5'])
-    _assert_stack_frame_fn_match(ps00.name, ['<root>', 'f', '_loop_fn_5', '_loop_fn_5', '_loop_fn_5'])
+    _assert_stack_frame_fn_match(ps0.name, ['<root>', 'f', '_loop_fn_1', '_loop_fn_1'])
+    _assert_stack_frame_fn_match(ps00.name, ['<root>', 'f', '_loop_fn_1', '_loop_fn_1', '_loop_fn_1'])
 
 def test_program_state_identity_with_loop_continue():
     def f():
