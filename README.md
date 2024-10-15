@@ -87,10 +87,8 @@ model()
 
 
 ```python
-@infer(
-    max_states=100,
-    _emit_call_entryexit=False # temporary fix for a bug
-)
+# note we need to bound the number of states to avoid infinite recursion
+@infer(max_states=100)
 def geometric(p):
     if flip(p):
         return 1 + geometric(p)
