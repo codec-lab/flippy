@@ -323,9 +323,9 @@ def test_Enumeration_binom():
 
     enum = Enumeration(binom, _call_cache_size=100, _emit_call_entryexit=True)
     enum.run(2, .5)
-    assert enum._call_cache.hits == 0
-    assert enum._call_cache.misses == 7
-    assert len(enum._call_cache) == 7
+    assert enum._call_cache.hits == 1
+    assert enum._call_cache.misses == 6
+    assert len(enum._call_cache) == 6
 
     simpler_keys = [
         (scope.get('i'), scope.get('ct'))
@@ -337,16 +337,16 @@ def test_Enumeration_binom():
         (0, 0): 1,
         (0, 1): 1,
         (1, 0): 1,
-        (1, 1): 2,
+        (1, 1): 1,
         (1, 2): 1,
     }
     assert collections.Counter(simpler_keys) == binom2keys
 
     enum = Enumeration(binom, _call_cache_size=100, _emit_call_entryexit=True)
     enum.run(3, .5)
-    assert enum._call_cache.hits == 2
-    assert enum._call_cache.misses == 13
-    assert len(enum._call_cache) == 13
+    assert enum._call_cache.hits == 3
+    assert enum._call_cache.misses == 10
+    assert len(enum._call_cache) == 10
 
     simpler_keys = [
         (scope.get('i'), scope.get('ct'))
@@ -356,8 +356,8 @@ def test_Enumeration_binom():
     assert collections.Counter(simpler_keys) == {
         **binom2keys,
         (2, 0): 1,
-        (2, 1): 2,
-        (2, 2): 2,
+        (2, 1): 1,
+        (2, 2): 1,
         (2, 3): 1,
     }
 
