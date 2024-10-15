@@ -82,14 +82,12 @@ def test_x():
 
 def test_desugaring_transform():
     src_compiled = [
-        ("b = f(g(a))", "__v0 = g(a); __v1 = f(__v0); b = __v1"),
+        ("b = f(g(a))", "b = f(g(a))"),
         (
             "a = lambda x: g(h(x))",
             textwrap.dedent("""
             def __v0(x):
-                __v1 = h(x)
-                __v2 = g(__v1)
-                return __v2
+                return g(h(x))
             a = __v0
             """)
         ),
@@ -97,29 +95,21 @@ def test_desugaring_transform():
             "a = g(h(x)) if f(x) else h(g(x))",
             textwrap.dedent("""
             def __v0():
-                __v3 = f(x)
-                __v1 = __v3
+                __v1 = f(x)
                 if __v1:
-                    __v4 = h(x)
-                    __v5 = g(__v4)
-                    __v2 = __v5
+                    __v2 = g(h(x))
                 else:
-                    __v6 = g(x)
-                    __v7 = h(__v6)
-                    __v2 = __v7
+                    __v2 = h(g(x))
                 return __v2
-            __v8 = __v0()
-            a = __v8
+            a = __v0()
             """)
         ),
         (
             "d = (lambda x, y=1: g(x)*100)()",
             textwrap.dedent("""
             def __v0(x, y=1):
-                __v1 = g(x)
-                return __v1*100
-            __v2 = __v0()
-            d = __v2
+                return g(x)*100
+            d = __v0()
             """)
         ),
         (
@@ -161,12 +151,10 @@ def test_desugaring_transform():
                 x
             '''),
             textwrap.dedent('''
-            __v0 = range(3)
-            _for_iter_2 = __v0
+            _for_iter_2 = range(3)
             _for_idx_2 = 0
             while True:
-                __v1 = len(_for_iter_2)
-                if not _for_idx_2 < __v1:
+                if not _for_idx_2 < len(_for_iter_2):
                     break
                 x = _for_iter_2[_for_idx_2]
                 _for_idx_2 = _for_idx_2 + 1
@@ -182,9 +170,7 @@ def test_desugaring_transform():
             def __v0(__acc, __target):
                 x = __target
                 return __acc + [x]
-            __v1 = range(3)
-            __v2 = recursive_reduce(__v0, __v1, [])
-            __v2
+            recursive_reduce(__v0, range(3), [])
             '''),
         ),
         (
@@ -201,11 +187,8 @@ def test_desugaring_transform():
                     else:
                         __v3 = __acc
                     return __v3
-                __v4 = __v1()
-                return __v4
-            __v5 = range(3)
-            __v6 = recursive_reduce(__v0, __v5, [])
-            __v6
+                return __v1()
+            recursive_reduce(__v0, range(3), [])
             '''),
         ),
         (
@@ -227,11 +210,8 @@ def test_desugaring_transform():
                     else:
                         __v3 = __acc
                     return __v3
-                __v6 = __v1()
-                return __v6
-            __v7 = range(3)
-            __v8 = recursive_reduce(__v0, __v7, [])
-            __v8
+                return __v1()
+            recursive_reduce(__v0, range(3), [])
             '''),
         ),
         (
@@ -246,17 +226,12 @@ def test_desugaring_transform():
                 def __v2():
                     __v3 = x
                     if __v3:
-                        __v5 = range(4)
-                        __v6 = recursive_reduce(__v0, __v5, [])
-                        __v4 = __acc + __v6
+                        __v4 = __acc + recursive_reduce(__v0, range(4), [])
                     else:
                         __v4 = __acc
                     return __v4
-                __v7 = __v2()
-                return __v7
-            __v8 = range(3)
-            __v9 = recursive_reduce(__v1, __v8, [])
-            __v9
+                return __v2()
+            recursive_reduce(__v1, range(3), [])
             '''),
         ),
 
@@ -268,10 +243,7 @@ def test_desugaring_transform():
             def __v0(__acc, __target):
                 x = __target
                 return __acc | {x}
-            __v1 = range(3)
-            __v2 = set()
-            __v3 = recursive_reduce(__v0, __v1, __v2)
-            __v3
+            recursive_reduce(__v0, range(3), set())
             '''),
         ),
         (
@@ -281,9 +253,7 @@ def test_desugaring_transform():
             def __v0(__acc, __target):
                 x = __target
                 return __acc | {x: x**2}
-            __v1 = range(3)
-            __v2 = recursive_reduce(__v0, __v1, {})
-            __v2
+            recursive_reduce(__v0, range(3), {})
             '''),
         ),
         (
@@ -293,9 +263,7 @@ def test_desugaring_transform():
             def __v0(__acc, __target):
                 (x, y) = __target
                 return __acc | {x: y**2}
-            __v1 = {}.items()
-            __v2 = recursive_reduce(__v0, __v1, {})
-            __v2
+            recursive_reduce(__v0, {}.items(), {})
             '''),
         ),
 
@@ -342,7 +310,7 @@ def test_multiple_or_transform():
     """)
     compare_sourcecode_to_equivalent_sourcecode(src, exp_src)
 
-def test_cps():
+def test_cps_call():
     # Basic case of CPS.
     check_cps_transform('''
     def fn(x):
@@ -368,19 +336,19 @@ def test_cps():
         __func_src = 'def fn(x):\\n    z = 0\\n    y = sum([1, 2, 3])\\n    x = x + 1\\n    z = z + 1\\n    return x + y + z'
         z = 0
         _locals_4 = locals()
-        _scope_4 = {name: _locals_4[name] for name in ['x', 'z'] if name in _locals_4}
+        _scope_0 = {name: _locals_4[name] for name in ['x', 'z'] if name in _locals_4}
 
-        def _cont_4(_res_4):
-            if 'x' in _scope_4:
-                x = _scope_4['x']
-            if 'z' in _scope_4:
-                z = _scope_4['z']
+        def _cont_0(_res_0):
+            if 'x' in _scope_0:
+                x = _scope_0['x']
+            if 'z' in _scope_0:
+                z = _scope_0['z']
 
-            y = _res_4
+            y = _res_0
             x = x + 1
             z = z + 1
             return lambda : _cont(x + y + z)
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([1, 2, 3])
+        return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_4, call_id=0, lineno=2)([1, 2, 3])
     ''', check_args=[(0,), (1,), (2,)])
 
     # Making sure things still work well in nested continuations.
@@ -394,22 +362,22 @@ def test_cps():
     def fn(y, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(y):\\n    y = sum([y, 1])\\n    y = sum([y, 2])\\n    return y'
         _locals_3 = locals()
-        _scope_3 = {name: _locals_3[name] for name in ['y'] if name in _locals_3}
+        _scope_0 = {name: _locals_3[name] for name in ['y'] if name in _locals_3}
 
-        def _cont_3(_res_3):
-            if 'y' in _scope_3:
-                y = _scope_3['y']
-            y = _res_3
+        def _cont_0(_res_0):
+            if 'y' in _scope_0:
+                y = _scope_0['y']
+            y = _res_0
             _locals_4 = locals()
-            _scope_4 = {name: _locals_4[name] for name in ['y'] if name in _locals_4}
+            _scope_1 = {name: _locals_4[name] for name in ['y'] if name in _locals_4}
 
-            def _cont_4(_res_4):
-                if 'y' in _scope_4:
-                    y = _scope_4['y']
-                y = _res_4
+            def _cont_1(_res_1):
+                if 'y' in _scope_1:
+                    y = _scope_1['y']
+                y = _res_1
                 return lambda : _cont(y)
-            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([y, 2])
-        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=1)([y, 1])
+            return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_4, call_id=1, lineno=2)([y, 2])
+        return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_3, call_id=0, lineno=1)([y, 1])
     ''', check_args=[(0,), (1,)])
 
     # Testing destructuring.
