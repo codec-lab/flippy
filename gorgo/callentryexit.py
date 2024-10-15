@@ -26,6 +26,10 @@ class EnterCallState(ProgramState):
         self.args = args
         self.kwargs = kwargs
 
+    @property
+    def is_root_call(self) -> bool:
+        return len(self.stack) == 1
+
     def skip(self, value) -> 'ExitCallState':
         return self.step(False, value)
 

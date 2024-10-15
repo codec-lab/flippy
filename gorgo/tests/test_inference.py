@@ -1,11 +1,14 @@
 import collections
 import math
+import pytest
 
 from frozendict import frozendict
 from gorgo import flip, mem, condition, draw_from
-from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal, Gamma, Uniform
+from gorgo.distributions.builtin_dists import \
+    Bernoulli, Distribution, Categorical, Gaussian, Uniform, Binomial, Poisson
 from gorgo.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting, _distribution_from_inference
 from gorgo.inference.enumeration import Enumeration
+from gorgo.inference.max_marg_post import MaximumMarginalAPosteriori
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
 from gorgo.callentryexit import register_call_entryexit
@@ -372,22 +375,245 @@ def test_enumerating_class_method():
     func_res = Enumeration(flip).run()
     assert method_res.isclose(func_res)
 
-def test_enumerating_loops():
-    # HACK Goal here was for bad naming with continue to break things, but this works
-    # TODO make test that breaks with continue naming issues
-    def loop_continue_fn():
-        ct = 0
-        i = 0
-        while i < 3:
-            if Bernoulli(.5).sample():
-                ct += i * 2
-                i += 1
-                continue
-            ct += i
-            i += 1
-        return ct
+def test_Enumeration__set_cont_var_func():
+    def f():
+        return Uniform().sample()
 
-    p = .25
-    rv1 = SimpleEnumeration(loop_continue_fn).run(p)
-    rv2 = Enumeration(loop_continue_fn).run(p)
-    assert rv1.isclose(rv2)
+    def model():
+        p = f()
+        return p
+
+    continous_handler1 = lambda ps: [0.5]
+    continous_handler2 = lambda ps: [0.25]
+
+    enum = Enumeration(
+        model,
+        cont_var_func=None,
+        _emit_call_entryexit=True
+    )
+
+    with pytest.raises(AssertionError) as e:
+        enum.run()
+    assert "Continuous sample state values must be provided for continuous distributions" in str(e.value)
+
+    enum.set_cont_var_func(continous_handler1)
+    res1 = enum.run()
+    assert res1.isclose(Categorical.from_dict({0.5: 1.0}))
+
+    enum.set_cont_var_func(continous_handler2)
+    res2 = enum.run()
+    assert res2.isclose(Categorical.from_dict({0.25: 1.0}))
+
+def test_Enumeration__max_states_with_recursive_model():
+    def deep_recurse(d):
+        if d == 0:
+            return 0
+        i = Bernoulli(.9).sample(name=f'i{d}') #asymmetric otherwise its just bfs
+        return i + deep_recurse(d - 1)
+
+    n_sample_states_visited = [0]
+    def cb(ps):
+        if isinstance(ps, SampleState):
+            n_sample_states_visited[0] += 1
+        return
+
+    enum_limit = Enumeration(
+        deep_recurse,
+        max_states=10,
+        _emit_call_entryexit=False,
+        _state_visit_callback=cb
+    )
+    enum_limit_res = enum_limit.run(5)
+    assert n_sample_states_visited[0] == 11
+
+    enum_full_res = Enumeration(deep_recurse).run(5)
+    assert not enum_full_res.isclose(enum_limit_res)
+
+def test_Enumeration__set_cont_var_func__with_without_entry_exit():
+    def f():
+        return Uniform().sample()
+
+    def model():
+        return f() + f()
+
+    cont_func_no_entryexit_visits = [0]
+    def cont_func_no_entryexit(ps: SampleState):
+        cont_func_no_entryexit_visits[0] += 1
+        return [.1]
+
+    Enumeration(
+        model,
+        _emit_call_entryexit=False,
+        cont_var_func=cont_func_no_entryexit
+    ).run()
+
+    cont_func_with_entryexit_visits = [0]
+    def cont_func_with_entryexit(ps: SampleState):
+        cont_func_with_entryexit_visits[0] += 1
+        return [.1]
+
+    Enumeration(
+        model,
+        _emit_call_entryexit=True,
+        cont_var_func=cont_func_with_entryexit
+    ).run()
+
+    # both continuous variable functions should have been accessed twice since
+    # they should not be cached
+    assert cont_func_no_entryexit_visits[0] == 2
+    assert cont_func_with_entryexit_visits[0] == 2
+
+def test_Enumeration__set_cont_var_func__with_without_entry_exit_nested():
+    # we should always be calling into g(None) and then f()
+    def f():
+        return Uniform().sample()
+    def g(p=None):
+        if p is None:
+            p = f()
+        return p
+
+    def model():
+        return g() + g(.3) + g(.3) + g() + g(.3) + g()
+
+    cont_var_func_visits = [0]
+    def cont_var_func(ps: SampleState):
+        cont_var_func_visits[0] += 1
+        return [.1]
+    enum = Enumeration(model, cont_var_func=cont_var_func, _emit_call_entryexit=True)
+    dist = enum.run()
+    assert dist.isclose(Categorical([.1 + .3 + .3 + .1 + .3 + .1]))
+    assert cont_var_func_visits[0] == 3
+    assert len(enum._call_cache) == 1
+    assert enum._call_cache.hits == 2
+    assert enum._call_cache.misses == 2 + 1 + 0 + 2 + 0 + 2
+
+def test_Enumeration__cont_var_func__pre_continuous_branching():
+    def f(p=None):
+        if p is None:
+            p = Uniform().sample()
+        return p
+
+    def model():
+        _ = Bernoulli(.3).sample()
+        return f(.73) + f(.73) + f() + f()
+
+    cont_var_func_visits = [0]
+    def cont_var_func(ps):
+        cont_var_func_visits[0] += 1
+        return [.4]
+
+    enum = Enumeration(model, cont_var_func=cont_var_func)
+    dist = enum.run()
+    assert dist.isclose(Categorical([.73 + .73 + .4 + .4]))
+    assert cont_var_func_visits[0] == (0 + 0 + 1 + 1) + (0 + 0 + 1 + 1)
+    assert len(enum._call_cache) == 1
+    assert enum._call_cache.hits == (0 + 1 + 0 + 0) + (1 + 1 + 0 + 0)
+    assert enum._call_cache.misses == (1 + 0 + 1 + 1) + (0 + 0 + 1 + 1)
+
+def test_Enumeration__cont_var_func__post_continuous_branching():
+    def f(p=None):
+        if p is None:
+            p = Uniform().sample()
+        return p
+
+    def model():
+        res = f(.73) + f(.73) + f() + f()
+        _ = Bernoulli(.3).sample()
+        return res
+
+    cont_var_func_visits = [0]
+    def cont_var_func(ps):
+        cont_var_func_visits[0] += 1
+        return [.4]
+
+    enum = Enumeration(model, cont_var_func=cont_var_func)
+    dist = enum.run()
+    assert dist.isclose(Categorical([.73 + .73 + .4 + .4]))
+    assert cont_var_func_visits[0] == (0 + 0 + 1 + 1)
+    assert len(enum._call_cache) == 1
+    assert enum._call_cache.hits == (0 + 1 + 0 + 0)
+    assert enum._call_cache.misses == (1 + 0 + 1 + 1)
+
+def test_MaximumMarginalAPosteriori__fit_binomial():
+    def model1():
+        p = Uniform().sample()
+        x = Binomial(9, p).sample()
+        condition(x == 6)
+        return p
+
+    dist = MaximumMarginalAPosteriori(model1).run()
+    assert len(dist) == 1
+    assert isclose(dist.sample(), 6/9, atol=1e-4)
+
+    def model2():
+        p1 = Uniform().sample()
+        p2 = Uniform().sample()
+        p = p1 + p2
+        condition(p < 1)
+        Binomial(9, p).observe(6)
+        return p
+
+    dist = MaximumMarginalAPosteriori(model2, seed=42).run()
+    assert len(dist) == 1
+    assert isclose(dist.sample(), 6/9, atol=1e-4)
+
+    def model3():
+        p1 = Uniform().sample()
+        p2 = Uniform().sample()
+        assert p1 != p2
+        p = p1 if Bernoulli(.5).sample() else p2*.9
+        Binomial(9, p).observe(6)
+        return p
+
+    dist = MaximumMarginalAPosteriori(model3).run()
+    assert isclose(dist.expected_value(), 6/9, atol=1e-4)
+
+def test_MaximumMarginalAPosteriori__fit_gaussian():
+    def m1(data, prior_mu=0, prior_sig=1, obs_sig=.1):
+        mu = Gaussian(prior_mu, prior_sig).sample()
+        [Gaussian(mu, obs_sig).observe(d) for d in data]
+        return mu
+
+    # conjugate update
+    def m1_conj(data, prior_mu=0, prior_sig=1, obs_sig=.1):
+        post_sig = 1/((1/prior_sig**2) + (len(data)/(obs_sig**2)))
+        post_mu = post_sig*(prior_mu/prior_sig**2 + sum(data)/(obs_sig**2))
+        return post_mu
+
+    data = (1.579, .667, .234)
+    # Maximum A Posteriori
+    dist = MaximumMarginalAPosteriori(m1, maximum_likelihood=False).run(data)
+    assert len(dist) == 1
+    assert isclose(dist.expected_value(), m1_conj(data), atol=1e-4)
+    map_mu = dist.expected_value()
+    exp_score = sum(Gaussian(map_mu, .1).log_probability(d) for d in data) + \
+        Gaussian(0, 1).log_probability(map_mu)
+    est_score = np.log(dist.marginal_likelihood)
+    assert isclose(est_score, exp_score), (est_score, exp_score)
+
+    # Maximum Likelihood
+    dist_ml = MaximumMarginalAPosteriori(m1, maximum_likelihood=True).run(data)
+    assert len(dist_ml) == 1
+    assert isclose(dist_ml.expected_value(), sum(data)/len(data), atol=1e-4)
+    ml_mu = dist_ml.expected_value()
+    exp_score = sum(Gaussian(ml_mu, .1).log_probability(d) for d in data)
+    est_score = np.log(dist_ml.marginal_likelihood)
+    assert isclose(est_score, exp_score), (est_score, exp_score)
+
+def test_MaximumMarginalAPosteriori__fit_unbounded_number_of_vars():
+    def f(i=0):
+        p = Uniform().sample(name=f"p{i}")
+        if p < .4:
+            return i, p
+        return f(i=i + 1)
+
+    def m():
+        i, p = f()
+        Poisson(5).observe(i)
+        Binomial(10, p).observe(5)
+        return i, p
+
+    # Nelder-Mead works here; Powell tends to get stuck or hang
+    dist = MaximumMarginalAPosteriori(m, method="Nelder-Mead").run()
+    assert isclose(dist.expected_value(lambda x: x[1]), .4, atol=1e-4)
+

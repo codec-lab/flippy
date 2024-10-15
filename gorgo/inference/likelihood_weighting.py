@@ -2,13 +2,16 @@ import inspect
 import linecache
 import math
 from collections import defaultdict
+from typing import Generic
 
 from gorgo.core import ReturnState, SampleState, ObserveState
+from gorgo.types import Element
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical, RandomNumberGenerator
+from gorgo.inference.inference import InferenceAlgorithm
 
 
-class LikelihoodWeighting:
+class LikelihoodWeighting(InferenceAlgorithm[Element]):
     def __init__(
         self,
         function,
@@ -23,7 +26,7 @@ class LikelihoodWeighting:
         self._cpus = _cpus
         self._joblib_backend = _joblib_backend
 
-    def run(self, *args, **kws):
+    def run(self, *args, **kws) -> Categorical[Element]:
         if self._cpus == 1:
             return_counts = self._run_batch(
                 *args, **kws,

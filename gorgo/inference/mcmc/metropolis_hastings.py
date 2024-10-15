@@ -12,6 +12,8 @@ from gorgo.distributions.base import Distribution, FiniteDistribution
 from gorgo.distributions.support import ClosedInterval, Simplex
 from gorgo.core import ReturnState, SampleState, ObserveState, ProgramState
 from gorgo.interpreter import CPSInterpreter
+from gorgo.inference.inference import InferenceAlgorithm
+from gorgo.types import Element
 
 from gorgo.inference.mcmc.trace import Trace, Entry
 from gorgo.inference.mcmc.diagnostics import MCMCDiagnostics, MCMCDiagnosticsEntry
@@ -20,7 +22,7 @@ from gorgo.types import VariableName, SampleValue
 
 ProposalKernel = Callable[['SampleValue', SampleState], Distribution['SampleValue']]
 
-class MetropolisHastings:
+class MetropolisHastings(InferenceAlgorithm[Element]):
     # this is finite in case it is impossible to initialize a trace
     max_initial_trace_attempts = 1000
     def __init__(
@@ -50,7 +52,7 @@ class MetropolisHastings:
         self.custom_initial_trace_kernel = custom_initial_trace_kernel
         self.verbose = verbose
 
-    def run(self, *args, **kws) -> Distribution:
+    def run(self, *args, **kws) -> Distribution[Element]:
         self.save_diagnostics = False
         dist, _ = self._run(*args, **kws)
         return dist

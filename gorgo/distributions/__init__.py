@@ -7,3 +7,5 @@ try:
 except ImportError:
     pass
 
+class ZeroDistributionError(Exception):
+    pass

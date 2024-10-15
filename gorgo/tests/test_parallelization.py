@@ -6,11 +6,13 @@ from gorgo.interpreter import CPSInterpreter
 from gorgo.transforms import CPSFunction
 from gorgo.distributions.builtin_dists import Uniform, Bernoulli, Categorical
 from gorgo import flip, draw_from, condition, keep_deterministic, hashabledict
+from gorgo.tools import isclose
 
 def g(p):
     return flip(p) + flip(p) + flip(p) + flip(p) + flip(p)
 
 def f(p=.5):
+    Bernoulli(.9).observe(True) # this will only affect the marginal likelihood
     i = draw_from(range(5))
     j = g(p)
     condition(.1 if i == j else .5)
@@ -24,6 +26,7 @@ def test_parallel_Enumeration():
     cpu1_dist = Enumeration(f, _cpus=1).run()
     cpu2_dist = Enumeration(f, _cpus=2).run()
     assert cpu1_dist.isclose(cpu2_dist)
+    assert isclose(cpu1_dist.marginal_likelihood, cpu2_dist.marginal_likelihood, atol=1e-5)
 
 def test_parallel_LikelihoodWeighting():
     seed = 1391

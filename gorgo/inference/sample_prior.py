@@ -1,16 +1,19 @@
 from collections import defaultdict
+from typing import Generic
 from gorgo.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from gorgo.interpreter import CPSInterpreter
 from gorgo.distributions import Categorical, RandomNumberGenerator
+from gorgo.types import Element
+from gorgo.inference.inference import InferenceAlgorithm
 
-class SamplePrior:
+class SamplePrior(InferenceAlgorithm[Element]):
     """Sample from the prior and ignore observation statements"""
     def __init__(self, function, samples : int, seed=None):
         self.function = function
         self.seed = seed
         self.samples = samples
 
-    def run(self, *args, **kws):
+    def run(self, *args, **kws) -> Categorical[Element]:
         rng = RandomNumberGenerator(self.seed)
         return_counts = defaultdict(int)
         init_ps = CPSInterpreter().initial_program_state(self.function)

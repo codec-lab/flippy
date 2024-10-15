@@ -29,6 +29,9 @@ class LRUCache(Generic[KT, VT]):
         self.hits = 0
         self.misses = 0
 
+    def clear(self):
+        self._cache.clear()
+
     def __getitem__(self, key):
         val = self._cache.pop(key)
         self._cache[key] = val

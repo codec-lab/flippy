@@ -4,7 +4,8 @@ import inspect
 from typing import Callable, Sequence, Union, TypeVar, overload, Generic
 from gorgo.transforms import CPSTransform
 from gorgo.inference import \
-    SimpleEnumeration, Enumeration, SamplePrior, MetropolisHastings, LikelihoodWeighting
+    SimpleEnumeration, Enumeration, SamplePrior, MetropolisHastings, \
+    LikelihoodWeighting, InferenceAlgorithm
 from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform, Element
 from gorgo.distributions.random import default_rng
 from gorgo.core import global_store
@@ -123,14 +124,14 @@ class InferCallable(Generic[Element], DescriptorMixIn):
     def __init__(
         self,
         func: Callable[..., Element],
-        method="Enumeration",
+        method : Union[type[InferenceAlgorithm], str] = "Enumeration",
         cache_size=0,
         **kwargs
     ):
         DescriptorMixIn.__init__(self, func)
 
         if isinstance(method, str):
-            method = {
+            method : type[InferenceAlgorithm] = {
                 'Enumeration': Enumeration,
                 'SimpleEnumeration': SimpleEnumeration,
                 'SamplePrior': SamplePrior,

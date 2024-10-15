@@ -10,6 +10,8 @@ from gorgo.distributions import Categorical
 from gorgo.tools import logsumexp, softmax_dict
 from gorgo.map import MapEnter
 from gorgo.callentryexit import EnterCallState, ExitCallState
+from gorgo.types import Element
+from gorgo.inference.inference import InferenceAlgorithm
 
 @dataclasses.dataclass(order=True)
 class PrioritizedItem:
@@ -28,7 +30,7 @@ class EnumerationStats:
     def site_counts(self):
         return Counter(self.states_visited)
 
-class SimpleEnumeration:
+class SimpleEnumeration(InferenceAlgorithm[Element]):
     def __init__(self, function, max_executions=float('inf')):
         self.function = function
         self.max_executions = max_executions
@@ -76,7 +78,7 @@ class SimpleEnumeration:
                 self._stats.states_visited.append(ProgramStateRecord(ps.__class__, ps.name))
         return return_scores
 
-    def run(self, *args, **kws) -> Categorical:
+    def run(self, *args, **kws) -> Categorical[Element]:
         init_ps = CPSInterpreter().initial_program_state(self.function)
         ps = init_ps.step(*args, **kws)
         return_scores = self.enumerate_tree(ps, self.max_executions)
