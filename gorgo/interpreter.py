@@ -171,6 +171,10 @@ class CPSInterpreter:
         This is the main entry point for interpreting CPS-transformed code.
         See `CPSTransform.visit_Call` in `transforms.py` for more details on
         how it appears in transformed code.
+
+        `call_id` is used to uniquely identify function calls in the original code.
+        `lineno` is used to track the line number of the call in the source
+        code for debugging purposes.
         """
 
         # normal python
