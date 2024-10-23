@@ -522,6 +522,40 @@ def test_cps_if_nested_call():
     }), check_args=[(0,), (1,)])
 
 
+def test_cps_if_call_in_node_test():
+    check_cps_transform('''
+    def fn(x):
+        if 0 == sum(x):
+            y = 0
+        else:
+            y = 1
+        return y * 2
+    ''', ScopeTools.fill(f'''
+    @lambda fn: CPSFunction(fn, '$FN_SOURCE')
+    def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = '$FN_SOURCE'
+        {Placeholder.new('pack_0')}
+
+        def _cont_0(_res_0):
+            {Placeholder.new('unpack_0')}
+            def _cont_1(_scope_1):
+                {Placeholder.new('unpack_1')}
+                return lambda : _cont(y * 2)
+            if 0 == _res_0:
+                y = 0
+                {Placeholder.new('pack_1')}
+                return lambda : _cont_1(_scope_1)
+            else:
+                y = 1
+                {Placeholder.new('pack_1')}
+                return lambda : _cont_1(_scope_1)
+        return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=1)(x)
+    ''', {
+        **ScopeTools.pack_unpack(0, ['x']),
+        **ScopeTools.pack_unpack(1, ['x', 'y']),
+    }), check_args=[([-1, 1],), ([3],)])
+
+
 def test_cps_while_simple():
     check_cps_transform('''
     def fib(x):
