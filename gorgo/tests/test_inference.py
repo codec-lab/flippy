@@ -314,6 +314,17 @@ def test_Enumeration_call_cache_nested_function():
     assert enum._call_cache.misses == 3
     assert len(enum._call_cache) == 3
 
+    def m(i):
+        def f(i):
+            return i + 1
+        return f(f(f(i)))
+
+    enum = Enumeration(m, _call_cache_size=10, _emit_call_entryexit=True)
+    enum.run(1)
+    assert enum._call_cache.hits == 0
+    assert enum._call_cache.misses == 3
+    assert len(enum._call_cache) == 3
+
 def test_Enumeration_binom():
     def binom(k, p):
         ct = 0
