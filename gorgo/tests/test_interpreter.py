@@ -797,3 +797,33 @@ def test_CPSFunction_hashing_and_equality():
     assert len(set(f.func_src for f in fs)) == 1
     assert len(set(f.closure for f in fs)) == 3
     assert set(f.closure['i'] for f in fs) == {0, 1, 2}
+
+def test_callsite_addressing_on_single_line():
+    def m():
+        def f(i):
+            return 1
+        return f(f(f(1)))
+
+    ps = CPSInterpreter(_emit_call_entryexit=True).initial_program_state(m)
+    ps = ps.step().step()
+    call1 : EnterCallState = ps
+    ps = ps.step().step()
+    call2 : EnterCallState = ps
+    ps = ps.step().step()
+    call3 : EnterCallState = ps
+
+    # Address components we expect to stay the same for different calls
+    call_names = (call1.function.__name__, call2.function.__name__, call3.function.__name__)
+    assert set(call_names) == {"f"}, "Call function names should be the same"
+    call_linenos = (call1.stack[-1].lineno, call2.stack[-1].lineno, call3.stack[-1].lineno)
+    assert len(set(call_linenos)) == 1, "Call line numbers should be the same"
+    call_substacks = (call1.stack[:-1], call2.stack[:-1], call3.stack[:-1])
+    assert len(set(call_substacks)) == 1, "Call sub stacks should be the same"
+
+    # Address components we expect to be distinct for different calls
+    call_ids = (call1.stack[-1].call_id, call2.stack[-1].call_id, call3.stack[-1].call_id)
+    assert len(set(call_ids)) == 3, "Call IDs should be unique"
+
+    # Thus the call stacks should be distinct
+    call_stacks = (call1.stack, call2.stack, call3.stack)
+    assert len(set(call_stacks)) == 3, "Call stacks should be the same"
