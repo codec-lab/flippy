@@ -1054,7 +1054,7 @@ class CPSTransform(NodeTransformer):
                 {Placeholder.new('unpack')}
             {Placeholder.new('loop_init_call')}
         ''')), dict(
-            test=self.visit(node.test),
+            test=node.test,
             body=node_body,
             unpack=unpack,
             loop_init_call=loop_init_call,
