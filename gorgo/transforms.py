@@ -452,16 +452,16 @@ class DesugaringTransform(NodeTransformer):
         self.n_temporary_vars += 1
         return f"{DesugaringTransform.temporary_var_prefix}{self.n_temporary_vars - 1}"
 
-    def visit_Call(self, node):
-        node = ast.NodeTransformer.generic_visit(self, node)
-        return_name = self.generate_name()
-        assn_node = ast.Assign(
-            targets=[ast.Name(id=return_name, ctx=ast.Store())],
-            value=node,
-            lineno=0
-        )
-        self.add_statement(assn_node)
-        return ast.Name(id=return_name, ctx=ast.Load())
+    # def visit_Call(self, node):
+    #     node = ast.NodeTransformer.generic_visit(self, node)
+    #     return_name = self.generate_name()
+    #     assn_node = ast.Assign(
+    #         targets=[ast.Name(id=return_name, ctx=ast.Store())],
+    #         value=node,
+    #         lineno=0
+    #     )
+    #     self.add_statement(assn_node)
+    #     return ast.Name(id=return_name, ctx=ast.Load())
 
     def visit_IfExp(self, node):
         """
@@ -826,8 +826,10 @@ class CPSTransform(NodeTransformer):
         self.current_continuation_stmts = None
         self.parent_function_lineno = 0
         self.continue_break_replacement = None
+        self.call_count = 0
 
     def __call__(self, node):
+        self.call_count = 0
         with self.in_scope():
             return self.visit(node)
 
@@ -958,10 +960,12 @@ class CPSTransform(NodeTransformer):
         Replace the Call node with a continuation and call to the interpreter
         that picks up at the continuation.
         '''
-        continuation_name = f"_cont_{node.lineno}"
-        result_name = f"_res_{node.lineno}"
-        locals_name = f"_locals_{node.lineno}"
-        pack, unpack = self.scope_packing_for_current_scope(locals_name, f"_scope_{node.lineno}")
+        call_id = self.call_count
+        self.call_count += 1
+        continuation_name = f"_cont_{call_id}"
+        result_name = f"_res_{call_id}"
+        locals_name = f"_locals_{call_id}" #NOTE: could optimize with _locals_{node.lineno}
+        pack, unpack = self.scope_packing_for_current_scope(locals_name, f"_scope_{call_id}")
         code = Placeholder.fill(ast.parse(textwrap.dedent(f'''
             {Placeholder.new('pack')}
             def {continuation_name}({result_name}):
@@ -972,6 +976,7 @@ class CPSTransform(NodeTransformer):
                 stack={self.stack_name},
                 func_src={self.func_src_name},
                 locals_={locals_name},
+                call_id={call_id},
                 lineno={node.lineno - self.parent_function_lineno}
             )()
         ''')), dict(
@@ -980,8 +985,8 @@ class CPSTransform(NodeTransformer):
             unpack=unpack,
         )).body
         continuation_node, thunk_node = code[-2:]
-        thunk_node.value.body.args = node.args
-        thunk_node.value.body.keywords = node.keywords
+        thunk_node.value.body.args = [self.visit(arg) for arg in node.args]
+        thunk_node.value.body.keywords = [self.visit(kw) for kw in node.keywords]
         self.current_continuation_stmts.extend(code)
         # Update CCS to the continuation of our function.
         self.current_continuation_stmts = continuation_node.body
@@ -998,10 +1003,13 @@ class CPSTransform(NodeTransformer):
         # Store previous continue/break replacements, for recursive processing
         previous = self.continue_break_replacement
 
-        loop_name = f"_loop_fn_{node.lineno}"
-        loop_exit_name = f"_loop_exit_fn_{node.lineno}"
-        scope_name = f"_scope_{node.lineno}"
-        locals_name = f"_locals_{node.lineno}"
+        call_id = self.call_count
+        self.call_count += 1
+
+        loop_name = f"_loop_fn_{call_id}"
+        loop_exit_name = f"_loop_exit_fn_{call_id}"
+        scope_name = f"_scope_{call_id}"
+        locals_name = f"_locals_{call_id}"
 
         # We process body, replacing continue/break with placeholders.
         # We initially replace with placeholders because continue/break requires packing any
@@ -1117,14 +1125,16 @@ class CPSTransform(NodeTransformer):
         We transform each branch of the If node individually, making sure they each wind up
         executing the same continuation, which contains future statements.
         """
-
+        node.test = self.visit(node.test)
         node.body, body_continuation = self.transform_block(node.body)
         node.orelse, orelse_continuation = self.transform_block(node.orelse)
+        call_id = self.call_count
+        self.call_count += 1
 
-        continuation_name = f"_cont_{node.lineno}"
-        scope_name = f"_scope_{node.lineno}"
+        continuation_name = f"_cont_{call_id}"
+        scope_name = f"_scope_{call_id}"
         # Should only do scope packing after variables from both branches have been analyzed.
-        pack, unpack = self.scope_packing_for_current_scope(f"_locals_{node.lineno}", scope_name)
+        pack, unpack = self.scope_packing_for_current_scope(f"_locals_{call_id}", scope_name)
         continuation_node, = Placeholder.fill(ast.parse(textwrap.dedent(f'''
             def {continuation_name}({scope_name}):
                 {Placeholder.new('unpack')}
@@ -1141,7 +1151,7 @@ class CPSTransform(NodeTransformer):
 
     def visit_Return(self, node):
         new_node = ast.parse(f"return lambda : {self.final_continuation_name}(_res)").body[0]
-        new_node.value.body.args[0] = node.value
+        new_node.value.body.args[0] = self.visit(node.value)
         return new_node
 
 class HashableCollectionTransform(ast.NodeTransformer):

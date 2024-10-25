@@ -45,7 +45,7 @@ class ScopeTools:
     @classmethod
     def pack_unpack(cls, lineno, names, *, tag=None, hashabledict=False):
         if tag is None:
-            tag = lineno
+            tag = f'_{lineno}'
         return {
             f'pack{tag}': cls.pack(lineno, names, hashabledict=hashabledict),
             f'unpack{tag}': cls.unpack(lineno, names),
@@ -82,14 +82,12 @@ def test_x():
 
 def test_desugaring_transform():
     src_compiled = [
-        ("b = f(g(a))", "__v0 = g(a); __v1 = f(__v0); b = __v1"),
+        ("b = f(g(a))", "b = f(g(a))"),
         (
             "a = lambda x: g(h(x))",
             textwrap.dedent("""
             def __v0(x):
-                __v1 = h(x)
-                __v2 = g(__v1)
-                return __v2
+                return g(h(x))
             a = __v0
             """)
         ),
@@ -97,29 +95,21 @@ def test_desugaring_transform():
             "a = g(h(x)) if f(x) else h(g(x))",
             textwrap.dedent("""
             def __v0():
-                __v3 = f(x)
-                __v1 = __v3
+                __v1 = f(x)
                 if __v1:
-                    __v4 = h(x)
-                    __v5 = g(__v4)
-                    __v2 = __v5
+                    __v2 = g(h(x))
                 else:
-                    __v6 = g(x)
-                    __v7 = h(__v6)
-                    __v2 = __v7
+                    __v2 = h(g(x))
                 return __v2
-            __v8 = __v0()
-            a = __v8
+            a = __v0()
             """)
         ),
         (
             "d = (lambda x, y=1: g(x)*100)()",
             textwrap.dedent("""
             def __v0(x, y=1):
-                __v1 = g(x)
-                return __v1*100
-            __v2 = __v0()
-            d = __v2
+                return g(x)*100
+            d = __v0()
             """)
         ),
         (
@@ -161,12 +151,10 @@ def test_desugaring_transform():
                 x
             '''),
             textwrap.dedent('''
-            __v0 = range(3)
-            _for_iter_2 = __v0
+            _for_iter_2 = range(3)
             _for_idx_2 = 0
             while True:
-                __v1 = len(_for_iter_2)
-                if not _for_idx_2 < __v1:
+                if not _for_idx_2 < len(_for_iter_2):
                     break
                 x = _for_iter_2[_for_idx_2]
                 _for_idx_2 = _for_idx_2 + 1
@@ -182,9 +170,7 @@ def test_desugaring_transform():
             def __v0(__acc, __target):
                 x = __target
                 return __acc + [x]
-            __v1 = range(3)
-            __v2 = recursive_reduce(__v0, __v1, [])
-            __v2
+            recursive_reduce(__v0, range(3), [])
             '''),
         ),
         (
@@ -201,11 +187,8 @@ def test_desugaring_transform():
                     else:
                         __v3 = __acc
                     return __v3
-                __v4 = __v1()
-                return __v4
-            __v5 = range(3)
-            __v6 = recursive_reduce(__v0, __v5, [])
-            __v6
+                return __v1()
+            recursive_reduce(__v0, range(3), [])
             '''),
         ),
         (
@@ -227,11 +210,8 @@ def test_desugaring_transform():
                     else:
                         __v3 = __acc
                     return __v3
-                __v6 = __v1()
-                return __v6
-            __v7 = range(3)
-            __v8 = recursive_reduce(__v0, __v7, [])
-            __v8
+                return __v1()
+            recursive_reduce(__v0, range(3), [])
             '''),
         ),
         (
@@ -246,17 +226,12 @@ def test_desugaring_transform():
                 def __v2():
                     __v3 = x
                     if __v3:
-                        __v5 = range(4)
-                        __v6 = recursive_reduce(__v0, __v5, [])
-                        __v4 = __acc + __v6
+                        __v4 = __acc + recursive_reduce(__v0, range(4), [])
                     else:
                         __v4 = __acc
                     return __v4
-                __v7 = __v2()
-                return __v7
-            __v8 = range(3)
-            __v9 = recursive_reduce(__v1, __v8, [])
-            __v9
+                return __v2()
+            recursive_reduce(__v1, range(3), [])
             '''),
         ),
 
@@ -268,10 +243,7 @@ def test_desugaring_transform():
             def __v0(__acc, __target):
                 x = __target
                 return __acc | {x}
-            __v1 = range(3)
-            __v2 = set()
-            __v3 = recursive_reduce(__v0, __v1, __v2)
-            __v3
+            recursive_reduce(__v0, range(3), set())
             '''),
         ),
         (
@@ -281,9 +253,7 @@ def test_desugaring_transform():
             def __v0(__acc, __target):
                 x = __target
                 return __acc | {x: x**2}
-            __v1 = range(3)
-            __v2 = recursive_reduce(__v0, __v1, {})
-            __v2
+            recursive_reduce(__v0, range(3), {})
             '''),
         ),
         (
@@ -293,9 +263,7 @@ def test_desugaring_transform():
             def __v0(__acc, __target):
                 (x, y) = __target
                 return __acc | {x: y**2}
-            __v1 = {}.items()
-            __v2 = recursive_reduce(__v0, __v1, {})
-            __v2
+            recursive_reduce(__v0, {}.items(), {})
             '''),
         ),
 
@@ -342,7 +310,7 @@ def test_multiple_or_transform():
     """)
     compare_sourcecode_to_equivalent_sourcecode(src, exp_src)
 
-def test_cps():
+def test_cps_call():
     # Basic case of CPS.
     check_cps_transform('''
     def fn(x):
@@ -362,26 +330,22 @@ def test_cps():
         x = x + 1
         z = z + 1
         return x + y + z
-    ''', '''
+    ''', ScopeTools.fill(f'''
     @lambda fn: CPSFunction(fn, 'def fn(x):\\n    z = 0\\n    y = sum([1, 2, 3])\\n    x = x + 1\\n    z = z + 1\\n    return x + y + z')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    z = 0\\n    y = sum([1, 2, 3])\\n    x = x + 1\\n    z = z + 1\\n    return x + y + z'
         z = 0
-        _locals_4 = locals()
-        _scope_4 = {name: _locals_4[name] for name in ['x', 'z'] if name in _locals_4}
+        {Placeholder.new('pack_0')}
 
-        def _cont_4(_res_4):
-            if 'x' in _scope_4:
-                x = _scope_4['x']
-            if 'z' in _scope_4:
-                z = _scope_4['z']
+        def _cont_0(_res_0):
+            {Placeholder.new('unpack_0')}
 
-            y = _res_4
+            y = _res_0
             x = x + 1
             z = z + 1
             return lambda : _cont(x + y + z)
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([1, 2, 3])
-    ''', check_args=[(0,), (1,), (2,)])
+        return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=2)([1, 2, 3])
+    ''', ScopeTools.pack_unpack(0, ['x', 'z'])), check_args=[(0,), (1,), (2,)])
 
     # Making sure things still work well in nested continuations.
     check_cps_transform('''
@@ -389,28 +353,27 @@ def test_cps():
         y = sum([y, 1])
         y = sum([y, 2])
         return y
-    ''', '''
+    ''', ScopeTools.fill(f'''
     @lambda fn: CPSFunction(fn, 'def fn(y):\\n    y = sum([y, 1])\\n    y = sum([y, 2])\\n    return y')
     def fn(y, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(y):\\n    y = sum([y, 1])\\n    y = sum([y, 2])\\n    return y'
-        _locals_3 = locals()
-        _scope_3 = {name: _locals_3[name] for name in ['y'] if name in _locals_3}
+        {Placeholder.new('pack_0')}
 
-        def _cont_3(_res_3):
-            if 'y' in _scope_3:
-                y = _scope_3['y']
-            y = _res_3
-            _locals_4 = locals()
-            _scope_4 = {name: _locals_4[name] for name in ['y'] if name in _locals_4}
+        def _cont_0(_res_0):
+            {Placeholder.new('unpack_0')}
+            y = _res_0
+            {Placeholder.new('pack_1')}
 
-            def _cont_4(_res_4):
-                if 'y' in _scope_4:
-                    y = _scope_4['y']
-                y = _res_4
+            def _cont_1(_res_1):
+                {Placeholder.new('unpack_1')}
+                y = _res_1
                 return lambda : _cont(y)
-            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([y, 2])
-        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=1)([y, 1])
-    ''', check_args=[(0,), (1,)])
+            return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=2)([y, 2])
+        return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=1)([y, 1])
+    ''', {
+        **ScopeTools.pack_unpack(0, ['y']),
+        **ScopeTools.pack_unpack(1, ['y']),
+    }), check_args=[(0,), (1,)])
 
     # Testing destructuring.
     check_cps_transform('''
@@ -418,25 +381,21 @@ def test_cps():
         [y, z] = x
         sum([])
         return y + z
-    ''', '''
+    ''', ScopeTools.fill(f'''
     @lambda fn: CPSFunction(fn, 'def fn(x):\\n    [y, z] = x\\n    sum([])\\n    return y + z')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    [y, z] = x\\n    sum([])\\n    return y + z'
         [y, z] = x
-        _locals_4 = locals()
-        _scope_4 = {name: _locals_4[name] for name in ['x', 'y', 'z'] if name in _locals_4}
+        {Placeholder.new('pack_0')}
 
-        def _cont_4(_res_4):
-            if 'x' in _scope_4:
-                x = _scope_4['x']
-            if 'y' in _scope_4:
-                y = _scope_4['y']
-            if 'z' in _scope_4:
-                z = _scope_4['z']
-            _res_4
+        def _cont_0(_res_0):
+            {Placeholder.new('unpack_0')}
+            _res_0
             return lambda : _cont(y + z)
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([])
-    ''', check_args=[([1, 2],), ([7, 3],)])
+        return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=2)([])
+    ''', {
+        **ScopeTools.pack_unpack(0, ['x', 'y', 'z']),
+    }), check_args=[([1, 2],), ([7, 3],)])
 
 def test_cps_new_vars_scope_packing():
     # checking that new variables are added at the appropriate time
@@ -448,33 +407,30 @@ def test_cps_new_vars_scope_packing():
         sum([])
         z = 5
         return x + y + z
-    ''', '''
+    ''', ScopeTools.fill(f'''
     @lambda fn: CPSFunction(fn, 'def fn():\\n    x = 3\\n    sum([])\\n    y = 4\\n    sum([])\\n    z = 5\\n    return x + y + z')
     def fn(*, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn():\\n    x = 3\\n    sum([])\\n    y = 4\\n    sum([])\\n    z = 5\\n    return x + y + z'
         x = 3
-        _locals_4 = locals()
-        _scope_4 = {name: _locals_4[name] for name in ['x'] if name in _locals_4}
+        {Placeholder.new('pack_0')}
 
-        def _cont_4(_res_4):
-            if 'x' in _scope_4:
-                x = _scope_4['x']
-            _res_4
+        def _cont_0(_res_0):
+            {Placeholder.new('unpack_0')}
+            _res_0
             y = 4
-            _locals_6 = locals()
-            _scope_6 = {name: _locals_6[name] for name in ['x', 'y'] if name in _locals_6}
+            {Placeholder.new('pack_1')}
 
-            def _cont_6(_res_6):
-                if 'x' in _scope_6:
-                    x = _scope_6['x']
-                if 'y' in _scope_6:
-                    y = _scope_6['y']
-                _res_6
+            def _cont_1(_res_1):
+                {Placeholder.new('unpack_1')}
+                _res_1
                 z = 5
                 return lambda : _cont(x + y + z)
-            return lambda : _cps.interpret(sum, cont=_cont_6, stack=_stack, func_src=__func_src, locals_=_locals_6, lineno=4)([])
-        return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([])
-    ''', check_args=[()])
+            return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=4)([])
+        return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=2)([])
+    ''', {
+        **ScopeTools.pack_unpack(0, ['x']),
+        **ScopeTools.pack_unpack(1, ['x', 'y']),
+    }), check_args=[()])
 
 def test_cps_desugared_calls():
     check_cps_transform('''
@@ -486,22 +442,22 @@ def test_cps_desugared_calls():
     @lambda fn: CPSFunction(fn, 'def fn():\\n    __v0 = sum([2, 3])\\n    __v1 = sum([1, __v0])\\n    return __v1')
     def fn(*, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn():\\n    __v0 = sum([2, 3])\\n    __v1 = sum([1, __v0])\\n    return __v1'
-        {Placeholder.new('pack3')}
+        {Placeholder.new('pack_0')}
 
-        def _cont_3(_res_3):
+        def _cont_0(_res_0):
             pass
-            __v0 = _res_3
-            {Placeholder.new('pack4')}
+            __v0 = _res_0
+            {Placeholder.new('pack_1')}
 
-            def _cont_4(_res_4):
-                {Placeholder.new('unpack4')}
-                __v1 = _res_4
+            def _cont_1(_res_1):
+                {Placeholder.new('unpack_1')}
+                __v1 = _res_1
                 return lambda : _cont(__v1)
-            return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=2)([1, __v0])
-        return lambda : _cps.interpret(sum, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=1)([2, 3])
+            return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=2)([1, __v0])
+        return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=1)([2, 3])
     ''', {
-        **ScopeTools.pack_unpack(3, []),
-        **ScopeTools.pack_unpack(4, ['__v0']),
+        **ScopeTools.pack_unpack(0, []),
+        **ScopeTools.pack_unpack(1, ['__v0']),
     }), check_args=[()])
 
 def test_cps_if():
@@ -512,27 +468,24 @@ def test_cps_if():
         else:
             y = 1
         return y * 2
-    ''', '''
+    ''', ScopeTools.fill(f'''
     @lambda fn: CPSFunction(fn, 'def fn(x):\\n    if x == 0:\\n        y = 0\\n    else:\\n        y = 1\\n    return y * 2')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    if x == 0:\\n        y = 0\\n    else:\\n        y = 1\\n    return y * 2'
-        def _cont_3(_scope_3):
-            if 'x' in _scope_3:
-                x = _scope_3['x']
-            if 'y' in _scope_3:
-                y = _scope_3['y']
+        def _cont_0(_scope_0):
+            {Placeholder.new('unpack_0')}
             return lambda : _cont(y * 2)
         if x == 0:
             y = 0
-            _locals_3 = locals()
-            _scope_3 = {name: _locals_3[name] for name in ['x', 'y'] if name in _locals_3}
-            return lambda : _cont_3(_scope_3)
+            {Placeholder.new('pack_0')}
+            return lambda : _cont_0(_scope_0)
         else:
             y = 1
-            _locals_3 = locals()
-            _scope_3 = {name: _locals_3[name] for name in ['x', 'y'] if name in _locals_3}
-            return lambda : _cont_3(_scope_3)
-    ''', check_args=[(0,), (1,)])
+            {Placeholder.new('pack_0')}
+            return lambda : _cont_0(_scope_0)
+    ''', {
+        **ScopeTools.pack_unpack(0, ['x', 'y'])
+    }), check_args=[(0,), (1,)])
 
 def test_cps_if_nested_call():
     check_cps_transform('''
@@ -542,37 +495,65 @@ def test_cps_if_nested_call():
         else:
             y = sum([3, x])
         return y * 2
-    ''', '''
+    ''', ScopeTools.fill(f'''
     @lambda fn: CPSFunction(fn, 'def fn(x):\\n    if x == 0:\\n        y = 0\\n    else:\\n        y = sum([3, x])\\n    return y * 2')
     def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn(x):\\n    if x == 0:\\n        y = 0\\n    else:\\n        y = sum([3, x])\\n    return y * 2'
 
-        def _cont_3(_scope_3):
-            if 'x' in _scope_3:
-                x = _scope_3['x']
-            if 'y' in _scope_3:
-                y = _scope_3['y']
+        def _cont_1(_scope_1):
+            {Placeholder.new('unpack_1')}
             return lambda : _cont(y * 2)
         if x == 0:
             y = 0
-            _locals_3 = locals()
-            _scope_3 = {name: _locals_3[name] for name in ['x', 'y'] if name in _locals_3}
-            return lambda : _cont_3(_scope_3)
+            {Placeholder.new('pack_1')}
+            return lambda : _cont_1(_scope_1)
         else:
-            _locals_6 = locals()
-            _scope_6 = {name: _locals_6[name] for name in ['x', 'y'] if name in _locals_6}
+            {Placeholder.new('pack_0')}
 
-            def _cont_6(_res_6):
-                if 'x' in _scope_6:
-                    x = _scope_6['x']
-                if 'y' in _scope_6:
-                    y = _scope_6['y']
-                y = _res_6
-                _locals_3 = locals()
-                _scope_3 = {name: _locals_3[name] for name in ['x', 'y'] if name in _locals_3}
-                return lambda : _cont_3(_scope_3)
-            return lambda : _cps.interpret(sum, cont=_cont_6, stack=_stack, func_src=__func_src, locals_=_locals_6, lineno=4)([3, x])
-    ''', check_args=[(0,), (1,)])
+            def _cont_0(_res_0):
+                {Placeholder.new('unpack_0')}
+                y = _res_0
+                {Placeholder.new('pack_1')}
+                return lambda : _cont_1(_scope_1)
+            return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=4)([3, x])
+    ''', {
+        **ScopeTools.pack_unpack(0, ['x', 'y']),
+        **ScopeTools.pack_unpack(1, ['x', 'y']),
+    }), check_args=[(0,), (1,)])
+
+
+def test_cps_if_call_in_node_test():
+    check_cps_transform('''
+    def fn(x):
+        if 0 == sum(x):
+            y = 0
+        else:
+            y = 1
+        return y * 2
+    ''', ScopeTools.fill(f'''
+    @lambda fn: CPSFunction(fn, '$FN_SOURCE')
+    def fn(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = '$FN_SOURCE'
+        {Placeholder.new('pack_0')}
+
+        def _cont_0(_res_0):
+            {Placeholder.new('unpack_0')}
+            def _cont_1(_scope_1):
+                {Placeholder.new('unpack_1')}
+                return lambda : _cont(y * 2)
+            if 0 == _res_0:
+                y = 0
+                {Placeholder.new('pack_1')}
+                return lambda : _cont_1(_scope_1)
+            else:
+                y = 1
+                {Placeholder.new('pack_1')}
+                return lambda : _cont_1(_scope_1)
+        return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=1)(x)
+    ''', {
+        **ScopeTools.pack_unpack(0, ['x']),
+        **ScopeTools.pack_unpack(1, ['x', 'y']),
+    }), check_args=[([-1, 1],), ([3],)])
 
 
 def test_cps_while_simple():
@@ -591,25 +572,25 @@ def test_cps_while_simple():
         (a, b) = (1, 1)
         ct = 0
         @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
-        def _loop_fn_5(_scope_5, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        def _loop_fn_0(_scope_0, *, _stack=(), _cps=_cps, _cont=lambda val: val):
             __func_src = "$IGNORE_STRING"
-            {Placeholder.new('unpack5')}
+            {Placeholder.new('unpack_0')}
             if ct < x:
                 (a, b) = (b, a + b)
                 ct = ct + 1
-                {Placeholder.new('pack5')}
-                return lambda : _cps.interpret(_loop_fn_5, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_5, lineno=3)(_scope_5)
+                {Placeholder.new('pack_0')}
+                return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
             else:
-                {Placeholder.new('pack5')}
-                return lambda : _cont(_scope_5)
+                {Placeholder.new('pack_0')}
+                return lambda : _cont(_scope_0)
 
-        def _loop_exit_fn_5(_scope_5):
-            {Placeholder.new('unpack5')}
+        def _loop_exit_fn_0(_scope_0):
+            {Placeholder.new('unpack_0')}
             return lambda : _cont(a)
-        {Placeholder.new('pack5')}
-        return lambda : _cps.interpret(_loop_fn_5, cont=_loop_exit_fn_5, stack=_stack, func_src=__func_src, locals_=_locals_5, lineno=3)(_scope_5)
+        {Placeholder.new('pack_0')}
+        return lambda : _cps.interpret(_loop_fn_0, cont=_loop_exit_fn_0, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
     ''', {
-        **ScopeTools.pack_unpack(5, ['a', 'b', 'ct', 'x'], hashabledict=True)
+        **ScopeTools.pack_unpack(0, ['a', 'b', 'ct', 'x'], hashabledict=True)
     }), check_args=[(i,) for i in range(10)])
 
 
@@ -629,36 +610,36 @@ def test_cps_while_desugared():
         (a, b) = (1, 1)
         ct = 0
         @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
-        def _loop_fn_4(_scope_4, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        def _loop_fn_0(_scope_0, *, _stack=(), _cps=_cps, _cont=lambda val: val):
             __func_src = "$IGNORE_STRING"
-            {Placeholder.new('unpack4')}
+            {Placeholder.new('unpack_0')}
             if True:
-                def _cont_5(_scope_5):
-                    {Placeholder.new('unpack5')}
+                def _cont_1(_scope_1):
+                    {Placeholder.new('unpack_1')}
                     (a, b) = (b, a + b)
                     ct = ct + 1
-                    {Placeholder.new('pack4')}
-                    return lambda : _cps.interpret(_loop_fn_4, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=3)(_scope_4)
+                    {Placeholder.new('pack_0')}
+                    return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
                 if not ct < x:
-                    {Placeholder.new('pack4')}
-                    return lambda : _cont(_scope_4)
-                    {Placeholder.new('pack5')}
-                    return lambda : _cont_5(_scope_5)
+                    {Placeholder.new('pack_0')}
+                    return lambda : _cont(_scope_0)
+                    {Placeholder.new('pack_1')}
+                    return lambda : _cont_1(_scope_1)
                 else:
-                    {Placeholder.new('pack5')}
-                    return lambda : _cont_5(_scope_5)
+                    {Placeholder.new('pack_1')}
+                    return lambda : _cont_1(_scope_1)
             else:
-                {Placeholder.new('pack4')}
-                return lambda : _cont(_scope_4)
+                {Placeholder.new('pack_0')}
+                return lambda : _cont(_scope_0)
 
-        def _loop_exit_fn_4(_scope_4):
-            {Placeholder.new('unpack4')}
+        def _loop_exit_fn_0(_scope_0):
+            {Placeholder.new('unpack_0')}
             return lambda : _cont(a)
-        {Placeholder.new('pack4')}
-        return lambda : _cps.interpret(_loop_fn_4, cont=_loop_exit_fn_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=3)(_scope_4)
+        {Placeholder.new('pack_0')}
+        return lambda : _cps.interpret(_loop_fn_0, cont=_loop_exit_fn_0, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
     ''', {
-        **ScopeTools.pack_unpack(4, ['a', 'b', 'ct', 'x'], hashabledict=True),
-        **ScopeTools.pack_unpack(5, ['a', 'b', 'ct', 'x']),
+        **ScopeTools.pack_unpack(0, ['a', 'b', 'ct', 'x'], hashabledict=True),
+        **ScopeTools.pack_unpack(1, ['a', 'b', 'ct', 'x']),
     }), check_args=[(i,) for i in range(10)], desugar=True)
 
 
@@ -683,49 +664,49 @@ def test_cps_while_continue_break():
         ct = 0
 
         @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
-        def _loop_fn_5(_scope_5, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        def _loop_fn_0(_scope_0, *, _stack=(), _cps=_cps, _cont=lambda val: val):
             __func_src = "$IGNORE_STRING"
-            {Placeholder.new('unpack5')}
+            {Placeholder.new('unpack_0')}
             if ct < 10:
                 ct = ct + 1
 
-                def _cont_7(_scope_7):
-                    {Placeholder.new('unpack7')}
+                def _cont_1(_scope_1):
+                    {Placeholder.new('unpack_1')}
 
-                    def _cont_9(_scope_9):
-                        {Placeholder.new('unpack9')}
+                    def _cont_2(_scope_2):
+                        {Placeholder.new('unpack_2')}
                         rv = rv + [ct]
-                        {Placeholder.new('pack5')}
-                        return lambda : _cps.interpret(_loop_fn_5, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_5, lineno=3)(_scope_5)
+                        {Placeholder.new('pack_0')}
+                        return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
                     if ct == 3:
-                        {Placeholder.new('pack5')}
-                        return lambda : _cps.interpret(_loop_fn_5, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_5, lineno=3)(_scope_5)
-                        {Placeholder.new('pack9')}
-                        return lambda : _cont_9(_scope_9)
+                        {Placeholder.new('pack_0')}
+                        return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
+                        {Placeholder.new('pack_2')}
+                        return lambda : _cont_2(_scope_2)
                     else:
-                        {Placeholder.new('pack9')}
-                        return lambda : _cont_9(_scope_9)
+                        {Placeholder.new('pack_2')}
+                        return lambda : _cont_2(_scope_2)
                 if ct == 7:
-                    {Placeholder.new('pack5')}
-                    return lambda : _cont(_scope_5)
-                    {Placeholder.new('pack7')}
-                    return lambda : _cont_7(_scope_7)
+                    {Placeholder.new('pack_0')}
+                    return lambda : _cont(_scope_0)
+                    {Placeholder.new('pack_1')}
+                    return lambda : _cont_1(_scope_1)
                 else:
-                    {Placeholder.new('pack7')}
-                    return lambda : _cont_7(_scope_7)
+                    {Placeholder.new('pack_1')}
+                    return lambda : _cont_1(_scope_1)
             else:
-                {Placeholder.new('pack5')}
-                return lambda : _cont(_scope_5)
+                {Placeholder.new('pack_0')}
+                return lambda : _cont(_scope_0)
 
-        def _loop_exit_fn_5(_scope_5):
-            {Placeholder.new('unpack5')}
+        def _loop_exit_fn_0(_scope_0):
+            {Placeholder.new('unpack_0')}
             return lambda : _cont(rv)
-        {Placeholder.new('pack5')}
-        return lambda : _cps.interpret(_loop_fn_5, cont=_loop_exit_fn_5, stack=_stack, func_src=__func_src, locals_=_locals_5, lineno=3)(_scope_5)
+        {Placeholder.new('pack_0')}
+        return lambda : _cps.interpret(_loop_fn_0, cont=_loop_exit_fn_0, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
     ''', {
-        **ScopeTools.pack_unpack(5, ['ct', 'rv'], hashabledict=True),
-        **ScopeTools.pack_unpack(7, ['ct', 'rv']),
-        **ScopeTools.pack_unpack(9, ['ct', 'rv']),
+        **ScopeTools.pack_unpack(0, ['ct', 'rv'], hashabledict=True),
+        **ScopeTools.pack_unpack(1, ['ct', 'rv']),
+        **ScopeTools.pack_unpack(2, ['ct', 'rv']),
     }), check_args=[()], check_out=[[1, 2, 4, 5, 6]])
 
 
@@ -739,44 +720,44 @@ def test_cps_while_nested():
         x = 0
 
         @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
-        def _loop_fn_5(_scope_5, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        def _loop_fn_0(_scope_0, *, _stack=(), _cps=_cps, _cont=lambda val: val):
             __func_src = "$IGNORE_STRING"
-            {Placeholder.new('unpack5')}
+            {Placeholder.new('unpack_0')}
             if x < lim:
                 y = 0
 
                 @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
-                def _loop_fn_7(_scope_7, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+                def _loop_fn_1(_scope_1, *, _stack=(), _cps=_cps, _cont=lambda val: val):
                     __func_src = "$IGNORE_STRING"
-                    {Placeholder.new('unpack7')}
+                    {Placeholder.new('unpack_1')}
                     if y < x:
                         rv += [(x, y)]
                         y = y + 1
-                        {Placeholder.new('pack7')}
-                        return lambda : _cps.interpret(_loop_fn_7, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_7, lineno=5)(_scope_7)
+                        {Placeholder.new('pack_1')}
+                        return lambda : _cps.interpret(_loop_fn_1, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_1, lineno=5)(_scope_1)
                     else:
-                        {Placeholder.new('pack7')}
-                        return lambda : _cont(_scope_7)
+                        {Placeholder.new('pack_1')}
+                        return lambda : _cont(_scope_1)
 
-                def _loop_exit_fn_7(_scope_7):
-                    {Placeholder.new('unpack7')}
+                def _loop_exit_fn_1(_scope_1):
+                    {Placeholder.new('unpack_1')}
                     x = x + 1
-                    {Placeholder.new('pack5')}
-                    return lambda : _cps.interpret(_loop_fn_5, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_5, lineno=3)(_scope_5)
-                {Placeholder.new('pack7')}
-                return lambda : _cps.interpret(_loop_fn_7, cont=_loop_exit_fn_7, stack=_stack, func_src=__func_src, locals_=_locals_7, lineno=5)(_scope_7)
+                    {Placeholder.new('pack_0')}
+                    return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
+                {Placeholder.new('pack_1')}
+                return lambda : _cps.interpret(_loop_fn_1, cont=_loop_exit_fn_1, stack=_stack, func_src=__func_src, locals_=_locals_1, lineno=5)(_scope_1)
             else:
-                {Placeholder.new('pack5')}
-                return lambda : _cont(_scope_5)
+                {Placeholder.new('pack_0')}
+                return lambda : _cont(_scope_0)
 
-        def _loop_exit_fn_5(_scope_5):
-            {Placeholder.new('unpack5')}
+        def _loop_exit_fn_0(_scope_0):
+            {Placeholder.new('unpack_0')}
             return lambda : _cont((rv, y))
-        {Placeholder.new('pack5')}
-        return lambda : _cps.interpret(_loop_fn_5, cont=_loop_exit_fn_5, stack=_stack, func_src=__func_src, locals_=_locals_5, lineno=3)(_scope_5)
+        {Placeholder.new('pack_0')}
+        return lambda : _cps.interpret(_loop_fn_0, cont=_loop_exit_fn_0, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
     ''', dict(
-        **ScopeTools.pack_unpack(5, names, hashabledict=True),
-        **ScopeTools.pack_unpack(7, names, hashabledict=True),
+        **ScopeTools.pack_unpack(0, names, hashabledict=True),
+        **ScopeTools.pack_unpack(1, names, hashabledict=True),
     ))
     check_cps_transform('''
     def fn(lim):
@@ -798,7 +779,7 @@ def test_cps_while_call_in_test():
     # This test case is checking whether a call in the while loop's test is dynamically computed.
     # In the past, we could compile that call out when desugaring, which would mean any function
     # calls would be extracted into assignments to temporary vars. Our approach was to desugar
-    # while loops to have a trivial test, which works well with our desugarging scheme.
+    # while loops to have a trivial test, which works well with our desugaring scheme.
     check_cps_transform('''
     def fn():
         ct = 0
@@ -813,43 +794,41 @@ def test_cps_while_call_in_test():
         ct = 0
 
         @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
-        def _loop_fn_3(_scope_3, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        def _loop_fn_0(_scope_0, *, _stack=(), _cps=_cps, _cont=lambda val: val):
             __func_src = "$IGNORE_STRING"
-            {Placeholder.new('unpack3')}
+            {Placeholder.new('unpack_0')}
             if True:
-                {Placeholder.new('pack4')}
+                {Placeholder.new('pack_1')}
 
-                def _cont_4(_res_4):
-                    {Placeholder.new('unpack4')}
-                    __v0 = _res_4
-
-                    def _cont_5(_scope_5):
-                        {Placeholder.new('unpack5')}
+                def _cont_1(_res_1):
+                    {Placeholder.new('unpack_1')}
+                    def _cont_2(_scope_2):
+                        {Placeholder.new('unpack_2')}
                         ct = ct + 1
-                        {Placeholder.new('pack3')}
-                        return lambda : _cps.interpret(_loop_fn_3, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=2)(_scope_3)
-                    if not (__v0 < 3) & (ct < 100):
-                        {Placeholder.new('pack3')}
-                        return lambda : _cont(_scope_3)
-                        {Placeholder.new('pack5')}
-                        return lambda : _cont_5(_scope_5)
+                        {Placeholder.new('pack_0')}
+                        return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=2)(_scope_0)
+                    if not (_res_1 < 3) & (ct < 100):
+                        {Placeholder.new('pack_0')}
+                        return lambda : _cont(_scope_0)
+                        {Placeholder.new('pack_2')}
+                        return lambda : _cont_2(_scope_2)
                     else:
-                        {Placeholder.new('pack5')}
-                        return lambda : _cont_5(_scope_5)
-                return lambda : _cps.interpret(sum, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=3)([ct])
+                        {Placeholder.new('pack_2')}
+                        return lambda : _cont_2(_scope_2)
+                return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=3)([ct])
             else:
-                {Placeholder.new('pack3')}
-                return lambda : _cont(_scope_3)
+                {Placeholder.new('pack_0')}
+                return lambda : _cont(_scope_0)
 
-        def _loop_exit_fn_3(_scope_3):
-            {Placeholder.new('unpack3')}
+        def _loop_exit_fn_0(_scope_0):
+            {Placeholder.new('unpack_0')}
             return lambda : _cont(ct)
-        {Placeholder.new('pack3')}
-        return lambda : _cps.interpret(_loop_fn_3, cont=_loop_exit_fn_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=2)(_scope_3)
+        {Placeholder.new('pack_0')}
+        return lambda : _cps.interpret(_loop_fn_0, cont=_loop_exit_fn_0, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=2)(_scope_0)
     ''', {
-        **ScopeTools.pack_unpack(3, ['__v0', 'ct'], hashabledict=True),
-        **ScopeTools.pack_unpack(4, ['ct']),
-        **ScopeTools.pack_unpack(5, ['__v0', 'ct']),
+        **ScopeTools.pack_unpack(0, ['ct'], hashabledict=True),
+        **ScopeTools.pack_unpack(1, ['ct']),
+        **ScopeTools.pack_unpack(2, ['ct']),
     }), check_args=[()], desugar=True)
 
 
@@ -871,36 +850,36 @@ def test_cps_while_nested_call():
         ct = 0
 
         @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
-        def _loop_fn_5(_scope_5, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        def _loop_fn_0(_scope_0, *, _stack=(), _cps=_cps, _cont=lambda val: val):
             __func_src = "$IGNORE_STRING"
-            {Placeholder.new('unpack5')}
+            {Placeholder.new('unpack_0')}
             if ct < 10:
-                {Placeholder.new('pack6')}
-                def _cont_6(_res_6):
-                    {Placeholder.new('unpack6')}
-                    x = _res_6
-                    {Placeholder.new('pack7')}
-                    def _cont_7(_res_7):
-                        {Placeholder.new('unpack7')}
-                        x = _res_7
+                {Placeholder.new('pack_1')}
+                def _cont_1(_res_1):
+                    {Placeholder.new('unpack_1')}
+                    x = _res_1
+                    {Placeholder.new('pack_2')}
+                    def _cont_2(_res_2):
+                        {Placeholder.new('unpack_2')}
+                        x = _res_2
                         ct = ct + 1
-                        {Placeholder.new('pack5')}
-                        return lambda : _cps.interpret(_loop_fn_5, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_5, lineno=3)(_scope_5)
-                    return lambda : _cps.interpret(sum, cont=_cont_7, stack=_stack, func_src=__func_src, locals_=_locals_7, lineno=5)([x, 2])
-                return lambda : _cps.interpret(sum, cont=_cont_6, stack=_stack, func_src=__func_src, locals_=_locals_6, lineno=4)([x, 1])
+                        {Placeholder.new('pack_0')}
+                        return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
+                    return lambda : _cps.interpret(sum, cont=_cont_2, stack=_stack, func_src=__func_src, locals_=_locals_2, call_id=2, lineno=5)([x, 2])
+                return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=4)([x, 1])
             else:
-                {Placeholder.new('pack5')}
-                return lambda : _cont(_scope_5)
+                {Placeholder.new('pack_0')}
+                return lambda : _cont(_scope_0)
 
-        def _loop_exit_fn_5(_scope_5):
-            {Placeholder.new('unpack5')}
+        def _loop_exit_fn_0(_scope_0):
+            {Placeholder.new('unpack_0')}
             return lambda : _cont(x)
-        {Placeholder.new('pack5')}
-        return lambda : _cps.interpret(_loop_fn_5, cont=_loop_exit_fn_5, stack=_stack, func_src=__func_src, locals_=_locals_5, lineno=3)(_scope_5)
+        {Placeholder.new('pack_0')}
+        return lambda : _cps.interpret(_loop_fn_0, cont=_loop_exit_fn_0, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
     ''', dict(
-        **ScopeTools.pack_unpack(5, ['ct', 'x'], hashabledict=True),
-        **ScopeTools.pack_unpack(6, ['ct', 'x']),
-        **ScopeTools.pack_unpack(7, ['ct', 'x']),
+        **ScopeTools.pack_unpack(0, ['ct', 'x'], hashabledict=True),
+        **ScopeTools.pack_unpack(1, ['ct', 'x']),
+        **ScopeTools.pack_unpack(2, ['ct', 'x']),
     )), check_args=[()])
 
 
@@ -916,68 +895,65 @@ def test_cps_for():
     def fn(*, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = '$FN_SOURCE'
         rv = []
-        {Placeholder.new('pack3')}
-        def _cont_3(_res_3):
-            {Placeholder.new('unpack3')}
-            __v0 = _res_3
-            {Placeholder.new('pack4')}
-            def _cont_4(_res_4):
-                {Placeholder.new('unpack4')}
-                __v1 = _res_4
-                _for_iter_4 = __v1
+        {Placeholder.new('pack_1')}
+        def _cont_1(_res_1):
+            {Placeholder.new('unpack_1')}
+            {Placeholder.new('pack_0')}
+            def _cont_0(_res_0):
+                {Placeholder.new('unpack_0')}
+                _for_iter_4 = _res_0
                 _for_idx_4 = 0
 
                 @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
-                def _loop_fn_7(_scope_7, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+                def _loop_fn_2(_scope_2, *, _stack=(), _cps=_cps, _cont=lambda val: val):
                     __func_src = "$IGNORE_STRING"
-                    {Placeholder.new('unpack7')}
+                    {Placeholder.new('unpack_2')}
                     if True:
-                        {Placeholder.new('pack8')}
-                        def _cont_8(_res_8):
-                            {Placeholder.new('unpack8')}
-                            __v2 = _res_8
+                        {Placeholder.new('pack_3')}
+                        def _cont_3(_res_3):
+                            {Placeholder.new('unpack_3')}
 
-                            def _cont_9(_scope_9):
-                                {Placeholder.new('unpack9')}
+                            def _cont_4(_scope_4):
+                                {Placeholder.new('unpack_4')}
                                 x = _for_iter_4[_for_idx_4]
                                 _for_idx_4 = _for_idx_4 + 1
                                 rv = rv + [x ** 2]
-                                {Placeholder.new('pack7')}
-                                return lambda : _cps.interpret(_loop_fn_7, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_7, lineno=6)(_scope_7)
-                            if not _for_idx_4 < __v2:
-                                {Placeholder.new('pack7')}
-                                return lambda : _cont(_scope_7)
-                                {Placeholder.new('pack9')}
-                                return lambda : _cont_9(_scope_9)
+                                {Placeholder.new('pack_2')}
+                                return lambda : _cps.interpret(_loop_fn_2, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_2, lineno=4)(_scope_2)
+                            if not _for_idx_4 < _res_3:
+                                {Placeholder.new('pack_2')}
+                                return lambda : _cont(_scope_2)
+                                {Placeholder.new('pack_4')}
+                                return lambda : _cont_4(_scope_4)
                             else:
-                                {Placeholder.new('pack9')}
-                                return lambda : _cont_9(_scope_9)
-                        return lambda : _cps.interpret(len, cont=_cont_8, stack=_stack, func_src=__func_src, locals_=_locals_8, lineno=7)(_for_iter_4)
+                                {Placeholder.new('pack_4')}
+                                return lambda : _cont_4(_scope_4)
+                        return lambda : _cps.interpret(len, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, call_id=3, lineno=5)(_for_iter_4)
                     else:
-                        {Placeholder.new('pack7')}
-                        return lambda : _cont(_scope_7)
+                        {Placeholder.new('pack_2')}
+                        return lambda : _cont(_scope_2)
 
-                def _loop_exit_fn_7(_scope_7):
-                    {Placeholder.new('unpack7')}
+                def _loop_exit_fn_2(_scope_2):
+                    {Placeholder.new('unpack_2')}
                     return lambda : _cont(rv)
-                {Placeholder.new('pack7')}
-                return lambda : _cps.interpret(_loop_fn_7, cont=_loop_exit_fn_7, stack=_stack, func_src=__func_src, locals_=_locals_7, lineno=6)(_scope_7)
-            return lambda : _cps.interpret(list, cont=_cont_4, stack=_stack, func_src=__func_src, locals_=_locals_4, lineno=3)(__v0)
-        return lambda : _cps.interpret(range, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, lineno=2)(10)
+                {Placeholder.new('pack_2')}
+                return lambda : _cps.interpret(_loop_fn_2, cont=_loop_exit_fn_2, stack=_stack, func_src=__func_src, locals_=_locals_2, lineno=4)(_scope_2)
+            return lambda : _cps.interpret(list, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=2)(_res_1)
+        return lambda : _cps.interpret(range, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=2)(10)
     ''', {
-        **ScopeTools.pack_unpack(3, ['rv']),
-        **ScopeTools.pack_unpack(4, ['__v0', 'rv']),
-        **ScopeTools.pack_unpack(7, ['__v0', '__v1', '__v2', '_for_idx_4', '_for_iter_4', 'rv', 'x'], hashabledict=True),
-        **ScopeTools.pack_unpack(8, ['__v0', '__v1', '_for_idx_4', '_for_iter_4', 'rv']),
-        **ScopeTools.pack_unpack(9, ['__v0', '__v1', '__v2', '_for_idx_4', '_for_iter_4', 'rv']),
+        **ScopeTools.pack_unpack(0, ['rv']),
+        **ScopeTools.pack_unpack(1, ['rv']),
+        **ScopeTools.pack_unpack(2, ['_for_idx_4', '_for_iter_4', 'rv', 'x'], hashabledict=True),
+        **ScopeTools.pack_unpack(3, ['_for_idx_4', '_for_iter_4', 'rv']),
+        **ScopeTools.pack_unpack(4, ['_for_idx_4', '_for_iter_4', 'rv']),
     }), check_args=[()], desugar=True)
 
 
 def _code_diff(a, b):
     from difflib import ndiff
-    diff = ndiff(
-        a.splitlines(keepends=True),
-        b.splitlines(keepends=True))
+    def _process_string(s):
+        return (s.strip() + '\n').splitlines(keepends=True) # Make sure we have a newline at the very end
+    diff = ndiff(_process_string(a), _process_string(b))
     return ''.join(diff)
 
 

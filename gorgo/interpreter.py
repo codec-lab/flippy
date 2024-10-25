@@ -27,6 +27,7 @@ from gorgo.types import NonCPSCallable, Method, Continuation, \
 class StackFrame:
     func_src: str
     lineno: int
+    call_id: int
     locals: dict
 
     def as_string(self):
@@ -81,6 +82,7 @@ class Stack:
         self,
         func_src: str,
         locals_: dict,
+        call_id: int,
         lineno: int
     ) -> 'Stack':
         if isinstance(locals_, dict):
@@ -91,7 +93,7 @@ class Stack:
                     ('_scope_' not in k)
                 )
             })
-        new_stack = self.stack_frames + (StackFrame(func_src, lineno, locals_),)
+        new_stack = self.stack_frames + (StackFrame(func_src, lineno, call_id, locals_),)
         return Stack(new_stack)
 
     def as_string(self):
@@ -111,7 +113,7 @@ class Stack:
 
     def without_locals(self):
         return Stack(tuple([
-            StackFrame(f.func_src, f.lineno, None) for f in self.stack_frames
+            StackFrame(f.func_src, f.lineno, f.call_id, None) for f in self.stack_frames
         ]))
 
     def __len__(self):
@@ -136,12 +138,13 @@ class CPSInterpreter:
             stack = Stack(),
             func_src = "<root>",
             locals_ = {},
+            call_id=None,
             lineno= 0
         )
         def return_continuation(value):
             return ReturnState(
                 value=value,
-                stack=Stack((StackFrame("<root>", 0, hashabledict({'__return__': value})), )),
+                stack=Stack((StackFrame("<root>", 0, None, hashabledict({'__return__': value})), )),
             )
         def program_continuation(*args, **kws):
             return cps_call(
@@ -161,12 +164,17 @@ class CPSInterpreter:
         stack : Stack = Stack(),
         func_src : str = None,
         locals_ : dict = None,
+        call_id : int = None,
         lineno : int = None,
     ) -> 'Continuation':
         """
         This is the main entry point for interpreting CPS-transformed code.
         See `CPSTransform.visit_Call` in `transforms.py` for more details on
         how it appears in transformed code.
+
+        `call_id` is used to uniquely identify function calls in the original code.
+        `lineno` is used to track the line number of the call in the source
+        code for debugging purposes.
         """
 
         # normal python
@@ -186,7 +194,7 @@ class CPSInterpreter:
             continuation = self.interpret_cps(call)
         if not isinstance(stack, Stack):
             stack = Stack(stack)
-        cur_stack = stack.update(func_src, locals_, lineno)
+        cur_stack = stack.update(func_src, locals_, call_id, lineno)
         continuation = functools.partial(continuation, _stack=cur_stack, _cont=cont)
         return continuation
 
@@ -381,6 +389,7 @@ class CPSInterpreter:
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
         trans_node = self.hashable_collection_transform(trans_node)
+        # print(ast.unparse(trans_node))
         return trans_node
 
     def compile(self, filename: str, node: ast.AST) -> types.CodeType:
