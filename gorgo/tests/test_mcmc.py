@@ -1,6 +1,7 @@
 import math
 from gorgo import condition
-from gorgo.distributions import Bernoulli, Distribution, Categorical, Dirichlet, Normal,  Gamma, Uniform, Beta
+from gorgo.distributions.scipy_dists import Bernoulli, Distribution, Normal,  Gamma, Uniform, Beta
+from gorgo.distributions.builtin_dists import Categorical, Dirichlet
 from gorgo.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting, MetropolisHastings
 from gorgo.tools import isclose
 from gorgo.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
@@ -89,7 +90,7 @@ def test_mcmc_normal_model():
         condition(-1.25 < mu < -.5)
         return mu
 
-    seed = 2391299
+    seed = 1391299
     mcmc_res = MH(
         function=normal_model,
         samples=2000,
@@ -110,7 +111,7 @@ def test_mcmc_gamma_model():
         condition(.5 < g < 2)
         return g
 
-    seed = 139932
+    seed = 229932
     mcmc_res = MH(
         function=gamma_model,
         samples=3000,
