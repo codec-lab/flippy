@@ -4,6 +4,9 @@ def readme():
     with open('README.md') as f:
         return f.read()
 
+with open("requirements.txt") as f:
+    requirements = f.read().splitlines()
+
 setup(
     name='gorgo',
     version='0.1',
@@ -13,4 +16,5 @@ setup(
     test_suite='nose.collector',
     tests_require=['nose'],
     zip_safe=False,
+    install_requires=requirements,
 )

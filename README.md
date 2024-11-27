@@ -9,10 +9,17 @@ of [WebPPL](https://dippl.org/).
 
 ## Getting started
 
-### Using a virtual environment
-- Set up a [virtual environment](https://docs.python.org/3/library/venv.html)
-- In the virtual environment, run: `pip install git+https://github.com/markkho/gorgo.git`
+In OSX, you can set up a virtual environment and install gorgo with dependencies:
+```
+$ python3 -m venv venv
+$ source venv/bin/activate
+(venv) $ pip install git+https://github.com/markkho/gorgo.git
+```
 
+To run the tests (this requires installing pytest):
+```
+(venv) $ pytest
+```
 
 ## Examples
 
@@ -38,7 +45,7 @@ model(0.5)
 
 
 
-<table><thead><tr><th></th><th>Element</th><th>Probability</th></tr></thead><tbody><tr><td><b>0</b></td><td>0</td><td>0.333</td></tr><tr><td><b>1</b></td><td>1</td><td>0.333</td></tr><tr><td><b>2</b></td><td>2</td><td>0.333</td></tr></tbody></table>
+<table><thead><tr><th></th><th>Element</th><th>Probability</th></tr></thead><tbody><tr><td><b>0</b></td><td>2</td><td>0.333</td></tr><tr><td><b>1</b></td><td>1</td><td>0.333</td></tr><tr><td><b>2</b></td><td>0</td><td>0.333</td></tr></tbody></table>
 
 
 
@@ -97,6 +104,9 @@ res = geometric(.9)
 res.plot()
 ```
 
+    Matplotlib is building the font cache; this may take a moment.
+
+
 
 
 
@@ -106,7 +116,7 @@ res.plot()
 
 
     
-![png](README_files/README_9_1.png)
+![png](README_files/README_9_2.png)
     
 
 
