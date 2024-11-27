@@ -42,7 +42,7 @@ class Distribution(Generic[Element]):
         raise ValueError("Cannot convert distribution to bool")
 
 
-class FiniteDistribution(Distribution):
+class FiniteDistribution(Distribution[Element]):
     support: Sequence[Element]
 
     @cached_property
