@@ -60,7 +60,7 @@ def is_namedtuple(obj):
         hasattr(obj, '_fields')
     )
 
-class Categorical(FiniteDistribution, Generic[Element]):
+class Categorical(FiniteDistribution[Element]):
     def __init__(self, support, *, probabilities=None, weights=None):
         if probabilities is not None:
             assert isclose(sum(probabilities), 1, atol=ISCLOSE_ATOL, rtol=ISCLOSE_RTOL)
@@ -74,12 +74,12 @@ class Categorical(FiniteDistribution, Generic[Element]):
         self._probabilities = probabilities
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict[Element, float]):
         support, probs = zip(*d.items())
         return cls(support=support, probabilities=probs)
 
     @classmethod
-    def from_continuous(cls, dist: Distribution, support: Sequence[float]):
+    def from_continuous(cls, dist: Distribution[Element], support: Sequence[float]):
         probs = [dist.prob(s) for s in support]
         total = sum(probs)
         probs = [p/total for p in probs]
@@ -92,7 +92,7 @@ class Categorical(FiniteDistribution, Generic[Element]):
     def sample(self, rng=default_rng, name=None) -> Element:
         return rng.choices(self.support, weights=self._probabilities, k=1)[0]
 
-    def log_probability(self, element):
+    def log_probability(self, element) -> float:
         try:
             return math.log(self._probabilities[self.support.index(element)])
         except ValueError:
