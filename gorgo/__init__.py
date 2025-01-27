@@ -195,7 +195,7 @@ class FactorDistribution(Distribution):
     def __init__(self):
         pass
 
-    def sample(self, rng, name):
+    def sample(self, rng, name, initial_value=None):
         return 0
 
     def log_probability(self, element : float) -> float:

@@ -1,5 +1,5 @@
 import math
-from functools import partial
+from functools import partial, cached_property
 import abc
 from collections import defaultdict
 from typing import Callable, List, Union, Dict, Tuple, TypeVar, TYPE_CHECKING
@@ -63,12 +63,16 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
         return dist, diagnostics
 
     def _run(self, *args, **kws):
-        init_ps = CPSInterpreter().initial_program_state(self.function)
+        init_ps = self.initial_program_state
         init_ps = init_ps.step(*args, **kws)
         rng = RandomNumberGenerator(self.seed)
         initial_trace = self.generate_initial_trace(init_ps, rng)
         assert initial_trace.total_score > float('-inf')
         return self.run_from_initial_trace(initial_trace, rng=rng)
+
+    @cached_property
+    def initial_program_state(self):
+        return CPSInterpreter().initial_program_state(self.function)
 
     def run_from_initial_trace(
         self,
@@ -163,14 +167,18 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
     def generate_initial_trace(
         self,
         initial_program_state : ProgramState,
-        rng : RandomNumberGenerator
+        rng : RandomNumberGenerator = default_rng
     ) -> Trace:
         def sample_site_callback(ps : SampleState) -> 'SampleValue':
-            if self.custom_initial_trace_kernel is None:
-                return ps.distribution.sample(rng=rng)
-            value = self.custom_initial_trace_kernel(ps.name)
-            if value is None:
-                return ps.distribution.sample(rng=rng)
+            assert not ps.fit, f"MetropolisHastings doesn't support Distribution.fit: {ps.name}"
+            if ps.initial_value in ps.distribution.support:
+                value = ps.initial_value
+            elif self.custom_initial_trace_kernel is not None:
+                value = self.custom_initial_trace_kernel(ps.name)
+                if value is None:
+                    value = ps.distribution.sample(rng=rng)
+            else:
+                value = ps.distribution.sample(rng=rng)
             return value
 
         iterator = range(self.max_initial_trace_attempts)
@@ -229,6 +237,7 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
         rng=default_rng
     ) -> Trace:
         def sample_site_callback(ps : SampleState):
+            assert not ps.fit, f"MetropolisHastings doesn't support Distribution.fit: {ps.name}"
             if ps.name == target_site_name:
                 proposal_dist = self.site_proposal_dist(
                     old_value=old_trace[ps.name].value,

@@ -60,7 +60,8 @@ class ScipyContinuousDistribution(Distribution, Multivariate):
     def sample(
         self,
         rng : RandomNumberGenerator = default_rng,
-        name=None
+        name=None,
+        initial_value=None
     ) -> Sequence[Element]:
         sample = self.base_distribution.rvs(
             *self.args,
@@ -191,7 +192,12 @@ class Bernoulli(FiniteDistribution, Multivariate):
     def __repr__(self) -> str:
         return f"Bernoulli(p={self.p}, size={self.size})"
 
-    def sample(self, rng : RandomNumberGenerator = default_rng, name=None) -> Sequence[Element]:
+    def sample(
+        self,
+        rng : RandomNumberGenerator = default_rng,
+        name=None,
+        initial_value=None
+    ) -> Sequence[Element]:
         s = bernoulli.rvs(self.p, size=self.size, random_state=rng.np)
         if self.size == 1:
             return s[0]
@@ -231,7 +237,12 @@ class NormalNormal(Multivariate):
 
     #first sample mu aka mean and then sample y aka x from estimated mu
     #check scipy norm documentation for why loc / general things
-    def sample(self, rng : RandomNumberGenerator = default_rng, name=None) -> Sequence[Element]:
+    def sample(
+        self,
+        rng : RandomNumberGenerator = default_rng,
+        name=None,
+        initial_value=None
+    ) -> Sequence[Element]:
         mean = norm.rvs(loc=self.prior_mean, scale=self.prior_sd, size=self.size, random_state=rng.np)
         x = norm.rvs(loc=mean, scale=self.sd, random_state=rng.np)
         if self.size == 1 and isinstance(x, Sequence):
@@ -283,7 +294,12 @@ class MultivariateNormal(Multivariate):
     def __repr__(self) -> str:
         return f"MultivariateNormal(prior_means={self.prior_means}, prior_cov={self.prior_cov}, cov={self.cov}, size={self.size})"
 
-    def sample(self, rng : RandomNumberGenerator = default_rng, name=None) -> Sequence[Element]:
+    def sample(
+        self,
+        rng : RandomNumberGenerator = default_rng,
+        name=None,
+        initial_value=None
+    ) -> Sequence[Element]:
         means = multivariate_normal.rvs(self.prior_means, self.prior_cov, size= self.size, random_state=rng.np)
         x =  np.stack([multivariate_normal.rvs(m, self.cov, random_state=rng.np) for m in means]) #stack turns from list or arrays -> matrix
         return x

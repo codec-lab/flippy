@@ -52,6 +52,7 @@ class LikelihoodWeighting(InferenceAlgorithm[Element]):
             ps = init_ps.step(*args, **kws)
             while not isinstance(ps, ReturnState):
                 if isinstance(ps, SampleState):
+                    assert not ps.fit, f"LikelihoodWeighting doesn't support Distribution.fit: {ps.name}"
                     value = ps.distribution.sample(rng=rng)
                     ps = ps.step(value)
                 elif isinstance(ps, ObserveState):

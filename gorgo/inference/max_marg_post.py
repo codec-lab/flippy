@@ -123,7 +123,10 @@ class MaximumMarginalAPosteriori(InferenceAlgorithm[Element]):
         def cont_var_func(ps: SampleState):
             if ps.name not in assignments:
                 assert isinstance(ps.distribution.support, ClosedInterval)
-                value = ps.distribution.sample(rng=rng)
+                if ps.initial_value in ps.distribution.support:
+                    value = ps.initial_value
+                else:
+                    value = ps.distribution.sample(rng=rng)
                 bounds = ps.distribution.support.start, ps.distribution.support.end
                 assignments[ps.name] = (value, bounds)
             value, bounds = assignments[ps.name]

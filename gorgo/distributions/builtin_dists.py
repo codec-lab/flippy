@@ -38,7 +38,7 @@ class Bernoulli(FiniteDistribution):
     support = (True, False)
     def __init__(self, p=.5):
         self.p = p
-    def sample(self, rng=default_rng, name=None) -> bool:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> bool:
         if rng.random() <= self.p:
             return True
         return False
@@ -89,7 +89,7 @@ class Categorical(FiniteDistribution[Element]):
     def probabilities(self):
         return self._probabilities
 
-    def sample(self, rng=default_rng, name=None) -> Element:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> Element:
         return rng.choices(self.support, weights=self._probabilities, k=1)[0]
 
     def log_probability(self, element) -> float:
@@ -275,7 +275,7 @@ class Multinomial(FiniteDistribution):
         )
         self.trials = trials
 
-    def sample(self, rng=default_rng, name=None) -> Tuple[int, ...]:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> Tuple[int, ...]:
         samples = rng.choices(
             self.categorical.support,
             weights=self.categorical._probabilities,
@@ -306,7 +306,7 @@ class Gaussian(Distribution):
         self.mean = mean
         self.sd = sd
 
-    def sample(self, rng=default_rng, name=None) -> float:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> float:
         return rng.gauss(self.mean, self.sd)
 
     def log_probability(self, element):
@@ -325,7 +325,7 @@ class Uniform(Distribution):
         self.end = end
         self.support = ClosedInterval(start, end)
 
-    def sample(self, rng=default_rng, name=None) -> float:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> float:
         return rng.uniform(self.start, self.end)
 
     def log_probability(self, element):
@@ -340,7 +340,7 @@ class Beta(Distribution):
         self.a = alpha
         self.b = beta
 
-    def sample(self, rng=default_rng, name=None) -> float:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> float:
         return rng.betavariate(self.a, self.b)
 
     def log_probability(self, element):
@@ -367,7 +367,7 @@ class Binomial(Distribution):
         assert 0 <= p <= 1
         self.support = tuple(range(0, self.trials + 1))
 
-    def sample(self, rng=default_rng, name=None) -> int:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> int:
         return sum(rng.random() < self.p for _ in range(self.trials))
 
     def log_probability(self, element):
@@ -389,7 +389,7 @@ class Geometric(Distribution):
         self.p = p
         assert 0 <= p <= 1
 
-    def sample(self, rng=default_rng, name=None) -> int:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> int:
         i = 0
         while rng.random() >= self.p:
             i += 1
@@ -409,7 +409,7 @@ class Poisson(Distribution):
         self.rate = rate
         assert rate >= 0
 
-    def sample(self, rng=default_rng, name=None) -> int:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> int:
         p, k, L = 1, 0, math.exp(-self.rate)
         while p > L:
             k += 1
@@ -428,7 +428,7 @@ class Gamma(Distribution):
         self.shape = shape
         self.rate = rate
 
-    def sample(self, rng=default_rng, name=None) -> float:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> float:
         # uses the shape, scale parameterization
         return rng.gammavariate(self.shape, 1/self.rate)
 
@@ -451,7 +451,7 @@ class BetaBinomial(FiniteDistribution):
         self.trials = trials
         self.support = tuple(range(0, self.trials + 1))
 
-    def sample(self, rng=default_rng, name=None) -> int:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> int:
         p = rng.betavariate(self.alpha, self.beta)
         return sum(rng.random() < p for _ in range(self.trials))
 
@@ -485,7 +485,7 @@ class Dirichlet(Distribution):
     def support(self):
         return Simplex(len(self.alphas))
 
-    def sample(self, rng=default_rng, name=None) -> Tuple[float, ...]:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> Tuple[float, ...]:
         e = [rng.gammavariate(a, 1) for a in self.alphas]
         tot = sum(e)
         return tuple(ei/tot for ei in e)
@@ -516,7 +516,7 @@ class DirichletMultinomial(FiniteDistribution):
     def dirichlet(self) -> Dirichlet:
         return Dirichlet(self.alphas)
 
-    def sample(self, rng=default_rng, name=None) -> Tuple[int, ...]:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> Tuple[int, ...]:
         ps = self.dirichlet.sample(rng=rng)
         samples = rng.choices(range(len(self.alphas)), weights=ps, k=self.trials)
         counts = Counter(samples)
@@ -557,7 +557,7 @@ class Mixture(Distribution):
     def support(self):
         return MixtureSupport(self.distributions)
 
-    def sample(self, rng=default_rng, name=None) -> Element:
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> Element:
         dist = rng.choices(self.distributions, weights=self.weights)[0]
         return dist.sample(rng=rng, name=name)
 

@@ -289,6 +289,7 @@ class Enumeration(InferenceAlgorithm,Generic[Element]):
             values = self._cont_var_func(ps)
             cont_var_assigned = True
         else:
+            assert not ps.fit, f"Enumeration doesn't support Distribution.fit: {ps.name}"
             values = ps.distribution.support
             cont_var_assigned = False
         successors, scores = [], []

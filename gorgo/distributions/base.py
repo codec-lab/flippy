@@ -16,11 +16,14 @@ class Distribution(Generic[Element]):
         return math.exp(self.log_probability(element))
 
     @abc.abstractmethod
-    def sample(self, rng=random, name=None) -> Element:
+    def sample(self, rng=random, name=None, initial_value=None) -> Element:
         pass
 
     def observe(self, value) -> None:
         pass
+
+    def fit(self, *, rng=random, name=None, initial_value: Element = None):
+        return initial_value
 
     @abc.abstractmethod
     def log_probability(self, element : Element) -> float:

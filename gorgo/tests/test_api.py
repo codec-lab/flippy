@@ -7,9 +7,12 @@ from gorgo import flip, mem, infer, draw_from, factor, condition, \
     Bernoulli, Categorical, Uniform, keep_deterministic,\
     uniform, recursive_map, recursive_filter, recursive_reduce, \
     map_observe, cps_transform_safe_decorator
+from gorgo.distributions.builtin_dists import Bernoulli, Uniform, Binomial
 from gorgo.interpreter import CPSInterpreter
-from gorgo.inference import SimpleEnumeration, LikelihoodWeighting, Enumeration
+from gorgo.inference import SimpleEnumeration, LikelihoodWeighting, Enumeration, \
+    MaximumMarginalAPosteriori, MetropolisHastings
 from gorgo.core import ReturnState
+from gorgo.tools import isclose
 
 
 def algebra():
@@ -698,3 +701,47 @@ def test_infer__applied_to_methods__outside_class_valid():
     assert c.normal_method(.6).isclose(Bernoulli(.6))
     assert MyClass.normal_method(c, .6).isclose(Bernoulli(.6))
     assert MyClass.static_method(.6).isclose(Bernoulli(.6))
+
+def test_Distribution_fit_interface():
+    def param_fit(data):
+        p = Uniform(0, 1).fit(initial_value=.123)
+        Binomial(len(data), p).observe(sum(data))
+        return p
+
+    mmap = MaximumMarginalAPosteriori(param_fit)
+    data = (1, 1, 0, 1, 0, 1, 0, 0, 0, 0)*10
+    assert param_fit(data) == 0.123
+    res = mmap.run(data)
+    assert isclose(res.sample(), sum(data)/len(data))
+
+    # These inference algorithms don't support the Distribution.fit interface
+    with pytest.raises(AssertionError) as e:
+        LikelihoodWeighting(param_fit, samples=100).run(data)
+    assert "doesn't support Distribution.fit" in e.value.args[0]
+
+    with pytest.raises(AssertionError) as e:
+        MetropolisHastings(param_fit, samples=100).run(data)
+    assert "doesn't support Distribution.fit" in e.value.args[0]
+
+    def discrete_fit():
+        x = Bernoulli(.5).fit(initial_value=0)
+        return x
+
+    with pytest.raises(AssertionError) as e:
+        Enumeration(discrete_fit).run()
+    assert "doesn't support Distribution.fit" in e.value.args[0]
+
+def test_Distribution_fit_initial_value_interface():
+    def param_fit(use_initial_value):
+        p = Uniform(0, 1).fit(
+            name="p",
+            initial_value= .123 if use_initial_value else None
+        )
+        return p
+
+    mmap = MaximumMarginalAPosteriori(param_fit)
+    assignment, _, _ = mmap.assignment_score(args=(True, ), kwargs={}, assignments={})
+    assert assignment['p'][0] == .123
+
+    assignment, _, _ = mmap.assignment_score(args=(False, ), kwargs={}, assignments={})
+    assert assignment['p'][0] != .123

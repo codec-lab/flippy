@@ -206,9 +206,11 @@ class CPSInterpreter:
     def interpret_object_attribute_call(self, call: 'NonCPSCallable') -> 'Continuation':
         if isinstance(call.__self__, Distribution):
             if call.__name__ == "sample":
-                return self.interpret_sample(call)
+                return self.interpret_sample(call, fit=False)
             elif call.__name__ == "observe":
                 return self.interpret_observe(call)
+            elif call.__name__ == "fit": #fit is an alternative interface to sample
+                return self.interpret_sample(call, fit=True)
             else:
                 # other than sample and observe, we interpret Distribution methods as deterministic
                 return self.interpret_method_deterministically(call)
@@ -277,18 +279,21 @@ class CPSInterpreter:
             )
         return continuation
 
-    def interpret_sample(self, call: 'SampleCallable[Element]') -> 'Continuation':
+    def interpret_sample(self, call: 'SampleCallable[Element]', fit: bool) -> 'Continuation':
         def sample_continuation(
             _cont: 'Continuation'=None,
             _stack: 'Stack'=None,
-            name: 'VariableName'=None
+            name: 'VariableName'=None,
+            initial_value=None,
         ):
             return SampleState(
                 continuation=_cont,
                 distribution=call.__self__,
                 name=name,
                 stack=_stack,
-                cps=self
+                cps=self,
+                initial_value=initial_value,
+                fit=fit
             )
         return sample_continuation
 

@@ -163,7 +163,9 @@ class SampleState(ProgramState):
         distribution: Distribution,
         name: 'VariableName',
         stack: 'Stack',
-        cps : 'CPSInterpreter'
+        cps : 'CPSInterpreter',
+        initial_value: Any,
+        fit: bool
     ):
         super().__init__(
             continuation=continuation,
@@ -172,6 +174,8 @@ class SampleState(ProgramState):
             cps=cps
         )
         self.distribution = distribution
+        self.initial_value = initial_value
+        self.fit = fit
 
 class ReturnState(ProgramState):
     def __init__(self, value: 'ReturnValue', stack: 'Stack'):

@@ -218,3 +218,13 @@ def text_mcmc_categorical_branching_explicit_names():
     mh_dist = MH(fn, samples=10000, seed=124).run()
     for e in enum_dist:
         assert isclose(enum_dist[e], mh_dist[e], atol=1e-2)
+
+def test_mcmc_initial_value():
+    def model():
+        p = Beta(3, 2).sample(name='p', initial_value=0.123)
+        return p
+
+    mcmc = MetropolisHastings(function=model, samples=10)
+    init_ps = mcmc.initial_program_state.step()
+    trace = mcmc.generate_initial_trace(init_ps)
+    assert trace['p'].value == 0.123

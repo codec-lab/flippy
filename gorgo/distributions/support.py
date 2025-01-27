@@ -1,4 +1,5 @@
 import math
+from collections.abc import Iterable
 from typing import Sequence, Set, Union, TYPE_CHECKING
 from itertools import combinations_with_replacement, product
 from gorgo.tools import isclose, ISCLOSE_RTOL, ISCLOSE_ATOL
@@ -22,7 +23,7 @@ class ClosedInterval:
         self.start = start
         self.end = end
     def __contains__(self, ele):
-        return self.start <= ele <= self.end
+        return isinstance(ele, (float, int)) and (self.start <= ele <= self.end)
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.start}, {self.end})"
 
@@ -48,12 +49,12 @@ class IntegerInterval(ClosedInterval):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.start}, {self.end})"
 
-
 class Simplex:
     def __init__(self, dimensions):
         self.dimensions = dimensions
     def __contains__(self, vec):
         return (
+            isinstance(vec, Iterable) and \
             len(vec) == self.dimensions and \
             isclose(1.0, sum(vec)) and \
             all((not isclose(0.0, e)) and (0 < e <= 1) for e in vec)
