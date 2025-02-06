@@ -44,6 +44,27 @@ class Distribution(Generic[Element]):
     def __bool__(self):
         raise ValueError("Cannot convert distribution to bool")
 
+    def total_log_probability(self, data : Sequence[Element]) -> float:
+        return sum(self.log_probability(d) for d in data)
+
+    # This method will be CPS transformed
+    def observe_all(self, data : Iterable[Element]):
+        _factor_dist.observe(self.total_log_probability(data))
+
+
+class FactorDistribution(Distribution):
+    def __init__(self):
+        pass
+
+    def sample(self, rng, name, initial_value=None):
+        return 0
+
+    def log_probability(self, element : float) -> float:
+        #workaround for arbitrary scores
+        return element
+
+_factor_dist = FactorDistribution()
+
 
 class FiniteDistribution(Distribution[Element]):
     support: Sequence[Element]

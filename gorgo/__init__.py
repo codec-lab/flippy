@@ -8,6 +8,7 @@ from gorgo.inference import \
     LikelihoodWeighting, InferenceAlgorithm
 from gorgo.distributions import Categorical, Bernoulli, Distribution, Uniform, Element
 from gorgo.distributions.random import default_rng
+from gorgo.distributions.base import _factor_dist
 from gorgo.core import global_store
 from gorgo.hashable import hashabledict
 from gorgo.map import recursive_map
@@ -190,19 +191,6 @@ def recursive_reduce(fn, iter, initializer):
     if len(iter) == 0:
         return initializer
     return recursive_reduce(fn, iter[1:], fn(initializer, iter[0]))
-
-class FactorDistribution(Distribution):
-    def __init__(self):
-        pass
-
-    def sample(self, rng, name, initial_value=None):
-        return 0
-
-    def log_probability(self, element : float) -> float:
-        #workaround for arbitrary scores
-        return element
-
-_factor_dist = FactorDistribution()
 
 def factor(score):
     _factor_dist.observe(score)

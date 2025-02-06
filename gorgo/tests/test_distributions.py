@@ -4,6 +4,8 @@ from gorgo.distributions.scipy_dists import Uniform, NormalNormal, Normal, Multi
 from gorgo.distributions.builtin_dists import Bernoulli, Categorical
 from gorgo.inference.likelihood_weighting import LikelihoodWeighting
 from gorgo.inference.enumeration import Enumeration
+from gorgo.interpreter import CPSInterpreter
+from gorgo.core import ReturnState
 from gorgo.tools import isclose
 from gorgo.distributions.random import default_rng
 
@@ -68,3 +70,27 @@ def test_categorical_condition():
     d = d.condition(lambda x : x % 2 == 0)
     d = d.condition(lambda x : x % 3 == 0)
     assert d.isclose(Categorical([0, 6], probabilities=[.5, .5]))
+
+def test_observe_all():
+    def model_observe_all(p, data):
+        Bernoulli(p).observe_all(data)
+        return p
+
+    def model_observe(p, data):
+        [Bernoulli(p).observe(d) for d in data]
+        return p
+
+    data = (1, 1, 1, 1, 1, 0, 0)
+    p = .9
+
+    ps = CPSInterpreter().initial_program_state(model_observe_all)
+    ps = ps.step(p, data)
+    logprob1 = ps.distribution.log_probability(ps.value)
+
+    ps = CPSInterpreter().initial_program_state(model_observe)
+    ps = ps.step(p, data)
+    logprob2 = 0
+    while not isinstance(ps, ReturnState):
+        logprob2 += ps.distribution.log_probability(ps.value)
+        ps = ps.step()
+    assert isclose(logprob1, logprob2)

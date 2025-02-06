@@ -544,7 +544,11 @@ class DirichletMultinomial(FiniteDistribution):
         return f"{self.__class__.__name__}(trials={self.trials}, alphas={self.alphas})"
 
 class Mixture(Distribution):
-    def __init__(self, distributions : Sequence[Distribution], weights : Sequence[float] = None):
+    def __init__(
+        self,
+        distributions : Sequence[Distribution],
+        weights : Sequence[float] = None
+    ):
         assert not any(isinstance(d, Multivariate) for d in distributions), "This Mixture distribution doesn't currently handle batches"
         if weights is None:
             weights = [1 / len(distributions) for _ in distributions]
@@ -552,6 +556,17 @@ class Mixture(Distribution):
         assert isclose(sum(weights), 1), "Weights must sum to 1"
         self.distributions = distributions
         self.weights = weights
+
+    @classmethod
+    def from_distribution_of_distributions(
+        cls,
+        dist_of_dists : FiniteDistribution[Distribution]
+    ):
+        probabilities = [dist_of_dists.prob(d) for d in dist_of_dists.support]
+        return cls(
+            distributions=dist_of_dists.support,
+            weights=probabilities
+        )
 
     @cached_property
     def support(self):

@@ -209,22 +209,27 @@ class CPSInterpreter:
                 return self.interpret_sample(call, fit=False)
             elif call.__name__ == "observe":
                 return self.interpret_observe(call)
+            elif call.__name__ == "observe_all":
+                return self.interpret_method(call) #see Distribution.observe_all
             elif call.__name__ == "fit": #fit is an alternative interface to sample
                 return self.interpret_sample(call, fit=True)
             else:
                 # other than sample and observe, we interpret Distribution methods as deterministic
                 return self.interpret_method_deterministically(call)
         else:
-            # For instance and class methods, we transform and compile the
-            # function body like normal but need to ensure the right first
-            # argument is passed in.
-            # This handles both class and instance methods since
-            # call.__self__ refers to the the instance if a method,
-            # or the class if a classmethod
-            continuation = self.interpret_cps(call.__func__)
-            def method_continuation(*args, _cont: 'Continuation'=None, _stack: 'Stack'=None, **kws):
-                return lambda : continuation(call.__self__, *args, _cont=_cont, _stack=_stack, **kws)
-            return method_continuation
+            return self.interpret_method(call)
+
+    def interpret_method(self, call: "NonCPSCallable") -> 'Continuation':
+        # For instance and class methods, we transform and compile the
+        # function body like normal but need to ensure the right first
+        # argument is passed in.
+        # This handles both class and instance methods since
+        # call.__self__ refers to the the instance if a method,
+        # or the class if a classmethod
+        continuation = self.interpret_cps(call.__func__)
+        def method_continuation(*args, _cont: 'Continuation'=None, _stack: 'Stack'=None, **kws):
+            return lambda : continuation(call.__self__, *args, _cont=_cont, _stack=_stack, **kws)
+        return method_continuation
 
     @method_cache
     def interpret_cps(
