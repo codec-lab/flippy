@@ -1,3 +1,30 @@
+'''
+FlipPy is a library for specifying probabilistic programs.
+
+# Quick start
+
+```bash
+pip install flippy-lang
+```
+
+# Example: Sum of bernoullis
+
+```python
+@infer
+def fn():
+    x = flip(0.5)
+    y = flip(0.5)
+    return x + y
+
+fn() # Distribution({0: 0.25, 1: 0.5, 2: 0.25})
+```
+
+# Tutorials
+
+- [/tutorials/00-intro](/tutorials/00-intro)
+
+'''
+
 import functools
 import math
 import inspect
@@ -16,29 +43,13 @@ from gorgo.tools import LRUCache
 
 from gorgo.interpreter import CPSInterpreter
 
-__all__ = [
-    # Core API
-    'infer',
-    'keep_deterministic',
-    'factor',
-    'condition',
-    'flip',
-    'draw_from',
-    'mem',
-    'uniform',
-    'map_observe',
-    'default_rng',
-    # Distributions
-    'Categorical',
-    'Bernoulli',
-]
-
 # Note if we use python 3.10+ we can use typing.ParamSpec
 # so that combinators preserve the type signature of functions
 R = TypeVar('R')
 
 class DescriptorMixIn:
     """
+    @private
     A mixin class that provides a descriptor interface for a callable object.
     """
     def __init__(self, wrapped_func):
@@ -71,6 +82,9 @@ class DescriptorMixIn:
         return partial_call
 
 class KeepDeterministicCallable(DescriptorMixIn):
+    '''
+    @private
+    '''
     def __init__(self, func):
         DescriptorMixIn.__init__(self, func)
         self.wrapped_func = func
@@ -122,6 +136,9 @@ def cps_transform_safe_decorator(dec: Callable) -> Callable:
     return wrapped_decorator
 
 class InferCallable(Generic[Element], DescriptorMixIn):
+    '''
+    @private
+    '''
     def __init__(
         self,
         func: Callable[..., Element],

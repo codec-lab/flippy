@@ -2,3 +2,4 @@ joblib
 numpy
 scipy
 frozendict
+pdoc==15.0.3
