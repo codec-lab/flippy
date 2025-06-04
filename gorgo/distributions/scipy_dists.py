@@ -12,7 +12,8 @@ from gorgo.distributions.random import RandomNumberGenerator, default_rng
 from gorgo.tools import isclose
 
 from scipy.stats import rv_continuous, rv_discrete
-from scipy.stats import norm, uniform, beta, gamma, poisson, bernoulli, multivariate_normal
+from scipy.stats import norm, uniform, beta, gamma, poisson, bernoulli, multivariate_normal, \
+    invwishart
 
 __all__ = [
     "Normal",
@@ -21,6 +22,9 @@ __all__ = [
     "Beta",
     "Bernoulli",
     "NormalNormal",
+    "MultivariateNormalNormal",
+    "MultivariateNormal",
+    "InverseWishart",
 ]
 
 class ScipyContinuousDistribution(Distribution, Multivariate):
@@ -352,3 +356,34 @@ class MultivariateNormal(Distribution):
         if any(isinstance(x, sp.Basic) for x in [element, self.means, self.covariance]):
             raise NotImplementedError("Symbolic computation not supported for MultivariateNormal")
         return multivariate_normal.logpdf(element, mean=self.means, cov=self.covariance)
+
+class InverseWishart(Distribution):
+    def __init__(self, df=1, scale_matrix=((1,),)):
+        scale_matrix = np.array(scale_matrix)
+        assert scale_matrix.ndim == 2, "Scale matrix must be a 2D array"
+        assert scale_matrix.shape[0] == scale_matrix.shape[1], \
+            "Scale matrix must be square"
+        assert df >= scale_matrix.shape[0], \
+            "Degrees of freedom must be at least the dimension of the scale matrix"
+        self.df = df
+        self.scale_matrix = scale_matrix
+
+    dim = property(lambda self: len(self.scale_matrix))
+    support = cached_property(lambda self: (sp.Reals**self.dim)**self.dim)
+
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> float:
+        x = invwishart.rvs(df=self.df, scale=self.scale_matrix, random_state=rng.np)
+        if isinstance(x, (int, float)):
+            return x
+        return tuple(tuple(xi) for xi in x)
+
+    def log_probability(self, element):
+        if any(isinstance(x, sp.Basic) for x in [element, self.df, self.scale_matrix]):
+            raise NotImplementedError("Symbolic computation not supported for MultivariateNormal")
+        return invwishart.logpdf(x, df=self.df, scale=self.scale_matrix)
+
+    def expected_value(self, func = None):
+        assert func is None, "Arbitrary expected value function not implemented for InverseWishart"
+        if self.df <= self.dim + 1:
+            raise ValueError("Expected value is not defined for df <= dim + 1")
+        return self.scale_matrix / (self.df - self.dim - 1)

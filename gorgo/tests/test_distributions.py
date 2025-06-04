@@ -1,7 +1,8 @@
 import math
 import pytest
 import numpy as np
-from gorgo.distributions.scipy_dists import Uniform, NormalNormal, Normal, MultivariateNormalNormal, MultivariateNormal
+from gorgo.distributions.scipy_dists import Uniform, NormalNormal, Normal, \
+    MultivariateNormalNormal, MultivariateNormal, InverseWishart
 from gorgo.distributions.builtin_dists import Bernoulli, Categorical
 from gorgo.inference.likelihood_weighting import LikelihoodWeighting
 from gorgo.inference.enumeration import Enumeration
@@ -65,6 +66,17 @@ def test_multivariate_normal():
     sample_cov = np.prod(samples - sample_means, axis=1).mean()
     assert (np.abs(sample_means - (0, 1)) < .02).all()
     assert abs(sample_cov - 0.5) < 1e-2
+
+
+def test_InverseWishart():
+    invwish = InverseWishart(df=4.2, scale_matrix=((1, 0.5), (0.5, 1)))
+    rng = RandomNumberGenerator(32345)
+    samples = [invwish.sample(rng=rng) for _ in range(5000)]
+    assert np.isclose(
+        np.array(samples).mean(axis=0),
+        invwish.expected_value(),
+        atol=0.1
+    ).all()
 
 def test_categorical_dist_equality():
     def f():
