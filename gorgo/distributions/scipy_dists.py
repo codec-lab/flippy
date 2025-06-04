@@ -1,6 +1,7 @@
 from typing import Sequence
 import random
 import numpy as np
+import sympy as sp
 import abc
 from typing import Union, Tuple, Callable
 from functools import cached_property
@@ -273,7 +274,7 @@ class NormalNormal(Multivariate):
         new_prior_mean = (self.prior_mean/self.prior_sd + total/self.sd) * new_prior_var
         return NormalNormal(prior_mean=new_prior_mean, prior_sd=new_prior_var**.5, sd=self.sd, size=self.size)
 
-class MultivariateNormal(Multivariate):
+class MultivariateNormalNormal(Multivariate):
     def __init__(self, *, prior_means : Sequence[float] = (0,),
                  prior_cov: Sequence[Sequence[float]] = ((1,),),
                  cov: Sequence[Sequence[float]] = ((1,),),
@@ -317,7 +318,7 @@ class MultivariateNormal(Multivariate):
         else:
             return sum(logprobs)
 
-    def update(self, data : Sequence[Element]) -> "MultivariateNormal":
+    def update(self, data : Sequence[Element]) -> "MultivariateNormalNormal":
         if isinstance(data[0], (float, int)):
             total = data
             n_datapoints = 1
@@ -331,4 +332,23 @@ class MultivariateNormal(Multivariate):
 
         new_prior_cov = np.linalg.inv(prior_cov_inverted + n_datapoints * cov_inverted)
         new_prior_means = new_prior_cov @ (cov_inverted @ total + prior_cov_inverted @ self.prior_means)
-        return MultivariateNormal(prior_means=new_prior_means, prior_cov=new_prior_cov, cov=self.cov, size=self.size)
+        return MultivariateNormalNormal(prior_means=new_prior_means, prior_cov=new_prior_cov, cov=self.cov, size=self.size)
+
+class MultivariateNormal(Distribution):
+    def __init__(self, means=(0,), covariance=((1,),)):
+        assert len(means) == len(covariance), "Means and covariance must have the same length"
+        assert all(len(row) == len(means) for row in covariance), "Covariance must be a square matrix matching the length of means"
+        self.means = means
+        self.covariance = covariance
+
+    dim = property(lambda self: len(self.means))
+    support = cached_property(lambda self: sp.Reals**self.dim)
+
+    def sample(self, rng=default_rng, name=None, initial_value=None) -> float:
+        x = multivariate_normal.rvs(mean=self.means, cov=self.covariance, random_state=rng.np)
+        return tuple(x)
+
+    def log_probability(self, element):
+        if any(isinstance(x, sp.Basic) for x in [element, self.means, self.covariance]):
+            raise NotImplementedError("Symbolic computation not supported for MultivariateNormal")
+        return multivariate_normal.logpdf(element, mean=self.means, cov=self.covariance)

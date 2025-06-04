@@ -1,13 +1,14 @@
 import math
 import pytest
-from gorgo.distributions.scipy_dists import Uniform, NormalNormal, Normal, MultivariateNormal
+import numpy as np
+from gorgo.distributions.scipy_dists import Uniform, NormalNormal, Normal, MultivariateNormalNormal, MultivariateNormal
 from gorgo.distributions.builtin_dists import Bernoulli, Categorical
 from gorgo.inference.likelihood_weighting import LikelihoodWeighting
 from gorgo.inference.enumeration import Enumeration
 from gorgo.interpreter import CPSInterpreter
 from gorgo.core import ReturnState
 from gorgo.tools import isclose
-from gorgo.distributions.random import default_rng
+from gorgo.distributions.random import default_rng, RandomNumberGenerator
 
 def test_scipy_uniform():
     dist = Uniform(-1, -.5)
@@ -46,7 +47,7 @@ def test_multivariate_normal_multivariate_normal():
     priorvar = default_rng.random()
     sigma2 = default_rng.random()
 
-    mvn = MultivariateNormal(prior_means=[mean,mean],prior_cov=[[priorvar,0],[0,priorvar]],cov=[[sigma2,0],[0,sigma2]],size=3)
+    mvn = MultivariateNormalNormal(prior_means=[mean,mean],prior_cov=[[priorvar,0],[0,priorvar]],cov=[[sigma2,0],[0,sigma2]],size=3)
 
     samples = mvn.sample()
     uvn = NormalNormal(prior_mean=mean, prior_sd=priorvar**.5, sd=sigma2**.5,size=3)
@@ -54,6 +55,16 @@ def test_multivariate_normal_multivariate_normal():
     mvnlogprob = mvn.log_probability(samples)
 
     assert isclose(uvnlogprob, mvnlogprob)
+
+
+def test_multivariate_normal():
+    rng = RandomNumberGenerator(12345)
+    mvn = MultivariateNormal(means=(0, 1), covariance=((1, 0.5), (0.5, 1)))
+    samples = np.array([mvn.sample(rng=rng) for _ in range(5000)])
+    sample_means = np.mean(samples, axis=0)
+    sample_cov = np.prod(samples - sample_means, axis=1).mean()
+    assert (np.abs(sample_means - (0, 1)) < .02).all()
+    assert abs(sample_cov - 0.5) < 1e-2
 
 def test_categorical_dist_equality():
     def f():
