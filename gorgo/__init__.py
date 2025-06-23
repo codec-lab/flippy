@@ -19,9 +19,18 @@ def fn():
 fn() # Distribution({0: 0.25, 1: 0.5, 2: 0.25})
 ```
 
+# Documentation
+
+Here is the documentation for writing models in FlipPy.
+- The core API for declaring a model ([link](#api))
+- Specifying distributions ([link](gorgo/distributions))
+- Selecting inference algorithms ([link](gorgo/inference))
+
 # Tutorials
 
 - [Introductory tutorial](../tutorials/00-intro)
+
+# API
 
 '''
 
@@ -42,6 +51,34 @@ from gorgo.map import recursive_map
 from gorgo.tools import LRUCache
 
 from gorgo.interpreter import CPSInterpreter
+
+__all__ = [
+    'infer',
+
+    'flip',
+    'draw_from',
+    'uniform',
+
+    'factor',
+    'condition',
+    'map_observe',
+
+    'mem',
+
+    'keep_deterministic',
+
+    # submodules
+
+    # Model specification
+    'distributions',
+    # Inference algorithms
+    'inference',
+
+    # Execution model
+    'core',
+    'callentryexit',
+    'map',
+]
 
 # Note if we use python 3.10+ we can use typing.ParamSpec
 # so that combinators preserve the type signature of functions
@@ -91,6 +128,7 @@ class KeepDeterministicCallable(DescriptorMixIn):
         if isinstance(func, (classmethod, staticmethod)):
             self.wrapped_func = func.__func__
         functools.update_wrapper(self, func)
+        # This ensures that no subsequent compilation happens.
         setattr(self, CPSTransform.is_transformed_property, True)
 
     def __call__(self, *args, _cont=None, _cps=None, _stack=None, **kws):
@@ -102,12 +140,28 @@ class KeepDeterministicCallable(DescriptorMixIn):
 
 
 def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
+    '''
+    Decorator to interpret a function as deterministic Python.
+    Any random sampling in the function will not be targeted for inference.
+
+    This is helpful if the transform slows a function down, if a
+    deterministic library is being called, or if a distribution is being
+    directly computed.
+    '''
     return KeepDeterministicCallable(fn)
 
 def cps_transform_safe_decorator(dec: Callable) -> Callable:
     """
     A higher-order function that wraps a decorator so that it works with functions
     that are CPS transformed or will be CPS transformed.
+
+    Functions are typically evaluated twice in the course of being CPS transformed.
+    First, when they are initially declared in Python.
+    Second, when being evaluated after being transformed.
+    So, a function's decorators would typically be executed twice. However, this decorator
+    can be used to mark a decorator so that it will not be executed after being CPS transformed.
+    The resulting function will then be the transformed version of decorated function, without
+    any further decoration after transformation.
     """
     @keep_deterministic
     def wrapped_decorator(fn=None, *args, **kws):
@@ -182,14 +236,22 @@ class InferCallable(Generic[Element], DescriptorMixIn):
         else:
             return lambda : _cont(dist)
 
-@cps_transform_safe_decorator
 def infer(
     func: Callable[..., Element]=None,
     method=Enumeration,
     cache_size=1024,
     **kwargs
 ) -> InferCallable[Element]:
+    '''
+    Turns a function into a stochastic function, that represents a posterior distribution.
+
+    This is the main interface for performing inference in FlipPy.
+
+    - `method` specifies the inference method. Defaults to `Enumeration`.
+    - `**kwargs` are keyword arguments passed to the inference method.
+    '''
     return InferCallable(func, method, cache_size, **kwargs)
+infer = cps_transform_safe_decorator(infer)
 
 # type hints for infer - if we can use ParamSpecs this will be cleaner
 InferenceType = Callable[[Callable[..., Element]], InferCallable[Element]]
@@ -210,15 +272,28 @@ def recursive_reduce(fn, iter, initializer):
     return recursive_reduce(fn, iter[1:], fn(initializer, iter[0]))
 
 def factor(score):
+    '''
+    Adds a real-valued `score` to the weight of the current trace.
+    '''
     _factor_dist.observe(score)
 
 def condition(cond: float):
+    '''
+    Used for conditioning statements. When `cond` is a boolean, this behaves like
+    typical conditioning.
+
+    - `cond` is a non-negative multiplicative weight for the conditioning. When zero,
+        the trace is assigned zero probability.
+    '''
     if cond == 0:
         _factor_dist.observe(-float("inf"))
     else:
         _factor_dist.observe(math.log(cond))
 
 def flip(p=.5, name=None):
+    '''
+    Samples from a Bernoulli distribution with probability `p`.
+    '''
     return bool(Bernoulli(p).sample(name=name))
 
 @keep_deterministic
@@ -237,10 +312,17 @@ def draw_from(n: int) -> int:
 def draw_from(n: Sequence[Element]) -> Element:
     ...
 def draw_from(n: Union[Sequence[Element], int]) -> Element:
+    '''
+    Samples uniformly from `n` when it is a sequence.
+    When `n` is an integer, a sample is drawn from `range(n)`.
+    '''
     return _draw_from_dist(n).sample()
 
-@cps_transform_safe_decorator
 def mem(fn: Callable[..., Element]) -> Callable[..., Element]:
+    '''
+    Turns a function into a stochastically memoized function.
+    Stores information in trace-specific storage.
+    '''
     def mem_wrapper(*args, **kws):
         key = (fn, args, tuple(sorted(kws.items())))
         kws = hashabledict(kws)
@@ -251,9 +333,13 @@ def mem(fn: Callable[..., Element]) -> Callable[..., Element]:
             global_store.set(key, value)
             return value
     return mem_wrapper
+mem = cps_transform_safe_decorator(mem)
 
 _uniform = Uniform()
 def uniform():
+    '''
+    Samples from a uniform distribution over the interval $[0, 1]$.
+    '''
     return _uniform.sample()
 
 @keep_deterministic
