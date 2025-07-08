@@ -7,9 +7,12 @@ def readme():
 with open("requirements.txt") as f:
     requirements = f.read().splitlines()
 
+with open("version.txt") as f:
+    version = f.read().strip()
+
 setup(
     name='gorgo',
-    version='0.0.1',
+    version=version,
     description='Gorgo probabilistic programming language',
     keywords = [],
     packages=find_packages(),

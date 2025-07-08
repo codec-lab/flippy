@@ -1,4 +1,5 @@
 PRODUCTION_REPO="git@github.com:markkho/flippy.git"
+RELEASE_TAG=v$(shell cat version.txt | tr -d '\n')
 
 test:
 	python -m py.test $(ARGS)
@@ -21,10 +22,6 @@ tutorials_build:
     done
 
 release_dev_main:
-ifndef RELEASE_TAG
-	$(error Need to supply a release tag.)
-endif
-
 	git checkout main
 
 	# create tag for version
