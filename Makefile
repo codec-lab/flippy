@@ -1,3 +1,5 @@
+PRODUCTION_REPO="git@github.com:markkho/flippy.git"
+
 test:
 	python -m py.test $(ARGS)
 
@@ -17,3 +19,27 @@ tutorials_build:
 	for f in tutorials/*.ipynb; do \
 		jupyter nbconvert --to markdown $$f; \
     done
+
+release_dev_main:
+ifndef RELEASE_TAG
+	$(error Need to supply a release tag.)
+endif
+
+	git checkout main
+
+	# create tag for version
+	git tag $(RELEASE_TAG)
+	# set dev/production to dev/main
+	git checkout -B production
+	# push to dev
+	git push origin main
+	git push origin production
+	git push origin tag $(RELEASE_TAG)
+
+	# push dev/production to flippy/main
+	git push $(PRODUCTION_REPO) production:main
+	# push tag to flippy/main
+	git push $(PRODUCTION_REPO) tag $(RELEASE_TAG)
+
+	# Go back to main after released
+	git checkout main
