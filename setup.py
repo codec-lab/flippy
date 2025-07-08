@@ -9,7 +9,7 @@ with open("requirements.txt") as f:
 
 setup(
     name='gorgo',
-    version='0.1',
+    version='0.0.1',
     description='Gorgo probabilistic programming language',
     keywords = [],
     packages=find_packages(),
