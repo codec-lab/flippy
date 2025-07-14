@@ -18,3 +18,11 @@ The release process can be run with
 ```bash
 make release_dev_main
 ```
+
+# Publishing to pypi
+
+```
+rm -r dist/*
+python -m build
+python -m twine upload --repository pypi dist/*
+```
