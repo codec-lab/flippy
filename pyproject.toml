@@ -1,5 +1,5 @@
 [project]
-name = "flippy"
+name = "flippy-lang"
 dynamic = ["version"]
 description = 'FlipPy probabilistic programming language'
 dependencies = [
