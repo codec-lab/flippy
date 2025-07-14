@@ -2,7 +2,7 @@ PRODUCTION_REPO="git@github.com:markkho/flippy.git"
 RELEASE_TAG=v$(shell cat version.txt | tr -d '\n')
 
 test:
-	python -m py.test $(ARGS)
+	python -m pytest $(ARGS)
 
 lint:
 	# Copied from .github/workflows
@@ -15,6 +15,9 @@ docs:
 docs_build:
 	pdoc --math gorgo -o docs
 	$(MAKE) tutorials_build
+
+pypi_build:
+	python -m build
 
 tutorials_build:
 	for f in tutorials/*.ipynb; do \
