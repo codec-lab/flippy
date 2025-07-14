@@ -6,14 +6,14 @@ test:
 
 lint:
 	# Copied from .github/workflows
-	flake8 gorgo --count --select=E9,F63,F7,F82 --show-source --statistics
-	flake8 gorgo --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+	flake8 flippy --count --select=E9,F63,F7,F82 --show-source --statistics
+	flake8 flippy --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
 docs:
-	pdoc --math gorgo
+	pdoc --math flippy
 
 docs_build:
-	pdoc --math gorgo -o docs
+	pdoc --math flippy -o docs
 	$(MAKE) tutorials_build
 
 pypi_build:

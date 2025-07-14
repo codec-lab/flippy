@@ -1,19 +1,19 @@
-# Gorgo probablistic programming language
+# FlipPy probablistic programming language
 
 🚧 This project is a work in progress 🚧
 
-Gorgo is a lightweight probabilistic programming language for cognitive modeling
+FlipPy is a lightweight probabilistic programming language for cognitive modeling
 that is written entirely in Python. It prioritizes ease of use, universality,
 and maintainability. It takes inspiration from the design and implementation
 of [WebPPL](https://dippl.org/).
 
 ## Getting started
 
-In OSX, you can set up a virtual environment and install gorgo with dependencies:
+In OSX, you can set up a virtual environment and install FlipPy with dependencies:
 ```
 $ python3 -m venv venv
 $ source venv/bin/activate
-(venv) $ pip install git+https://github.com/markkho/gorgo.git
+(venv) $ pip install git+https://github.com/markkho/flippy.git
 ```
 
 To run the tests (this requires installing pytest):
@@ -27,7 +27,7 @@ To run the tests (this requires installing pytest):
 
 
 ```python
-from gorgo import infer, condition, flip
+from flippy import infer, condition, flip
 
 @infer
 def model(p):
