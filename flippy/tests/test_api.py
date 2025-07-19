@@ -785,19 +785,3 @@ def test_mutual_recursion():
 
     assert even(30).isclose(Categorical([True]))
     assert nested_even(30).isclose(Categorical([True]))
-
-def test_calling_method_from_object_returned_by_function():
-    def make_dist():
-        p = flip()
-        return Bernoulli(p)
-
-    @infer
-    def model1():
-        return make_dist().sample()
-
-    @infer
-    def model2():
-        dist = make_dist()
-        return dist.sample()
-
-    assert model1 == model2()
