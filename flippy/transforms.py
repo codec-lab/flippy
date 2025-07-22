@@ -980,7 +980,7 @@ class CPSTransform(NodeTransformer):
                 lineno={node.lineno - self.parent_function_lineno}
             )()
         ''')), dict(
-            func=node.func,
+            func=self.visit(node.func),
             pack=pack,
             unpack=unpack,
         )).body

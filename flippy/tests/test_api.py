@@ -745,3 +745,47 @@ def test_Distribution_fit_initial_value_interface():
 
     assignment, _, _ = mmap.assignment_score(args=(False, ), kwargs={}, assignments={})
     assert assignment['p'][0] != .123
+
+@infer
+def even(x):
+    if x == 0:
+        return True
+    return odd(x - 1).sample()
+
+@infer
+def odd(x):
+    if x == 0:
+        return True
+    return even(x - 1).sample()
+
+def test_mutual_recursion():
+    @infer
+    def nested_even(x):
+        if x == 0:
+            return True
+        return nested_odd(x - 1).sample()
+
+    @infer
+    def nested_odd(x):
+        if x == 0:
+            return True
+        return nested_even(x - 1).sample()
+
+    assert even(30).isclose(Categorical([True]))
+    assert nested_even(30).isclose(Categorical([True]))
+
+def test_calling_method_from_object_returned_by_function():
+    def make_dist():
+        p = flip()
+        return Bernoulli(p)
+
+    @infer
+    def model1():
+        return make_dist().sample()
+
+    @infer
+    def model2():
+        dist = make_dist()
+        return dist.sample()
+
+    assert model1() == model2()

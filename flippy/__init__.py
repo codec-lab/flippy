@@ -214,14 +214,22 @@ class InferCallable(Generic[Element], DescriptorMixIn):
         self.cache = LRUCache(cache_size)
         self.method = method
         self.kwargs = kwargs
+        self.func = func
+        self.inference_alg = None
+        setattr(self, CPSTransform.is_transformed_property, True)
+
+    def _lazy_init(self):
+        if self.inference_alg is not None:
+            return
+        func = self.func
         if isinstance(func, (classmethod, staticmethod)):
             func = func.__func__
         if not CPSTransform.is_transformed(func):
             func = CPSInterpreter().non_cps_callable_to_cps_callable(func)
         self.inference_alg = self.method(func, **self.kwargs)
-        setattr(self, CPSTransform.is_transformed_property, True)
 
     def __call__(self, *args, _cont=None, _cps=None, _stack=None, **kws) -> Distribution[Element]:
+        self._lazy_init()
         if self.cache_size > 0:
             kws_tuple = tuple(sorted(kws.items()))
             if (args, kws_tuple) in self.cache:
