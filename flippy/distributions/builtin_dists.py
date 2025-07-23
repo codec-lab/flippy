@@ -35,6 +35,9 @@ def beta_function(*alphas):
 
 
 class Bernoulli(FiniteDistribution):
+    '''
+    A Bernoulli distribution. The support is a boolean value, with a single parameter `p` that specifies the probability of the value `True`.
+    '''
     support = (True, False)
     def __init__(self, p=.5):
         self.p = p
@@ -61,6 +64,13 @@ def is_namedtuple(obj):
     )
 
 class Categorical(FiniteDistribution[Element]):
+    '''
+    A distribution over a discrete support. Defaults to uniform probability of each item, unless `probabilities` or `weights` are specified.
+
+    - `support` lists the discrete support.
+    - `probabilities` is optional. Specifies the probabilities of each item of the support.
+    - `weights` is optional. Specifies the weight for each item of the support. Transformed to probabilities by normalizing by the sum of weights.
+    '''
     def __init__(self, support, *, probabilities=None, weights=None):
         if probabilities is not None:
             assert isclose(sum(probabilities), 1, atol=ISCLOSE_ATOL, rtol=ISCLOSE_RTOL)
@@ -70,6 +80,7 @@ class Categorical(FiniteDistribution[Element]):
             del weights
         else:
             probabilities = [1/len(support) for _ in support]
+        assert len(probabilities) == len(support), f'Expected the size of support ({len(support)}) to match the length of weights/probabilities ({len(probabilities)}), but they do not.'
         self.support = support
         self._probabilities = probabilities
 
@@ -267,6 +278,10 @@ class Categorical(FiniteDistribution[Element]):
 
 
 class Multinomial(FiniteDistribution):
+    '''
+    This distribution takes multiple samples from a `Categorical` distribution.
+    It takes the same parameters as `Categorical`, with the addition of `trials`, which are the number of samples drawn from the `Categorical`.
+    '''
     def __init__(self, categorical_support, trials, *, probabilities=None, weights=None):
         self.categorical = Categorical(
             categorical_support,
@@ -301,6 +316,13 @@ class Multinomial(FiniteDistribution):
 
 
 class Gaussian(Distribution):
+    '''
+    A Gaussian distribution, with support over the real numbers $\mathbb{R}$.
+
+    - `mean` is the mean.
+    - `sd` is the standard deviation.
+    '''
+
     support = ClosedInterval(float('-inf'), float('inf'))
     def __init__(self, mean=0, sd=1):
         self.mean = mean
@@ -320,6 +342,13 @@ Normal = Gaussian
 
 
 class Uniform(Distribution):
+    '''
+    A Uniform distribution, with support over a specified interval [`start`, `end`].
+
+    - `start` defaults to 0. The lower bound of the interval.
+    - `end` defaults to 1. The upper bound of the interval.
+    '''
+
     def __init__(self, start=0, end=1):
         self.start = start
         self.end = end
