@@ -40,6 +40,8 @@ jobs:
           pip install .[dev]
       - name: Setup Pages
         run: make docs_build
+      - name: Move tutorials into docs folder
+        run: mv tutorials/ docs/
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@v1
         with:
