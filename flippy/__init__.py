@@ -44,7 +44,8 @@ from flippy.transforms import CPSTransform
 from flippy.inference import \
     SimpleEnumeration, Enumeration, SamplePrior, MetropolisHastings, \
     LikelihoodWeighting, InferenceAlgorithm
-from flippy.distributions import Categorical, Bernoulli, Distribution, Uniform, Element
+from flippy.distributions import Categorical, Bernoulli, Distribution, Uniform,\
+    Element, Normal
 from flippy.distributions.random import default_rng
 from flippy.distributions.base import _factor_dist
 from flippy.core import global_store
@@ -60,6 +61,7 @@ __all__ = [
     'flip',
     'draw_from',
     'uniform',
+    'normal',
 
     'factor',
     'condition',
@@ -351,6 +353,13 @@ def uniform():
     Samples from a uniform distribution over the interval $[0, 1]$.
     '''
     return _uniform.sample()
+
+_normal = Normal(0, 1)
+def normal(mean=0, std=1):
+    '''
+    Samples from a standard normal distribution.
+    '''
+    return mean + std * _normal.sample()
 
 @keep_deterministic
 def map_log_probability(distribution: Distribution[Element], values: Sequence[Element]) -> float:
