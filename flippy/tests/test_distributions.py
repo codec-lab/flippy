@@ -24,7 +24,7 @@ def test_distribution_bool():
         bool(dist)
 
 def test_normal_normal():
-    hyper_mu, hyper_sigma = -1, 1
+    hyper_mu, hyper_sigma = -1, 4
     obs = [-.75]*10
     sigma = 1
     def normal_model():
@@ -51,7 +51,7 @@ def test_multivariate_normal_multivariate_normal():
     mvn = MultivariateNormalNormal(prior_means=[mean,mean],prior_cov=[[priorvar,0],[0,priorvar]],cov=[[sigma2,0],[0,sigma2]],size=3)
 
     samples = mvn.sample()
-    uvn = NormalNormal(prior_mean=mean, prior_sd=priorvar**.5, sd=sigma2**.5,size=3)
+    uvn = NormalNormal(prior_mean=mean, prior_sd=priorvar**.5, sd=sigma2**.5)
     uvnlogprob = uvn.log_probability(samples.flatten())
     mvnlogprob = mvn.log_probability(samples)
 

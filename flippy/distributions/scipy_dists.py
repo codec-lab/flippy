@@ -228,30 +228,25 @@ class Bernoulli(FiniteDistribution, Multivariate):
             return False
         return self.p == other.p
 
-class NormalNormal(Multivariate):
-    def __init__(self, *, prior_mean=0, prior_sd=1, sd=1, size=1):
+class NormalNormal(Distribution):
+    def __init__(self, *, prior_mean=0, prior_sd=1, sd=1):
         self.prior_mean = np.array(prior_mean)
         self.prior_sd = np.array(prior_sd)
         self.sd = np.array(sd)
-        assert isinstance(size, int)
-        assert np.shape(self.prior_mean) == np.shape(self.prior_sd) == np.shape(self.sd) == ()
-        self.size = size
 
     def __repr__(self) -> str:
-        return f"NormalNormal(prior_mean={self.prior_mean}, prior_sd={self.prior_sd}, sd={self.sd}, size={self.size})"
+        return f"NormalNormal(prior_mean={self.prior_mean}, prior_sd={self.prior_sd}, sd={self.sd})"
 
-    #first sample mu aka mean and then sample y aka x from estimated mu
-    #check scipy norm documentation for why loc / general things
     def sample(
         self,
         rng : RandomNumberGenerator = default_rng,
         name=None,
         initial_value=None
     ) -> Sequence[Element]:
-        mean = norm.rvs(loc=self.prior_mean, scale=self.prior_sd, size=self.size, random_state=rng.np)
+        #first sample mu aka mean and then sample y aka x from estimated mu
+        #check scipy norm documentation for why loc / general things
+        mean = norm.rvs(loc=self.prior_mean, scale=self.prior_sd, random_state=rng.np)
         x = norm.rvs(loc=mean, scale=self.sd, random_state=rng.np)
-        if self.size == 1 and isinstance(x, Sequence):
-            return x[0]
         return x
 
     def log_probabilities(self, element : Sequence[Element]) -> float:
@@ -264,8 +259,8 @@ class NormalNormal(Multivariate):
             return logprobs
         return sum(logprobs)
 
-    #gets posterior predictive term
     def update(self, data : Sequence[Element]) -> "NormalNormal":
+        #gets posterior predictive term
         if isinstance(data, (float, int)):
             total = data
             n_datapoints = 1
@@ -275,8 +270,9 @@ class NormalNormal(Multivariate):
         else:
             raise ValueError(f"Invalid data shape {data}")
         new_prior_var = 1/(1/self.prior_sd**2 + n_datapoints/self.sd**2)
-        new_prior_mean = (self.prior_mean/self.prior_sd + total/self.sd) * new_prior_var
-        return NormalNormal(prior_mean=new_prior_mean, prior_sd=new_prior_var**.5, sd=self.sd, size=self.size)
+        new_prior_sd = new_prior_var**.5
+        new_prior_mean = (self.prior_mean/self.prior_sd**2 + total/self.sd**2) * new_prior_var
+        return NormalNormal(prior_mean=new_prior_mean, prior_sd=new_prior_sd, sd=self.sd)
 
 class MultivariateNormalNormal(Multivariate):
     def __init__(self, *, prior_means : Sequence[float] = (0,),
