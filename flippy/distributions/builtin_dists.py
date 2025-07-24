@@ -316,7 +316,7 @@ class Multinomial(FiniteDistribution):
 
 
 class Gaussian(Distribution):
-    '''
+    r'''
     A Gaussian distribution, with support over the real numbers $\mathbb{R}$.
 
     - `mean` is the mean.
