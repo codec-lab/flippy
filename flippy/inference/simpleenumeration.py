@@ -31,6 +31,8 @@ class EnumerationStats:
         return Counter(self.states_visited)
 
 class SimpleEnumeration(InferenceAlgorithm[Element]):
+    is_cachable = True  # Inference results can always be cached
+
     def __init__(self, function, max_executions=float('inf')):
         self.function = function
         self.max_executions = max_executions

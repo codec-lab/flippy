@@ -233,6 +233,9 @@ class InferCallable(Generic[Element], DescriptorMixIn):
             func = CPSInterpreter().non_cps_callable_to_cps_callable(func)
         self.inference_alg = self.method(func, **self.kwargs)
 
+        if not self.inference_alg.is_cachable:
+            self.cache_size = 0
+
     def __call__(self, *args, _cont=None, _cps=None, _stack=None, **kws) -> Distribution[Element]:
         self._lazy_init()
         if self.cache_size > 0:

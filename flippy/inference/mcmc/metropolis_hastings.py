@@ -52,6 +52,10 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
         self.custom_initial_trace_kernel = custom_initial_trace_kernel
         self.verbose = verbose
 
+    @property
+    def is_cachable(self):
+        return self.seed is not None
+
     def run(self, *args, **kws) -> Distribution[Element]:
         self.save_diagnostics = False
         dist, _ = self._run(*args, **kws)

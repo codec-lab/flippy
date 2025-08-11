@@ -13,6 +13,10 @@ class SamplePrior(InferenceAlgorithm[Element]):
         self.seed = seed
         self.samples = samples
 
+    @property
+    def is_cachable(self):
+        return self.seed is not None
+
     def run(self, *args, **kws) -> Categorical[Element]:
         rng = RandomNumberGenerator(self.seed)
         return_counts = defaultdict(int)

@@ -78,6 +78,8 @@ class ReturnExecutionBranch(ExecutionResult):
     scores: List[float]
 
 class Enumeration(InferenceAlgorithm,Generic[Element]):
+    is_cachable = True  # Inference results can always be cached
+
     def __init__(
         self,
         function,

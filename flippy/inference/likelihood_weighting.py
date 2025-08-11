@@ -26,6 +26,10 @@ class LikelihoodWeighting(InferenceAlgorithm[Element]):
         self._cpus = _cpus
         self._joblib_backend = _joblib_backend
 
+    @property
+    def is_cachable(self):
+        return self.seed is not None
+
     def run(self, *args, **kws) -> Categorical[Element]:
         if self._cpus == 1:
             return_counts = self._run_batch(

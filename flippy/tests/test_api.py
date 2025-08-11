@@ -10,7 +10,7 @@ from flippy import flip, mem, infer, draw_from, factor, condition, \
 from flippy.distributions.builtin_dists import Bernoulli, Uniform, Binomial
 from flippy.interpreter import CPSInterpreter
 from flippy.inference import SimpleEnumeration, LikelihoodWeighting, Enumeration, \
-    MaximumMarginalAPosteriori, MetropolisHastings
+    MaximumMarginalAPosteriori, MetropolisHastings, SamplePrior
 from flippy.core import ReturnState
 from flippy.tools import isclose
 
@@ -789,3 +789,32 @@ def test_calling_method_from_object_returned_by_function():
         return dist.sample()
 
     assert model1() == model2()
+
+def test_is_cachable_property():
+    def f():
+        return uniform()
+
+    assert Enumeration(f).is_cachable
+    assert SimpleEnumeration(f).is_cachable
+
+    assert LikelihoodWeighting(f, samples=10, seed=42).is_cachable
+    assert MetropolisHastings(f, samples=10, seed=42).is_cachable
+    assert SamplePrior(f, samples=10, seed=42).is_cachable
+    assert MaximumMarginalAPosteriori(f, seed=42).is_cachable
+
+    assert not LikelihoodWeighting(f, samples=10, seed=None).is_cachable
+    assert not MetropolisHastings(f, samples=10, seed=None).is_cachable
+    assert not SamplePrior(f, samples=10, seed=None).is_cachable
+    assert not MaximumMarginalAPosteriori(f, seed=None).is_cachable
+
+    not_cachable_f = infer(
+        f, method=LikelihoodWeighting, samples=10, seed=None, cache_size=1024
+    )
+    assert not_cachable_f() != not_cachable_f()
+
+    cachable_f = infer(
+        f, method=LikelihoodWeighting, samples=10, seed=42, cache_size=1024
+    )
+    assert cachable_f() == cachable_f()
+    # Stronger test, that value is identical
+    assert cachable_f() is cachable_f()

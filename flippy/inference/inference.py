@@ -14,6 +14,10 @@ class InferenceAlgorithm(ABC, Generic[Element]):
     def run(self, *args, **kws) -> Distribution[Element]:
         raise NotImplementedError
 
+    @property
+    def is_cachable(self) -> bool:
+        raise NotImplementedError
+
 class InferenceResult(ABC, Distribution[Element]):
     @property
     @abstractmethod

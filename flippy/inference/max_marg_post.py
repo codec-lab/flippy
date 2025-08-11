@@ -42,6 +42,10 @@ class MaximumMarginalAPosteriori(InferenceAlgorithm[Element]):
         self.max_retries = max_retries
         self._cpus = _cpus
 
+    @property
+    def is_cachable(self):
+        return self.seed is not None
+
     def single_run(self, *args, **kwargs) -> Tuple[MarginalLikelihood, DiscreteInferenceResult[Element]]:
         rng = RandomNumberGenerator(self.seed)
         done = False
