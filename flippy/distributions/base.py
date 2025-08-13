@@ -3,36 +3,44 @@ from typing import Sequence, Generic, TypeVar, Any, Callable
 import math
 import random
 import abc
-from flippy.tools import isclose, ISCLOSE_RTOL, ISCLOSE_ATOL
 from functools import cached_property
 
 from flippy.distributions.support import Support
 from flippy.types import Element
 from flippy.hashable import hashabledict
+from flippy.tools import isclose, ISCLOSE_RTOL, ISCLOSE_ATOL
+from flippy.transforms import CPSTransform
 
 class Distribution(Generic[Element]):
     support : Support
     def prob(self, element : Element):
+        """Probability of an element in the support of the distribution."""
         return math.exp(self.log_probability(element))
 
     @abc.abstractmethod
     def sample(self, rng=random, name=None, initial_value=None) -> Element:
+        """Sample an element from the distribution."""
         pass
 
-    def observe(self, value) -> None:
+    def observe(self, value: Element) -> None:
+        """Observe a value, which is equivalent to conditioning on that value."""
         pass
 
     def fit(self, *, rng=random, name=None, initial_value: Element = None):
+        """Variables returned by this method are fit to maximize marginal likelihood."""
         return initial_value
 
     @abc.abstractmethod
     def log_probability(self, element : Element) -> float:
+        """Log probability of an element"""
         pass
 
     def expected_value(self, func: Callable[[Element], float] = lambda v : v) -> float:
+        """Expected value of the distribution, optionally transformed by `func`."""
         raise NotImplementedError
 
     def isclose(self, other: "Distribution", *, rtol: float=ISCLOSE_RTOL, atol: float=ISCLOSE_ATOL) -> bool:
+        """Check if two distributions are close in terms of their log probabilities."""
         raise NotImplementedError
 
     def plot(self, ax=None, **kws):
@@ -45,10 +53,15 @@ class Distribution(Generic[Element]):
         raise ValueError("Cannot convert distribution to bool")
 
     def total_log_probability(self, data : Sequence[Element]) -> float:
+        """Calculate the total log probability of a sequence of data points."""
         return sum(self.log_probability(d) for d in data)
+    setattr(total_log_probability, CPSTransform.is_transformed_property, True)
 
     # This method will be CPS transformed
     def observe_all(self, data : Iterable[Element]):
+        """
+        Observe all elements in a sequence, equivalent to conditioning on each element.
+        """
         _factor_dist.observe(self.total_log_probability(data))
 
 
@@ -117,6 +130,3 @@ class FiniteDistribution(Distribution[Element]):
         if not isinstance(other, FiniteDistribution):
             return False
         return self.as_dict() == other.as_dict()
-
-class Multivariate:
-    size : int = 1

@@ -5,11 +5,12 @@ import textwrap
 import types
 from types import MethodType
 import dataclasses
-from collections import namedtuple
-from typing import Union, TYPE_CHECKING, Tuple
+import linecache
+import contextlib
+from typing import Union, TYPE_CHECKING, Tuple, Callable, TypeVar, Any
+
 from flippy.core import ReturnState, SampleState, ObserveState, InitialState
 from flippy.callentryexit import EnterCallState, ExitCallState
-from typing import Any
 from flippy.distributions.base import Distribution, Element
 from flippy.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
@@ -17,11 +18,13 @@ from flippy.transforms import DesugaringTransform, \
 from flippy.core import GlobalStore, ReadOnlyProxy
 from flippy.funcutils import method_cache
 from flippy.hashable import hashabledict, hashablelist
-import linecache
-import contextlib
 
 from flippy.types import NonCPSCallable, Method, Continuation, \
     SampleCallable, ObserveCallable, CPSCallable, VariableName
+
+# Note if we use python 3.10+ we can use typing.ParamSpec
+# so that combinators preserve the type signature of functions
+R = TypeVar('R')
 
 @dataclasses.dataclass(frozen=True)
 class StackFrame:
@@ -432,3 +435,117 @@ class CPSInterpreter:
             yield
         finally:
             self.global_store_proxy.proxied = None
+
+
+class DescriptorMixIn:
+    """
+    @private
+    A mixin class that provides a descriptor interface for a callable object.
+
+    In Python, a descriptor is an object attribute with "binding behavior",
+    meaning that its attribute access is overridden by methods in the descriptor protocol.
+    For more details, see [here](https://docs.python.org/3/howto/descriptor.html).
+
+    For our purposes, this mixin class implements a descriptor interface for
+    callables that wrap class methods, static methods, and normal methods that is compatible with
+    the CPSInterpreter.
+    """
+    def __init__(self, wrapped_func):
+        if inspect.ismethod(wrapped_func):
+            raise ValueError("Cannot wrap a method outside the class namespace")
+        self.is_classmethod = isinstance(wrapped_func, classmethod)
+        self.is_staticmethod = isinstance(wrapped_func, staticmethod)
+
+    def __call__(self, *args, _cont=None, _cps=None, _stack=None, **kws):
+        raise NotImplementedError
+
+    def __get__(self, obj, objtype=None):
+        # if we wrapped a class method, we return a partial function with cls
+        if self.is_classmethod:
+            objtype = objtype if objtype is not None else type(obj)
+            partial_call = functools.partial(self.__call__, objtype)
+            setattr(partial_call, CPSTransform.is_transformed_property, True)
+            return partial_call
+
+        # if we wrapped a static method, we return the function itself
+        if self.is_staticmethod:
+            return self
+
+        # if we wrapped a normal method, we return the function itself or
+        # a partial function with obj
+        if obj is None: # this means the function is not bound to an instance
+            return self
+        partial_call = functools.partial(self.__call__, obj)
+        setattr(partial_call, CPSTransform.is_transformed_property, True)
+        return partial_call
+
+class KeepDeterministicCallable(DescriptorMixIn):
+    '''
+    @private
+    '''
+    def __init__(self, func):
+        DescriptorMixIn.__init__(self, func)
+        self.wrapped_func = func
+        if isinstance(func, (classmethod, staticmethod)):
+            self.wrapped_func = func.__func__
+        functools.update_wrapper(self, func)
+        # This ensures that no subsequent compilation happens.
+        setattr(self, CPSTransform.is_transformed_property, True)
+
+    def __call__(self, *args, _cont=None, _cps=None, _stack=None, **kws):
+        rv = self.wrapped_func(*args, **kws)
+        if _cont is None:
+            return rv
+        else:
+            return lambda : _cont(rv)
+
+
+def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
+    '''
+    Decorator to interpret a function as deterministic Python.
+    Any random sampling in the function will not be targeted for inference.
+
+    This is helpful if the transform slows a function down, if a
+    deterministic library is being called, or if a distribution is being
+    directly computed.
+    '''
+    return KeepDeterministicCallable(fn)
+
+def cps_transform_safe_decorator(dec: Callable) -> Callable:
+    """
+    A higher-order function that wraps a decorator so that it works with functions
+    that are CPS transformed or will be CPS transformed.
+
+    Functions are typically evaluated twice in the course of being CPS transformed.
+    First, when they are initially declared in Python.
+    Second, when being evaluated after being transformed.
+    So, a function's decorators would typically be executed twice. However, this decorator
+    can be used to mark a decorator so that it will not be executed after being CPS transformed.
+    The resulting function will then be the transformed version of decorated function, without
+    any further decoration after transformation.
+    """
+    @keep_deterministic
+    def wrapped_decorator(fn=None, *args, **kws):
+        if fn is None:
+            return functools.partial(wrapped_decorator, *args, **kws)
+
+        # This code mainly supports two cases:
+        # 1. We need to CPS transform and wrap a function (e.g., when decorating in the module scope)
+        # 2. We only need to wrap a function (e.g., when decorating in a nested function scope)
+
+        # Case 1 is confusing because the transformation and wrapping occur in two different
+        # calls to the current code. Specifically, we visit the current
+        # code first from the module scope and then transform/wrap it using a CPSInterpreter
+        # object. The CPSInterpreter object transforms the source code and then executes the current
+        # code a second time on the transformed function (in an "exec" statement). This second
+        # call to the current code does not need to transform the function, and this is indicated
+        # by a _compile_mode flag associated with the CPSInterpreter class.
+
+        # Case 2 is simpler because we only need to wrap the function. This occurs when the function
+        # is nested inside another function that has already been CPS transformed.
+        if CPSInterpreter._compile_mode:
+            return fn
+        wrapped_fn = dec(fn, *args, **kws)
+        return wrapped_fn
+    wrapped_decorator = functools.wraps(dec)(wrapped_decorator)
+    return wrapped_decorator

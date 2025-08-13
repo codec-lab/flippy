@@ -1,7 +1,7 @@
 import math
 from flippy import condition
-from flippy.distributions.scipy_dists import Bernoulli, Distribution, Normal,  Gamma, Uniform, Beta
-from flippy.distributions.builtin_dists import Categorical, Dirichlet
+# from flippy.distributions.scipy_dists import Bernoulli, Distribution, Normal,  Gamma, Uniform, Beta
+from flippy.distributions.builtin_dists import Categorical, Dirichlet, Bernoulli, Normal, Gamma, Uniform, Beta
 from flippy.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting, MetropolisHastings
 from flippy.tools import isclose
 from flippy.interpreter import CPSInterpreter, ReturnState, SampleState, ObserveState
@@ -86,20 +86,20 @@ def test_mcmc_normal_model():
     sigma = 1
     def normal_model():
         mu = Normal(hyper_mu, hyper_sigma).sample(name='mu')
-        Normal(mu, sigma).observe(obs)
+        Normal(mu, sigma).observe_all(obs)
         condition(-1.25 < mu < -.5)
         return mu
 
     seed = 1391299
     mcmc_res = MH(
         function=normal_model,
-        samples=2000,
+        samples=4000,
         seed=seed
     ).run()
 
     lw_res = LikelihoodWeighting(
         function=normal_model,
-        samples=2000,
+        samples=4000,
         seed=seed
     ).run()
     assert isclose(mcmc_res.expected_value(), lw_res.expected_value(), atol=.01)

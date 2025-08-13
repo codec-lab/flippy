@@ -175,7 +175,10 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
     ) -> Trace:
         def sample_site_callback(ps : SampleState) -> 'SampleValue':
             assert not ps.fit, f"MetropolisHastings doesn't support Distribution.fit: {ps.name}"
-            if ps.initial_value in ps.distribution.support:
+            if (
+                ps.initial_value is not None and \
+                ps.initial_value in ps.distribution.support
+            ):
                 value = ps.initial_value
             elif self.custom_initial_trace_kernel is not None:
                 value = self.custom_initial_trace_kernel(ps.name)

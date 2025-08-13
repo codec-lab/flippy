@@ -1,32 +1,18 @@
+import sys
 from typing import Tuple, Sequence, Union, Any, Callable, Generic, TypeVar
 from dataclasses import is_dataclass, asdict
 from itertools import combinations_with_replacement
 from collections import Counter, defaultdict
 import math
+
 from flippy.tools import isclose, ISCLOSE_ATOL, ISCLOSE_RTOL
 from functools import cached_property
-from flippy.distributions.base import Distribution, FiniteDistribution, Element, Multivariate
+from flippy.distributions.base import Distribution, FiniteDistribution, Element
 from flippy.distributions.support import \
     ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions, MixtureSupport
 from flippy.distributions.random import default_rng
+import sympy as sp
 
-__all__ = [
-    "Bernoulli",
-    "Categorical",
-    "Multinomial",
-    "Gaussian",
-    "Normal",
-    "Gamma",
-    "Uniform",
-    "Beta",
-    "Binomial",
-    "Geometric",
-    "Poisson",
-    "BetaBinomial",
-    "Dirichlet",
-    "DirichletMultinomial",
-    "Mixture"
-]
 
 def beta_function(*alphas):
     num = math.prod(math.gamma(a) if not isclose(a, 0) else float('inf') for a in alphas)
@@ -36,7 +22,8 @@ def beta_function(*alphas):
 
 class Bernoulli(FiniteDistribution):
     '''
-    A Bernoulli distribution. The support is a boolean value, with a single parameter `p` that specifies the probability of the value `True`.
+    A Bernoulli distribution. The support is a boolean value, with a single
+    parameter `p` that specifies the probability of the value `True`.
     '''
     support = (True, False)
     def __init__(self, p=.5):
@@ -65,11 +52,14 @@ def is_namedtuple(obj):
 
 class Categorical(FiniteDistribution[Element]):
     '''
-    A distribution over a discrete support. Defaults to uniform probability of each item, unless `probabilities` or `weights` are specified.
+    A distribution over a discrete support. Defaults to uniform probability of
+    each item, unless `probabilities` or `weights` are specified.
 
     - `support` lists the discrete support.
-    - `probabilities` is optional. Specifies the probabilities of each item of the support.
-    - `weights` is optional. Specifies the weight for each item of the support. Transformed to probabilities by normalizing by the sum of weights.
+    - `probabilities` is optional. Specifies the probabilities of each item of
+    the support.
+    - `weights` is optional. Specifies the weight for each item of the support.
+    Transformed to probabilities by normalizing by the sum of weights.
     '''
     def __init__(self, support, *, probabilities=None, weights=None):
         if probabilities is not None:
@@ -364,6 +354,11 @@ class Uniform(Distribution):
 
 
 class Beta(Distribution):
+    """
+    A Beta distribution, with support over the interval [0, 1].
+    - `alpha` is the first shape parameter (default 1).
+    - `beta` is the second shape parameter (default 1).
+    """
     support = ClosedInterval(0, 1)
     def __init__(self, alpha=1, beta=1):
         self.a = alpha
@@ -390,6 +385,13 @@ class Beta(Distribution):
 
 
 class Binomial(Distribution):
+    """
+    A Binomial distribution, with support over the integers [0, trials].
+
+    - `trials` is the number of trials
+    - `p` is the probability of success on each trial
+    """
+
     def __init__(self, trials : int, p : float):
         self.trials = trials
         self.p = p
@@ -413,6 +415,11 @@ class Binomial(Distribution):
 
 
 class Geometric(Distribution):
+    """
+    A Geometric distribution, with support over the non-negative integers {0, 1, 2, ...}.
+    - `p` is the probability of success on each trial
+    """
+
     support = IntegerInterval(0, float('inf'))
     def __init__(self, p : float):
         self.p = p
@@ -433,6 +440,10 @@ class Geometric(Distribution):
 
 
 class Poisson(Distribution):
+    """
+    A Poisson distribution, with support over the non-negative integers {0, 1, 2, ...}.
+    """
+
     support = IntegerInterval(0, float('inf'))
     def __init__(self, rate : float):
         self.rate = rate
@@ -452,6 +463,10 @@ class Poisson(Distribution):
         return math.log(prob)
 
 class Gamma(Distribution):
+    """
+    A Gamma distribution, with support over the positive real numbers (0, inf).
+    """
+
     support = ClosedInterval(0, float('inf'))
     def __init__(self, shape, rate):
         self.shape = shape
@@ -474,6 +489,10 @@ class Gamma(Distribution):
         return float('-inf')
 
 class BetaBinomial(FiniteDistribution):
+    """
+    A Beta-Binomial compound distribution, with support over the integers [0, trials].
+    """
+
     def __init__(self, trials : int, alpha=1, beta=1):
         self.alpha = alpha
         self.beta = beta
@@ -507,23 +526,35 @@ class BetaBinomial(FiniteDistribution):
 
 
 class Dirichlet(Distribution):
+    """
+    A Dirichlet distribution, with support over the (k-1)-simplex.
+    - `alphas` is a sequence of shape parameters, one for each dimension of the simplex.
+    """
+
     def __init__(self, alphas):
         self.alphas = alphas
 
     @cached_property
     def support(self):
-        return Simplex(len(self.alphas))
+        return sp.Interval(0, 1, left_open=True, right_open=True)**len(self.alphas)
 
     def sample(self, rng=default_rng, name=None, initial_value=None) -> Tuple[float, ...]:
         e = [rng.gammavariate(a, 1) for a in self.alphas]
+        e = [ei if ei > 0 else sys.float_info.min for ei in e] # for numerical stability
         tot = sum(e)
         return tuple(ei/tot for ei in e)
 
     def log_probability(self, vec):
+        """
+        Log probability of a vector in the Dirichlet distribution:
+        $$
+        \ln P(x) = \sum_{i=1}^{k} (a_i - 1) \ln x_i - \ln B(a_1, a_2, \ldots, a_k)
+        $$
+        """
         if vec in self.support:
-            num = math.prod(v**(a - 1) for v, a in zip(vec, self.alphas))
-            prob = num/beta_function(*self.alphas)
-            return math.log(prob) if prob != 0 else float('-inf')
+            log_num = sum((a - 1) * math.log(v) for v, a in zip(vec, self.alphas))
+            log_den = math.log(beta_function(*self.alphas))
+            return log_num - log_den
         return float('-inf')
 
     def __repr__(self) -> str:
@@ -531,6 +562,13 @@ class Dirichlet(Distribution):
 
 
 class DirichletMultinomial(FiniteDistribution):
+    """
+    A Dirichlet-Multinomial compound distribution, with support over the
+    integer partitions of `trials` into `len(alphas)` parts.
+    - `trials` is the number of trials
+    - `alphas` is a sequence of shape parameters, one for each category.
+    """
+
     def __init__(self, trials : int, alphas : Sequence[float]):
         self.alphas = alphas
         self.trials = trials
@@ -573,12 +611,21 @@ class DirichletMultinomial(FiniteDistribution):
         return f"{self.__class__.__name__}(trials={self.trials}, alphas={self.alphas})"
 
 class Mixture(Distribution):
+    """
+    A mixture distribution, which is a weighted combination of multiple distributions.
+    - `distributions` is a sequence of `Distribution` instances to mix.
+    - `weights` is an optional sequence of weights for each distribution. If not provided,
+      uniform weights are assumed. Weights must sum to 1.
+
+    - Alternatively, use the class method `from_distribution_of_distributions`
+    to create a mixture from a `FiniteDistribution` over distributions.
+    """
+
     def __init__(
         self,
         distributions : Sequence[Distribution],
         weights : Sequence[float] = None
     ):
-        assert not any(isinstance(d, Multivariate) for d in distributions), "This Mixture distribution doesn't currently handle batches"
         if weights is None:
             weights = [1 / len(distributions) for _ in distributions]
         assert len(distributions) == len(weights), "Must have a weight for each distribution"

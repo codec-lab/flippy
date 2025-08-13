@@ -9,6 +9,9 @@ class BaseRandomNumberGenerator(random.Random):
 try:
     import numpy as np
     class RandomNumberGenerator(BaseRandomNumberGenerator):
+        """
+        Random number generator for both Python and NumPy.
+        """
         def __init__(self, seed=None):
             super().__init__(seed)
             self.np = np.random.Generator(np.random.PCG64(self.randint(0, MAX_INT64)))

@@ -1,9 +1,9 @@
 import math
 import pytest
 import numpy as np
-from flippy.distributions.scipy_dists import Uniform, NormalNormal, Normal, \
-    MultivariateNormalNormal, MultivariateNormal, InverseWishart
-from flippy.distributions.builtin_dists import Bernoulli, Categorical
+from flippy.distributions import Bernoulli, Categorical, Dirichlet, Uniform, \
+    Normal, Gamma, Beta, MultivariateNormal, InverseWishart, NormalNormal, \
+    MultivariateNormalNormal
 from flippy.inference.likelihood_weighting import LikelihoodWeighting
 from flippy.inference.enumeration import Enumeration
 from flippy.interpreter import CPSInterpreter
@@ -29,13 +29,14 @@ def test_normal_normal():
     sigma = 1
     def normal_model():
         mu = Normal(hyper_mu, hyper_sigma).sample(name='mu')
-        Normal(mu, sigma).observe(obs)
+        dist = Normal(mu, sigma)
+        dist.observe_all(obs)
         return mu
 
     seed = 2391299
     lw_res = LikelihoodWeighting(
         function=normal_model,
-        samples=2000,
+        samples=4000,
         seed=seed
     ).run()
     nn = NormalNormal(prior_mean=hyper_mu, prior_sd=hyper_sigma, sd=sigma)
@@ -48,12 +49,16 @@ def test_multivariate_normal_multivariate_normal():
     priorvar = default_rng.random()
     sigma2 = default_rng.random()
 
-    mvn = MultivariateNormalNormal(prior_means=[mean,mean],prior_cov=[[priorvar,0],[0,priorvar]],cov=[[sigma2,0],[0,sigma2]],size=3)
+    mvn = MultivariateNormalNormal(
+        prior_means=[mean,mean],
+        prior_cov=[[priorvar,0],[0,priorvar]],
+        cov=[[sigma2,0],[0,sigma2]]
+    )
 
-    samples = mvn.sample()
+    sample = mvn.sample()
     uvn = NormalNormal(prior_mean=mean, prior_sd=priorvar**.5, sd=sigma2**.5)
-    uvnlogprob = uvn.log_probability(samples.flatten())
-    mvnlogprob = mvn.log_probability(samples)
+    uvnlogprob = uvn.total_log_probability(sample.flatten())
+    mvnlogprob = mvn.log_probability(sample)
 
     assert isclose(uvnlogprob, mvnlogprob)
 
@@ -117,3 +122,9 @@ def test_observe_all():
         logprob2 += ps.distribution.log_probability(ps.value)
         ps = ps.step()
     assert isclose(logprob1, logprob2)
+
+def test_Dirichlet_numerical_stability():
+    dist = Dirichlet([.1, .001, 4.0])
+    p = dist.sample()
+    assert 0 not in p, "We should not be able to sample a vector with 0s"
+    assert dist.log_probability(p) > float('-inf')
