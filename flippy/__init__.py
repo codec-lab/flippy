@@ -1,5 +1,7 @@
 '''
-FlipPy is a library for specifying probabilistic programs.
+FlipPy is a Python library for specifying probabilistic programs.
+It prioritizes compatibility with Python, universality,
+and maintainability.
 
 # Quick start
 
@@ -10,6 +12,8 @@ pip install flippy-lang
 # Example: Sum of bernoullis
 
 ```python
+from flippy import infer, flip
+
 @infer
 def fn():
     x = flip(0.5)
@@ -67,11 +71,9 @@ __all__ = [
 
     'factor',
     'condition',
-    'map_observe',
-
-    'mem',
-
+    # 'map_observe',
     'keep_deterministic',
+    'mem',
 
     # submodules
 
@@ -83,7 +85,7 @@ __all__ = [
     # Execution model
     'core',
     'callentryexit',
-    'map',
+    # 'map',
 ]
 
 class InferCallable(Generic[Element], DescriptorMixIn):
@@ -155,7 +157,8 @@ def infer(
 
     This is the main interface for performing inference in FlipPy.
 
-    - `method` specifies the inference method. Defaults to `Enumeration`.
+    - `method` specifies the inference method and can either be an instance of
+    an `InferenceAlgorithm` or a string. Defaults to `Enumeration`.
     - `**kwargs` are keyword arguments passed to the inference method.
     '''
     return InferCallable(func, method, cache_size, **kwargs)
@@ -181,7 +184,8 @@ def recursive_reduce(fn, iter, initializer):
 
 def factor(score):
     '''
-    Adds a real-valued `score` to the weight of the current trace.
+    Adds a real-valued `score` (i.e., log-probability) to the weight of the
+    current trace.
     '''
     _factor_dist.observe(score)
 
