@@ -1,8 +1,8 @@
 """
 Several inference algorithms are available depending on the use case.
 For discrete models with small state spaces, exact inference can be performed
-using enumeration. For larger discrete models, approximate inference can be
-performed using sampling-based methods.
+using enumeration. For larger discrete models and models with continuous variables,
+approximate inference can be performed using sampling-based methods.
 """
 
 from flippy.inference.inference import InferenceAlgorithm
