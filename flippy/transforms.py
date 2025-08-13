@@ -12,6 +12,13 @@ from flippy.types import CPSCallable
 if TYPE_CHECKING:
     from flippy.interpreter import CPSInterpreter
 
+class _ValueWrapper:
+    '''
+    A simple wrapper class that we use to indicate when a scope is being returned below.
+    '''
+    def __init__(self, value):
+        self.value = value
+
 class Placeholder(ast.NodeTransformer):
     '''
     Use this class to add placeholders in code constructed by string, so that
@@ -130,6 +137,18 @@ class ClosureScopeAnalysis(ast.NodeVisitor):
         self.analysis_pass = __class__.use_pass
         with self.in_scope(node):
             self.visit(node)
+
+    def analyze_scope(self, node):
+        '''
+        This returns a mapping from scope-defining nodes to a `Scope`.
+        '''
+        # HACK: Copying above invocation.
+        self.scopes: list[Scope] = []
+        self.scope_map = {}
+        self.analysis_pass = __class__.def_pass
+        with self.in_scope(node):
+            self.visit(node)
+        return self.scope_map
 
     @property
     def source(self):
@@ -329,6 +348,7 @@ def _error_at_node(msg, node, source, *, filename='tmp.py'):
 
 class PythonSubsetValidator(ast.NodeVisitor):
     def __call__(self, node, source):
+        self.in_loop_flag = False
         self.errors = []
         self.visit(node)
         if self.errors:
@@ -366,12 +386,26 @@ class PythonSubsetValidator(ast.NodeVisitor):
     visit_YieldFrom = visit_error
     visit_NamedExpr = visit_error
 
+    # We prohibit del/set of attributes and subscripts
     def visit_Attribute(self, node):
         super().generic_visit(node)
         if isinstance(node.ctx, (ast.Store, ast.Del)):
             self.add_error(node)
-
     visit_Subscript = visit_Attribute
+
+    # We prohibit nested functions in loops
+    def visit_While(self, node):
+        prev_flag = self.in_loop_flag
+        self.in_loop_flag = True
+        super().generic_visit(node)
+        self.in_loop_flag = prev_flag
+    visit_For = visit_While
+
+    def visit_Lambda(self, node):
+        super().generic_visit(node)
+        if self.in_loop_flag:
+            self.add_error(node)
+    visit_FunctionDef = visit_Lambda
 
 class DesugaringTransform(NodeTransformer):
     """
@@ -657,6 +691,10 @@ class DesugaringTransform(NodeTransformer):
         ))
 
     def visit_While(self, node):
+        '''
+        For simplicity, we desugar while loops to make tests be explicit if statements, mirroring how we handle
+        other conditional control flow (like if expressions, logical and, and logical or).
+        '''
         loop, = Placeholder.fill_from_source(f'''
         while True:
             if not ({Placeholder.new('test')}):
@@ -822,15 +860,16 @@ class CPSTransform(NodeTransformer):
     stack_name = "_stack"
 
     def __init__(self):
-        self.scopes = []
         self.current_continuation_stmts = None
         self.parent_function_lineno = 0
         self.continue_break_replacement = None
         self.call_count = 0
 
     def __call__(self, node):
+        self.scope_map = ClosureScopeAnalysis().analyze_scope(node)
+        self.scope = None
         self.call_count = 0
-        with self.in_scope():
+        with self.in_scope(node):
             return self.visit(node)
 
     @classmethod
@@ -840,7 +879,7 @@ class CPSTransform(NodeTransformer):
     def visit_Lambda(self, node):
         # Most lambdas are desugared, so this only has to handle the ones we generate,
         # like the default value for _cont of lambda val: val.
-        with self.in_scope():
+        with self.in_scope(node):
             return self.generic_visit(node)
 
     def visit_Module(self, node):
@@ -855,10 +894,7 @@ class CPSTransform(NodeTransformer):
 
     def visit_FunctionDef(self, node):
         node = self.add_function_src_to_FunctionDef_body(node)
-        node = self.add_keyword_to_FunctionDef(node, self.stack_name, "()")
-        node = self.add_keyword_to_FunctionDef(node, self.cps_interpreter_name, self.cps_interpreter_name)
-        node = self.add_keyword_to_FunctionDef(node, self.final_continuation_name, "lambda val: val")
-        with self.in_scope():
+        with self.in_scope(node):
             self.visit(node.args)
             # we track this so that line numbers passed to interpreter are
             # with respect to the start of the function definition
@@ -866,6 +902,16 @@ class CPSTransform(NodeTransformer):
             self.parent_function_lineno = node.lineno
             node.body, _ = self.transform_block(node.body)
             self.parent_function_lineno = old_parent_lineno
+
+        if hasattr(node, 'body_imports'):
+            for i in node.body_imports:
+                node.body.insert(1, i) # 1 to make them after function source
+            del node.body_imports
+
+        node = self.add_keyword_to_FunctionDef(node, self.stack_name, "()")
+        node = self.add_keyword_to_FunctionDef(node, self.cps_interpreter_name, self.cps_interpreter_name)
+        node = self.add_keyword_to_FunctionDef(node, self.final_continuation_name, "lambda val: val")
+
         # decorator = ast.parse(f"lambda fn: (fn, setattr(fn, '{self.is_transformed_property}', True))[0]").body[0].value
 
         # This decorator position makes it the last decorator called.
@@ -898,34 +944,27 @@ class CPSTransform(NodeTransformer):
         return node
 
     @contextlib.contextmanager
-    def in_scope(self):
-        self.scopes.append(set())
+    def in_scope(self, node):
+        prev_scope = self.scope
+        self.scope = self.scope_map[node]
         try:
             yield
         finally:
-            self.scopes.pop()
-
-    def add_name_to_scope(self, name):
-        if name in [
-            CPSTransform.func_src_name,
-            CPSTransform.cps_interpreter_name,
-            CPSTransform.final_continuation_name,
-            CPSTransform.stack_name,
-        ]:
-            return
-        self.scopes[-1].add(name)
-
-    def visit_arg(self, node):
-        self.add_name_to_scope(node.arg)
-        return node
+            self.scope = prev_scope
 
     def scope_packing_for_current_scope(self, locals_name, scope_name, *, hashabledict=False):
         '''
         Our general scheme for scope packing is to pack the possibly-present names
         into a dictionary, if they are defined. Variables are unpacked in a way that
         handles the issue of definition, by only conditionally defining variables.
+
+        Note that this formerly tracked names as they were defined in the local scope,
+        but this was removed in favor of simply adding all names that could possibly be in
+        the present scope. We did this because loops make it more difficult to reason about
+        variables, requiring some care to ensure that nested continuation-creating nodes
+        would propagate variables that would be defined later in the loop body.
         '''
-        names = sorted(self.scopes[-1])
+        names = sorted(self.scope.ns.keys())
         import_ = 'from flippy.hashable import hashabledict' if hashabledict else ''
         scope_type = 'hashabledict' if hashabledict else ''
         pack = f'''
@@ -942,11 +981,6 @@ class CPSTransform(NodeTransformer):
             ast.parse(textwrap.dedent(pack)).body,
             ast.parse(textwrap.dedent(unpack)).body,
         )
-
-    def visit_Name(self, node):
-        if isinstance(node.ctx, ast.Store):
-            self.add_name_to_scope(node.id)
-        return node
 
     def visit_Assign(self, node):
         # We make sure to visit values first.
@@ -1036,11 +1070,15 @@ class CPSTransform(NodeTransformer):
         # recursive calls (at end of loop body or for continue statements), we use final_continuation_name
         loop_init_call = pack + ast.parse(loop_call_template(loop_exit_name)).body
         loop_recur_call = pack + ast.parse(loop_call_template(self.final_continuation_name)).body
-        loop_exit_call = pack + ast.parse(f'return lambda: {self.final_continuation_name}({scope_name})').body
+        loop_exit_call = pack + ast.parse(f'return lambda: {self.final_continuation_name}(_ValueWrapper({scope_name}))').body
         # At the end of body execution, we recurse. Must happen before filling placeholders in node_body.
         continuation_block.extend(loop_recur_call)
         # Replace continue/break with call that has appropriate variable packing.
         node_body = [Placeholder.fill(s, dict(continue_=loop_recur_call, break_=loop_exit_call)) for s in node_body]
+
+        # We import _ValueWrapper at the beginning of our enclosing scope.
+        assert isinstance(self.scope.node, ast.FunctionDef)
+        self.scope.node.body_imports = ast.parse('from flippy.transforms import _ValueWrapper').body
 
         code = Placeholder.fill(ast.parse(textwrap.dedent(f'''
             def {loop_name}({scope_name}):
@@ -1051,9 +1089,14 @@ class CPSTransform(NodeTransformer):
                     # When exiting, we have no further assignments, so we could reuse initial scope, but don't.
                     {Placeholder.new('loop_exit_call')}
             def {loop_exit_name}({scope_name}):
+                if not isinstance({scope_name}, _ValueWrapper):
+                    return lambda: {self.final_continuation_name}({scope_name})
+                {scope_name} = {scope_name}.value
                 {Placeholder.new('unpack')}
             {Placeholder.new('loop_init_call')}
         ''')), dict(
+            # NOTE: We assume the above desugaring, so that the loop test is trivial (always True), and our loop predicate
+            # is instead being tested with an if statement in the loop's body.
             test=node.test,
             body=node_body,
             unpack=unpack,

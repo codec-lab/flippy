@@ -345,7 +345,7 @@ def test_cps_call():
             z = z + 1
             return lambda : _cont(x + y + z)
         return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=2)([1, 2, 3])
-    ''', ScopeTools.pack_unpack(0, ['x', 'z'])), check_args=[(0,), (1,), (2,)])
+    ''', ScopeTools.pack_unpack(0, ['x', 'y', 'z'])), check_args=[(0,), (1,), (2,)])
 
     # Making sure things still work well in nested continuations.
     check_cps_transform('''
@@ -428,8 +428,8 @@ def test_cps_new_vars_scope_packing():
             return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=4)([])
         return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=2)([])
     ''', {
-        **ScopeTools.pack_unpack(0, ['x']),
-        **ScopeTools.pack_unpack(1, ['x', 'y']),
+        **ScopeTools.pack_unpack(0, ['x', 'y', 'z']),
+        **ScopeTools.pack_unpack(1, ['x', 'y', 'z']),
     }), check_args=[()])
 
 def test_cps_desugared_calls():
@@ -445,7 +445,7 @@ def test_cps_desugared_calls():
         {Placeholder.new('pack_0')}
 
         def _cont_0(_res_0):
-            pass
+            {Placeholder.new('unpack_0')}
             __v0 = _res_0
             {Placeholder.new('pack_1')}
 
@@ -456,8 +456,8 @@ def test_cps_desugared_calls():
             return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=2)([1, __v0])
         return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=1)([2, 3])
     ''', {
-        **ScopeTools.pack_unpack(0, []),
-        **ScopeTools.pack_unpack(1, ['__v0']),
+        **ScopeTools.pack_unpack(0, ['__v0', '__v1']),
+        **ScopeTools.pack_unpack(1, ['__v0', '__v1']),
     }), check_args=[()])
 
 def test_cps_if():
@@ -551,7 +551,7 @@ def test_cps_if_call_in_node_test():
                 return lambda : _cont_1(_scope_1)
         return lambda : _cps.interpret(sum, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=1)(x)
     ''', {
-        **ScopeTools.pack_unpack(0, ['x']),
+        **ScopeTools.pack_unpack(0, ['x', 'y']),
         **ScopeTools.pack_unpack(1, ['x', 'y']),
     }), check_args=[([-1, 1],), ([3],)])
 
@@ -569,6 +569,7 @@ def test_cps_while_simple():
     @lambda fn: CPSFunction(fn, '$FN_SOURCE')
     def fib(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = '$FN_SOURCE'
+        from flippy.transforms import _ValueWrapper
         (a, b) = (1, 1)
         ct = 0
         @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
@@ -582,9 +583,12 @@ def test_cps_while_simple():
                 return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
             else:
                 {Placeholder.new('pack_0')}
-                return lambda : _cont(_scope_0)
+                return lambda : _cont(_ValueWrapper(_scope_0))
 
         def _loop_exit_fn_0(_scope_0):
+            if not isinstance(_scope_0, _ValueWrapper):
+                return lambda: _cont(_scope_0)
+            _scope_0 = _scope_0.value
             {Placeholder.new('unpack_0')}
             return lambda : _cont(a)
         {Placeholder.new('pack_0')}
@@ -607,6 +611,7 @@ def test_cps_while_desugared():
     @lambda fn: CPSFunction(fn, '$FN_SOURCE')
     def fib(x, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = '$FN_SOURCE'
+        from flippy.transforms import _ValueWrapper
         (a, b) = (1, 1)
         ct = 0
         @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
@@ -622,7 +627,7 @@ def test_cps_while_desugared():
                     return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
                 if not ct < x:
                     {Placeholder.new('pack_0')}
-                    return lambda : _cont(_scope_0)
+                    return lambda: _cont(_ValueWrapper(_scope_0))
                     {Placeholder.new('pack_1')}
                     return lambda : _cont_1(_scope_1)
                 else:
@@ -630,9 +635,12 @@ def test_cps_while_desugared():
                     return lambda : _cont_1(_scope_1)
             else:
                 {Placeholder.new('pack_0')}
-                return lambda : _cont(_scope_0)
+                return lambda : _cont(_ValueWrapper(_scope_0))
 
         def _loop_exit_fn_0(_scope_0):
+            if not isinstance(_scope_0, _ValueWrapper):
+                return lambda: _cont(_scope_0)
+            _scope_0 = _scope_0.value
             {Placeholder.new('unpack_0')}
             return lambda : _cont(a)
         {Placeholder.new('pack_0')}
@@ -660,6 +668,7 @@ def test_cps_while_continue_break():
     @lambda fn: CPSFunction(fn, '$FN_SOURCE')
     def fn(*, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = '$FN_SOURCE'
+        from flippy.transforms import _ValueWrapper
         rv = []
         ct = 0
 
@@ -688,7 +697,7 @@ def test_cps_while_continue_break():
                         return lambda : _cont_2(_scope_2)
                 if ct == 7:
                     {Placeholder.new('pack_0')}
-                    return lambda : _cont(_scope_0)
+                    return lambda : _cont(_ValueWrapper(_scope_0))
                     {Placeholder.new('pack_1')}
                     return lambda : _cont_1(_scope_1)
                 else:
@@ -696,9 +705,12 @@ def test_cps_while_continue_break():
                     return lambda : _cont_1(_scope_1)
             else:
                 {Placeholder.new('pack_0')}
-                return lambda : _cont(_scope_0)
+                return lambda : _cont(_ValueWrapper(_scope_0))
 
         def _loop_exit_fn_0(_scope_0):
+            if not isinstance(_scope_0, _ValueWrapper):
+                return lambda: _cont(_scope_0)
+            _scope_0 = _scope_0.value
             {Placeholder.new('unpack_0')}
             return lambda : _cont(rv)
         {Placeholder.new('pack_0')}
@@ -710,12 +722,63 @@ def test_cps_while_continue_break():
     }), check_args=[()], check_out=[[1, 2, 4, 5, 6]])
 
 
+def test_cps_while_return():
+    check_cps_transform('''
+    def search(arr, item):
+        idx = 0
+        while idx < len(arr):
+            if arr[idx] == item:
+                return idx
+            idx += 1
+        return -1
+    ''', ScopeTools.fill(f'''
+    @lambda fn: CPSFunction(fn, '$FN_SOURCE')
+    def search(arr, item, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = '$FN_SOURCE'
+        from flippy.transforms import _ValueWrapper
+        idx = 0
+        @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
+        def _loop_fn_0(_scope_0, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+            __func_src = "$IGNORE_STRING"
+            {Placeholder.new('unpack_0')}
+            if idx < len(arr):
+                def _cont_1(_scope_1):
+                    {Placeholder.new('unpack_1')}
+                    idx += 1
+                    {Placeholder.new('pack_0')}
+                    return lambda: _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=2)(_scope_0)
+                if arr[idx] == item:
+                    return lambda: _cont(idx)
+                    {Placeholder.new('pack_1')}
+                    return lambda: _cont_1(_scope_1)
+                else:
+                    {Placeholder.new('pack_1')}
+                    return lambda: _cont_1(_scope_1)
+            else:
+                {Placeholder.new('pack_0')}
+                return lambda : _cont(_ValueWrapper(_scope_0))
+
+        def _loop_exit_fn_0(_scope_0):
+            if not isinstance(_scope_0, _ValueWrapper):
+                return lambda: _cont(_scope_0)
+            _scope_0 = _scope_0.value
+            {Placeholder.new('unpack_0')}
+            return lambda : _cont(-1)
+        {Placeholder.new('pack_0')}
+        return lambda : _cps.interpret(_loop_fn_0, cont=_loop_exit_fn_0, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=2)(_scope_0)
+    ''', {
+        **ScopeTools.pack_unpack(0, ['arr', 'idx', 'item'], hashabledict=True),
+        **ScopeTools.pack_unpack(1, ['arr', 'idx', 'item']),
+    }), check_args=[([1, 3, 2], i) for i in range(3)], check_out=[-1, 0, 2])
+
+
 def test_cps_while_nested():
     names = ['lim', 'rv', 'x', 'y']
     exp = ScopeTools.fill(f'''
     @lambda fn: CPSFunction(fn, '$FN_SOURCE')
     def fn(lim, *, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = '$FN_SOURCE'
+        from flippy.transforms import _ValueWrapper
         rv = []
         x = 0
 
@@ -737,9 +800,12 @@ def test_cps_while_nested():
                         return lambda : _cps.interpret(_loop_fn_1, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_1, lineno=5)(_scope_1)
                     else:
                         {Placeholder.new('pack_1')}
-                        return lambda : _cont(_scope_1)
+                        return lambda : _cont(_ValueWrapper(_scope_1))
 
                 def _loop_exit_fn_1(_scope_1):
+                    if not isinstance(_scope_1, _ValueWrapper):
+                        return lambda: _cont(_scope_1)
+                    _scope_1 = _scope_1.value
                     {Placeholder.new('unpack_1')}
                     x = x + 1
                     {Placeholder.new('pack_0')}
@@ -748,9 +814,12 @@ def test_cps_while_nested():
                 return lambda : _cps.interpret(_loop_fn_1, cont=_loop_exit_fn_1, stack=_stack, func_src=__func_src, locals_=_locals_1, lineno=5)(_scope_1)
             else:
                 {Placeholder.new('pack_0')}
-                return lambda : _cont(_scope_0)
+                return lambda : _cont(_ValueWrapper(_scope_0))
 
         def _loop_exit_fn_0(_scope_0):
+            if not isinstance(_scope_0, _ValueWrapper):
+                return lambda: _cont(_scope_0)
+            _scope_0 = _scope_0.value
             {Placeholder.new('unpack_0')}
             return lambda : _cont((rv, y))
         {Placeholder.new('pack_0')}
@@ -791,6 +860,7 @@ def test_cps_while_call_in_test():
     @lambda fn: CPSFunction(fn, '$FN_SOURCE')
     def fn(*, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = '$FN_SOURCE'
+        from flippy.transforms import _ValueWrapper
         ct = 0
 
         @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
@@ -809,7 +879,7 @@ def test_cps_while_call_in_test():
                         return lambda : _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=2)(_scope_0)
                     if not (_res_1 < 3) & (ct < 100):
                         {Placeholder.new('pack_0')}
-                        return lambda : _cont(_scope_0)
+                        return lambda: _cont(_ValueWrapper(_scope_0))
                         {Placeholder.new('pack_2')}
                         return lambda : _cont_2(_scope_2)
                     else:
@@ -818,9 +888,12 @@ def test_cps_while_call_in_test():
                 return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=3)([ct])
             else:
                 {Placeholder.new('pack_0')}
-                return lambda : _cont(_scope_0)
+                return lambda : _cont(_ValueWrapper(_scope_0))
 
         def _loop_exit_fn_0(_scope_0):
+            if not isinstance(_scope_0, _ValueWrapper):
+                return lambda: _cont(_scope_0)
+            _scope_0 = _scope_0.value
             {Placeholder.new('unpack_0')}
             return lambda : _cont(ct)
         {Placeholder.new('pack_0')}
@@ -846,6 +919,7 @@ def test_cps_while_nested_call():
     @lambda fn: CPSFunction(fn, 'def fn():\\n    x = 0\\n    ct = 0\\n    while ct < 10:\\n        x = sum([x, 1])\\n        x = sum([x, 2])\\n        ct = ct + 1\\n    return x')
     def fn(*, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = 'def fn():\\n    x = 0\\n    ct = 0\\n    while ct < 10:\\n        x = sum([x, 1])\\n        x = sum([x, 2])\\n        ct = ct + 1\\n    return x'
+        from flippy.transforms import _ValueWrapper
         x = 0
         ct = 0
 
@@ -869,9 +943,12 @@ def test_cps_while_nested_call():
                 return lambda : _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=4)([x, 1])
             else:
                 {Placeholder.new('pack_0')}
-                return lambda : _cont(_scope_0)
+                return lambda : _cont(_ValueWrapper(_scope_0))
 
         def _loop_exit_fn_0(_scope_0):
+            if not isinstance(_scope_0, _ValueWrapper):
+                return lambda: _cont(_scope_0)
+            _scope_0 = _scope_0.value
             {Placeholder.new('unpack_0')}
             return lambda : _cont(x)
         {Placeholder.new('pack_0')}
@@ -894,6 +971,7 @@ def test_cps_for():
     @lambda fn: CPSFunction(fn, '$FN_SOURCE')
     def fn(*, _stack=(), _cps=_cps, _cont=lambda val: val):
         __func_src = '$FN_SOURCE'
+        from flippy.transforms import _ValueWrapper
         rv = []
         {Placeholder.new('pack_1')}
         def _cont_1(_res_1):
@@ -922,7 +1000,7 @@ def test_cps_for():
                                 return lambda : _cps.interpret(_loop_fn_2, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_2, lineno=4)(_scope_2)
                             if not _for_idx_4 < _res_3:
                                 {Placeholder.new('pack_2')}
-                                return lambda : _cont(_scope_2)
+                                return lambda: _cont(_ValueWrapper(_scope_2))
                                 {Placeholder.new('pack_4')}
                                 return lambda : _cont_4(_scope_4)
                             else:
@@ -931,9 +1009,12 @@ def test_cps_for():
                         return lambda : _cps.interpret(len, cont=_cont_3, stack=_stack, func_src=__func_src, locals_=_locals_3, call_id=3, lineno=5)(_for_iter_4)
                     else:
                         {Placeholder.new('pack_2')}
-                        return lambda : _cont(_scope_2)
+                        return lambda: _cont(_ValueWrapper(_scope_2))
 
                 def _loop_exit_fn_2(_scope_2):
+                    if not isinstance(_scope_2, _ValueWrapper):
+                        return lambda: _cont(_scope_2)
+                    _scope_2 = _scope_2.value
                     {Placeholder.new('unpack_2')}
                     return lambda : _cont(rv)
                 {Placeholder.new('pack_2')}
@@ -941,11 +1022,109 @@ def test_cps_for():
             return lambda : _cps.interpret(list, cont=_cont_0, stack=_stack, func_src=__func_src, locals_=_locals_0, call_id=0, lineno=2)(_res_1)
         return lambda : _cps.interpret(range, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=2)(10)
     ''', {
-        **ScopeTools.pack_unpack(0, ['rv']),
-        **ScopeTools.pack_unpack(1, ['rv']),
+        **ScopeTools.pack_unpack(0, ['_for_idx_4', '_for_iter_4', 'rv', 'x']),
+        **ScopeTools.pack_unpack(1, ['_for_idx_4', '_for_iter_4', 'rv', 'x']),
         **ScopeTools.pack_unpack(2, ['_for_idx_4', '_for_iter_4', 'rv', 'x'], hashabledict=True),
-        **ScopeTools.pack_unpack(3, ['_for_idx_4', '_for_iter_4', 'rv']),
-        **ScopeTools.pack_unpack(4, ['_for_idx_4', '_for_iter_4', 'rv']),
+        **ScopeTools.pack_unpack(3, ['_for_idx_4', '_for_iter_4', 'rv', 'x']),
+        **ScopeTools.pack_unpack(4, ['_for_idx_4', '_for_iter_4', 'rv', 'x']),
+    }), check_args=[()], desugar=True)
+
+
+def test_cps_for_target_in_scope():
+    check_cps_transform(f'''
+    def fn():
+        for x in [1, 2, 3]:
+            if x == 3:
+                break
+        return x
+    ''', '', check_args=[()], desugar=True, compare_ast=False)
+
+    check_cps_transform(f'''
+    def fn():
+        for x in [1, 2, 3]:
+            if x == 3:
+                return x
+    ''', '', check_args=[()], desugar=True, compare_ast=False)
+
+    # loop where variable is defined inside loop
+    check_cps_transform(f'''
+    def fn(val):
+        idx = 0
+        while True:
+            if idx == 0:
+                x = 0
+            else: # idx > 0
+                x += val
+            idx += 1
+            if idx >= 3:
+                break
+        return x
+    ''', '', check_args=[(4,)], desugar=True, compare_ast=False)
+
+    # issue returning variable declared in loop
+    for var in ['outer', 'inner']:
+        check_cps_transform(f'''
+        def fn():
+            outer = 0
+            for inner in [1, 2, 3]:
+                outer = inner
+            return {var}
+        ''', '', check_args=[()], desugar=True, compare_ast=False)
+
+    # similar to above, but also checking output
+    check_cps_transform('''
+    def fn():
+        for x in [1, 2, 3]:
+            pass
+        return x
+    ''', ScopeTools.fill(f'''
+    @lambda fn: CPSFunction(fn, '$FN_SOURCE')
+    def fn(*, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = '$FN_SOURCE'
+        from flippy.transforms import _ValueWrapper
+        _for_iter_3 = [1, 2, 3]
+        _for_idx_3 = 0
+        @lambda fn: CPSFunction(fn, "$IGNORE_STRING")
+        def _loop_fn_0(_scope_0, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+            __func_src = "$IGNORE_STRING"
+            {Placeholder.new('unpack_0')}
+            if True:
+                {Placeholder.new('pack_1')}
+                def _cont_1(_res_1):
+                    {Placeholder.new('unpack_1')}
+                    def _cont_2(_scope_2):
+                        {Placeholder.new('unpack_2')}
+                        x = _for_iter_3[_for_idx_3]
+                        _for_idx_3 = _for_idx_3 + 1
+                        pass
+                        {Placeholder.new('pack_0')}
+                        return lambda: _cps.interpret(_loop_fn_0, cont=_cont, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
+                    if not _for_idx_3 < _res_1:
+                        {Placeholder.new('pack_0')}
+                        return lambda: _cont(_ValueWrapper(_scope_0))
+                        {Placeholder.new('pack_2')}
+                        return lambda: _cont_2(_scope_2)
+                    else:
+                        {Placeholder.new('pack_2')}
+                        return lambda: _cont_2(_scope_2)
+                return lambda: _cps.interpret(len, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=4)(_for_iter_3)
+            else:
+                {Placeholder.new('pack_0')}
+                return lambda: _cont(_ValueWrapper(_scope_0))
+
+        def _loop_exit_fn_0(_scope_0):
+            if not isinstance(_scope_0, _ValueWrapper):
+                return lambda: _cont(_scope_0)
+            _scope_0 = _scope_0.value
+            {Placeholder.new('unpack_0')}
+            return lambda: _cont(x)
+        {Placeholder.new('pack_0')}
+        return lambda: _cps.interpret(_loop_fn_0, cont=_loop_exit_fn_0, stack=_stack, func_src=__func_src, locals_=_locals_0, lineno=3)(_scope_0)
+    ''', {
+        **ScopeTools.pack_unpack(0, ['_for_idx_3', '_for_iter_3', 'x'], hashabledict=True),
+        **ScopeTools.pack_unpack(1, ['_for_idx_3', '_for_iter_3', 'x']),
+        **ScopeTools.pack_unpack(2, ['_for_idx_3', '_for_iter_3', 'x']),
+        **ScopeTools.pack_unpack(3, ['_for_idx_3', '_for_iter_3', 'x']),
     }), check_args=[()], desugar=True)
 
 
@@ -957,7 +1136,7 @@ def _code_diff(a, b):
     return ''.join(diff)
 
 
-def check_cps_transform(src, exp_src, *, check_args=[], check_out=None, desugar=False):
+def check_cps_transform(src, exp_src, *, check_args=[], check_out=None, desugar=False, compare_ast=True):
     src = textwrap.dedent(src)
     node = ast.parse(src)
     if desugar:
@@ -967,9 +1146,13 @@ def check_cps_transform(src, exp_src, *, check_args=[], check_out=None, desugar=
     node = CPSTransform()(node)
 
     exp_src = textwrap.dedent(exp_src)
-    exp_node = ast.parse(exp_src)
 
-    assert_compare_ast(node, exp_node)
+    if compare_ast:
+        exp_node = ast.parse(exp_src)
+        assert_compare_ast(node, exp_node)
+    else:
+        # Need to do this since we don't have transformed source.
+        exp_node = node
 
     assert (
         isinstance(node, ast.Module) and
@@ -984,7 +1167,7 @@ def check_cps_transform(src, exp_src, *, check_args=[], check_out=None, desugar=
     exp_context = {'CPSFunction': CPSFunction}
     interpreter = CPSInterpreter()
     exp_context[CPSTransform.cps_interpreter_name] = interpreter
-    exec(exp_src, exp_context)
+    exec(interpreter.compile('test.py', exp_node), exp_context)
 
     assert check_args, 'Must supply test case to test transformed function.'
     if check_out is not None:

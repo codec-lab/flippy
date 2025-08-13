@@ -324,3 +324,23 @@ def test_scope_analysis_If():
     _analyze_with_expected_error('immutable', template('return orelse2'))
     _analyze_with_expected_error('immutable', template('return body1orelse2'))
     _analyze_with_expected_error('immutable', template('return body2orelse1'))
+
+def test_scope_analysis_For():
+    with pytest.raises(SyntaxError) as err:
+        _analyze(f'''
+        def fn():
+            def c(): return idx
+            for idx in range(3):
+                pass
+            return c()
+        ''')
+    assert 'before being referenced' in str(err)
+
+    # We don't rule this out here -- but we do in the subset analysis
+    _analyze(f'''
+    def fn():
+        for idx in range(3):
+            if idx == 0:
+                def c(): return idx
+        return c()
+    ''')

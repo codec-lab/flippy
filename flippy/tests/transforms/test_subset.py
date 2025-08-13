@@ -56,6 +56,27 @@ def test_validator():
     _invalid('yield from x', 'yield from x')
     _invalid('if x := 3: pass', ':=')
 
+    for loop in [
+        'for x in y:',
+        'while True:',
+    ]:
+        for fn, name in [
+            ('def z(): pass', 'def'),
+            ('z = lambda: None', 'lambda'),
+        ]:
+            _invalid(f'''
+            {loop}
+                {fn}
+            ''', name)
+
+    # Making sure flag is not unset
+    _invalid('''
+    for x in y:
+        for x in y:
+            pass
+        def z(): pass
+    ''', 'def')
+
 def test_assignment():
     _validate('x = 3')
     _validate('del x')

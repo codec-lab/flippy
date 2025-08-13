@@ -34,18 +34,28 @@ def algebra():
             return (NUM(), OP(), EQ())
     return EQ()
 
-def check_trace(func, trace, *, args=(), kwargs={}, return_value):
-    ps = CPSInterpreter().initial_program_state(func)
+def check_trace(func, trace, *, args=(), kwargs={}, _emit_call_entryexit=False, return_value):
+    ps = CPSInterpreter(_emit_call_entryexit=_emit_call_entryexit).initial_program_state(func)
     print(ast.unparse(CPSInterpreter().transform_from_func(func)))
     ps = ps.step(*args, **kwargs)
 
     for trace_idx, (dist, value) in enumerate(trace):
-        assert isinstance(ps, SampleState), (f'{trace_idx=}', ps)
-        assert ps.distribution.isclose(dist), (f'{trace_idx=}', ps)
-        assert value in dist.support
-        ps = ps.step(value)
+        if isinstance(ps, SampleState):
+            assert ps.distribution.isclose(dist), (f'{trace_idx=}', ps)
+            assert value in dist.support
+            ps = ps.step(value)
+        elif isinstance(ps, EnterCallState):
+            assert dist == 'enter', (f'{trace_idx=}', ps, ps.function.__name__)
+            assert ps.function.__name__ == value, (f'{trace_idx=}', ps, ps.function.__name__)
+            ps = ps.step()
+        elif isinstance(ps, ExitCallState):
+            assert dist == 'exit', (f'{trace_idx=}', ps, ps.function.__name__)
+            assert ps.function.__name__ == value, (f'{trace_idx=}', ps, ps.function.__name__)
+            ps = ps.step()
+        else:
+            assert False, (f'{trace_idx=}', ps)
 
-    assert isinstance(ps, ReturnState)
+    assert isinstance(ps, ReturnState), ps
     assert ps.value == return_value
 
 def test_interpreter():
@@ -827,3 +837,25 @@ def test_callsite_addressing_on_single_line():
     # Thus the call stacks should be distinct
     call_stacks = (call1.stack, call2.stack, call3.stack)
     assert len(set(call_stacks)) == 3, "Call stacks should be the same"
+
+def test_cps_loop_entryexit():
+    def binom(k, p):
+        ct = 0
+        for i in range(k):
+            ct += Bernoulli(p).sample()
+        return ct
+    check_trace(binom, [
+        ('enter', 'binom'),
+        ('enter', '_loop_fn_1'),
+        (Bernoulli(0.5), 0),
+        ('enter', '_loop_fn_1'),
+        (Bernoulli(0.5), 1),
+        ('enter', '_loop_fn_1'),
+        (Bernoulli(0.5), 0),
+        ('enter', '_loop_fn_1'),
+        ('exit', '_loop_fn_1'),
+        ('exit', '_loop_fn_1'),
+        ('exit', '_loop_fn_1'),
+        ('exit', '_loop_fn_1'),
+        ('exit', 'binom'),
+    ], args=(3, 0.5), return_value=1, _emit_call_entryexit=True)

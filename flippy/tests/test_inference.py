@@ -333,10 +333,11 @@ def test_Enumeration_binom():
         return ct
 
     enum = Enumeration(binom, _call_cache_size=100, _emit_call_entryexit=True)
-    enum.run(2, .5)
+    d = enum.run(2, .5)
     assert enum._call_cache.hits == 1
     assert enum._call_cache.misses == 6
     assert len(enum._call_cache) == 6
+    assert d.isclose(Categorical.from_dict({0: 0.25, 1: 0.5, 2: 0.25}))
 
     simpler_keys = [
         (scope.get('i'), scope.get('ct'))
@@ -354,10 +355,11 @@ def test_Enumeration_binom():
     assert collections.Counter(simpler_keys) == binom2keys
 
     enum = Enumeration(binom, _call_cache_size=100, _emit_call_entryexit=True)
-    enum.run(3, .5)
+    d = enum.run(3, .5)
     assert enum._call_cache.hits == 3
     assert enum._call_cache.misses == 10
     assert len(enum._call_cache) == 10
+    assert d.isclose(Categorical.from_dict({0: 1/8, 1: 3/8, 2: 3/8, 3: 1/8}))
 
     simpler_keys = [
         (scope.get('i'), scope.get('ct'))
