@@ -432,6 +432,40 @@ def test_cps_new_vars_scope_packing():
         **ScopeTools.pack_unpack(1, ['x', 'y', 'z']),
     }), check_args=[()])
 
+def test_cps_var_del():
+    check_cps_transform('''
+    def fn(flag):
+        x = 3
+        if flag:
+            del x
+        sum([])
+        return x
+    ''', ScopeTools.fill(f'''
+    @lambda fn: CPSFunction(fn, '$FN_SOURCE')
+    def fn(flag, *, _stack=(), _cps=_cps, _cont=lambda val: val):
+        __func_src = '$FN_SOURCE'
+        x = 3
+        def _cont_0(_scope_0):
+            {Placeholder.new('unpack_0')}
+            {Placeholder.new('pack_1')}
+            def _cont_1(_res_1):
+                {Placeholder.new('unpack_1')}
+                _res_1
+                return lambda: _cont(x)
+            return lambda: _cps.interpret(sum, cont=_cont_1, stack=_stack, func_src=__func_src, locals_=_locals_1, call_id=1, lineno=4)([])
+        if flag:
+            del x
+            {Placeholder.new('pack_0')}
+            return lambda: _cont_0(_scope_0)
+        else:
+            {Placeholder.new('pack_0')}
+            return lambda: _cont_0(_scope_0)
+
+    ''', {
+        **ScopeTools.pack_unpack(0, ['flag', 'x']),
+        **ScopeTools.pack_unpack(1, ['flag', 'x']),
+    }), check_args=[()])
+
 def test_cps_desugared_calls():
     check_cps_transform('''
     def fn():
@@ -1173,11 +1207,22 @@ def check_cps_transform(src, exp_src, *, check_args=[], check_out=None, desugar=
     if check_out is not None:
         assert len(check_out) == len(check_args)
     for idx, args in enumerate(check_args):
-        expected = src_context[fn_name](*args)
+        try:
+            expected = src_context[fn_name](*args)
+        except Exception as err:
+            expected = err
         if check_out is not None:
             assert expected == check_out[idx]
         # We execute using only a simple trampoline, so this implementation can't handle stochastic primitives.
-        assert expected == trampoline(exp_context[fn_name](*args))
+        try:
+            actual = trampoline(exp_context[fn_name](*args))
+        except Exception as err:
+            actual = err
+
+        if isinstance(expected, Exception):
+            assert type(expected) == type(actual) and str(expected) == str(actual)
+        else:
+            assert expected == actual
 
 def assert_compare_ast(node, exp_node):
     '''
