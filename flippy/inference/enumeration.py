@@ -13,7 +13,6 @@ from flippy.distributions import Categorical, ZeroDistributionError
 from flippy.tools import logsumexp
 from flippy.callentryexit import EnterCallState, ExitCallState
 from flippy.map import MapEnter, MapExit
-from flippy.inference.simpleenumeration import EnumerationStats, ProgramStateRecord
 from flippy.inference.inference import InferenceAlgorithm, DiscreteInferenceResult
 from flippy.hashable import hashabledict
 from flippy.tools import LRUCache
@@ -78,6 +77,21 @@ class ReturnExecutionBranch(ExecutionResult):
     scores: List[float]
 
 class Enumeration(InferenceAlgorithm,Generic[Element]):
+    """
+    Enumerates all possible executions of a program with discrete random variables
+    as a graph by identifying call entry and exit points and reusing
+    cached results when possible.
+
+    - `function`: The function to be executed
+    - `max_states`: The maximum number of states to consider
+    - `cont_var_func`: A function to provide continuous variable values for sample states
+    - `_call_cache_size`: The size of the call cache
+    - `_cpus`: The number of CPUs to use for parallel execution
+    - `_emit_call_entryexit`: Whether to emit call entry/exit states
+    - `_state_visit_callback`: A callback function to track state visits
+    - `_track_sample_state_visits`: Whether to track visits to sample states
+    """
+
     is_cachable = True  # Inference results can always be cached
 
     def __init__(
@@ -85,7 +99,6 @@ class Enumeration(InferenceAlgorithm,Generic[Element]):
         function,
         max_states=float('inf'),
         _call_cache_size=128,
-        _map_cross_product=True,
         _cpus=1,
         _emit_call_entryexit=True,
         _state_visit_callback: Callable[[ProgramState], None]=None,
@@ -104,7 +117,6 @@ class Enumeration(InferenceAlgorithm,Generic[Element]):
             self._call_cache = LRUCache(max_size=_call_cache_size)
         else:
             self._call_cache = None
-        self._map_cross_product = _map_cross_product
         self._cpus = _cpus
         self._emit_call_entryexit = _emit_call_entryexit
         self._cont_var_func = cont_var_func

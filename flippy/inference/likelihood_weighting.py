@@ -12,6 +12,14 @@ from flippy.inference.inference import InferenceAlgorithm
 
 
 class LikelihoodWeighting(InferenceAlgorithm[Element]):
+    """
+    Likelihood weighting inference algorithm. Samples from the prior
+    and weights samples by the likelihood of observed data.
+    - `function`: The function to be executed
+    - `samples`: The number of samples to draw
+    - `seed`: Optional random seed for reproducibility
+    - `_cpus`: Number of CPUs to use for parallel execution (default is 1)
+    """
     def __init__(
         self,
         function,

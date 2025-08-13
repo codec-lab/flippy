@@ -31,6 +31,12 @@ class EnumerationStats:
         return Counter(self.states_visited)
 
 class SimpleEnumeration(InferenceAlgorithm[Element]):
+    """
+    Enumerates all possible executions of a program with discrete random variables
+    as a tree, collecting the scores (log-probabilities) of return states.
+    - `function`: The function to be executed
+    - `max_executions`: The maximum number of executions to consider (default is infinite)
+    """
     is_cachable = True  # Inference results can always be cached
 
     def __init__(self, function, max_executions=float('inf')):

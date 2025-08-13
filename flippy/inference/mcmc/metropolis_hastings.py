@@ -23,6 +23,22 @@ from flippy.types import VariableName, SampleValue
 ProposalKernel = Callable[['SampleValue', SampleState], Distribution['SampleValue']]
 
 class MetropolisHastings(InferenceAlgorithm[Element]):
+    """
+    Markov Chain Monte Carlo (MCMC) inference using the Metropolis-Hastings algorithm.
+    - `function`: The function to be executed
+    - `samples`: Number of samples to draw from the posterior
+    - `burn_in`: Number of initial samples to discard (default: 0)
+    - `thinning`: Interval between saved samples (default: 1, i.e., save every sample)
+    - `seed`: Optional random seed for reproducibility
+    - `use_drift_kernels`: Whether to use drift kernels for continuous variables (default: True)
+    - `uniform_drift_kernel_width`: Width of the uniform drift kernel for bounded continuous variables
+    - `simplex_proposal_kernel_alpha`: Concentration parameter for the Dirichlet proposal kernel for simplex variables
+    - `custom_proposal_kernels`: Optional function that takes a variable name and returns a
+    proposal kernel function for that variable
+    - `custom_initial_trace_kernel`: Optional function that takes a variable name and returns an initial
+    value for that variable
+    - `verbose`: Whether to print progress information
+    """
     # this is finite in case it is impossible to initialize a trace
     max_initial_trace_attempts = 1000
     def __init__(

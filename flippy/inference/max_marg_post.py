@@ -18,9 +18,35 @@ from flippy.inference.inference import InferenceAlgorithm, MarginalLikelihood, \
     DiscreteInferenceResult
 
 class MaximumMarginalAPosteriori(InferenceAlgorithm[Element]):
+    """
+    Maximum Marginal A Posteriori (MMAP) inference algorithm. Finds the assignment
+    to continuous variables that maximizes the marginal posterior probability of
+    discrete variables.
+
+    - `function`: The function to be executed
+    - `seed`: Optional random seed for reproducibility
+    - `method`: Scipy optimization method to use (see
+    [scipy docs](https://docs.scipy.org/doc/scipy/reference/optimize.html)
+    for options)
+    - `disp`: Whether to display optimization output
+    - `maxiter`: Maximum number of iterations for the optimizer
+    - `maxfev`: Maximum number of function evaluations for the optimizer
+    - `maximum_likelihood`: If True, finds the assignment that maximizes the
+    likelihood of the data instead of the posterior
+    - `min_valid_runs`: Minimum number of valid optimization runs to consider
+    - `max_retries`: Maximum number of optimization runs to attempt
+    - `_cpus`: Number of CPUs to use for parallel execution (default is 1)
+    - `**enumeration_kwargs`: Additional keyword arguments to pass to the
+    Enumeration inference algorithm
+    """
     def __init__(
-        self, function, seed=None, method="Powell",
-        disp=False, maxiter=1000, maxfev=1000,
+        self,
+        function,
+        seed=None,
+        method="Powell",
+        disp=False,
+        maxiter=1000,
+        maxfev=1000,
         maximum_likelihood=False,
         min_valid_runs=1,
         max_retries=10,
