@@ -6,6 +6,10 @@ of [WebPPL](https://dippl.org/).
 
 ## Getting started
 
+<p align="center">
+    <img src="flippy.svg" alt="FlipPy Logo" width="200"/>
+</p>
+
 FlipPy can be installed from PyPi:
 ```
 $ pip install flippy-lang
