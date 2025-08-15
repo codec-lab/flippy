@@ -16,7 +16,6 @@ authors:
     orcid: 0000-0001-9138-7818
     equal-contrib: true
     affiliation: 1
-    affiliation: 3
 affiliations:
  - name: New York University
    index: 1
