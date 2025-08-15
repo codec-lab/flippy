@@ -1,8 +1,6 @@
-# FlipPy: Probablistic programming in Python
+# FlipPy: A probablistic programming language for Python
 
-FlipPy is Python library for specifying probabilistic programs.
-It prioritizes compatibility with Python, universality,
-and maintainability.
+FlipPy is a library for specifying probabilistic programs that prioritizes interoperability with Python.
 It takes inspiration from the design and implementation
 of [WebPPL](https://dippl.org/).
 
