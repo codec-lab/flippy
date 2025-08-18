@@ -542,7 +542,10 @@ class Dirichlet(Distribution):
         e = [rng.gammavariate(a, 1) for a in self.alphas]
         e = [ei if ei > 0 else sys.float_info.min for ei in e] # for numerical stability
         tot = sum(e)
-        return tuple(ei/tot for ei in e)
+        vals = tuple(ei/tot for ei in e)
+        if 1 in vals:
+            return tuple(min(ei, 1.0 - sys.float_info.epsilon) for ei in vals)
+        return vals
 
     def log_probability(self, vec):
         """

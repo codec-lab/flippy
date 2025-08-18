@@ -124,7 +124,10 @@ def test_observe_all():
     assert isclose(logprob1, logprob2)
 
 def test_Dirichlet_numerical_stability():
-    dist = Dirichlet([.1, .001, 4.0])
-    p = dist.sample()
-    assert 0 not in p, "We should not be able to sample a vector with 0s"
-    assert dist.log_probability(p) > float('-inf')
+    rng = RandomNumberGenerator(12345)
+    for _ in range(100):
+        dist = Dirichlet([.1, .0001, 4.0])
+        p = dist.sample(rng=rng)
+        assert 0 not in p, "We should not be able to sample a vector with a 0"
+        assert 1 not in p, "We should not be able to sample a vector with a 1"
+        assert dist.log_probability(p) > float('-inf')
