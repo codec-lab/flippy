@@ -12,6 +12,9 @@ from flippy.tools import isclose, ISCLOSE_RTOL, ISCLOSE_ATOL
 from flippy.transforms import CPSTransform
 
 class Distribution(Generic[Element]):
+    """
+    Base class for probability distributions in FlipPy.
+    """
     support : Support
     def prob(self, element : Element):
         """Probability of an element in the support of the distribution."""

@@ -1,3 +1,8 @@
+"""
+This module implements a `ProgramState` API for calling and returning from
+function calls.
+"""
+
 from typing import Callable, TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 from flippy.core import ProgramState
 from flippy.types import CPSCallable, Continuation, Thunk
@@ -7,6 +12,11 @@ if TYPE_CHECKING:
     from flippy.interpreter import CPSInterpreter, Stack
 
 class EnterCallState(ProgramState):
+    """
+    Represents the state of a program when entering a function call.
+    This can be used to intercept function calls (e.g., for callsite caching;
+    see [Ritchie, Stuhlmüller & Goodman (2016)](https://proceedings.mlr.press/v51/ritchie16.html)).
+    """
     def __init__(
         self,
         f: CPSFunction,
@@ -37,6 +47,7 @@ class EnterCallState(ProgramState):
         return ProgramState.step(self, run_func, res)
 
 class ExitCallState(ProgramState):
+    """Represents the state of a program when exiting a function call."""
     def __init__(
         self,
         f: CPSFunction,

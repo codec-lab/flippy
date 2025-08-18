@@ -1,3 +1,14 @@
+"""
+FlipPy provides a core API for managing the non-deterministic execution of
+probabilistic Python programs in terms of `ProgramState` objects.
+The basic model involves intercepting `Distribution.sample` and `Distribution.observe`
+calls, represented by `SampleState` and `ObserveState`, respectively. By controlling
+execution at these points, we can implement various inference algorithms.
+
+For more background on this approach, see
+[van de Meent et al. (2018)](https://arxiv.org/abs/1809.10756).
+"""
+
 from typing import Any, Callable, Hashable, Tuple, TYPE_CHECKING, TypeVar, Sequence, Union
 from flippy.distributions import Distribution
 from flippy.funcutils import cached_property
@@ -7,10 +18,6 @@ from flippy.types import Continuation, VariableName, ReturnValue
 
 if TYPE_CHECKING:
     from flippy.interpreter import CPSInterpreter, Stack
-
-############################################
-#  Program State
-############################################
 
 class ProgramState:
     """
@@ -126,6 +133,7 @@ class GlobalStore:
 global_store = ReadOnlyProxy()
 
 class InitialState(ProgramState):
+    """Represents the initial state of a program."""
     def __init__(
         self,
         continuation : 'Continuation' = None,
@@ -138,6 +146,10 @@ class InitialState(ProgramState):
         )
 
 class ObserveState(ProgramState):
+    """
+    Represents the state of a program when observing a value from a distribution.
+    This is the main interface for conditioning.
+    """
     def __init__(
         self,
         continuation: 'Continuation',
@@ -157,6 +169,9 @@ class ObserveState(ProgramState):
         self.value = value
 
 class SampleState(ProgramState):
+    """
+    Represents the state of a program when sampling from a `Distribution`.
+    """
     def __init__(
         self,
         continuation: 'Continuation',
@@ -178,6 +193,10 @@ class SampleState(ProgramState):
         self.fit = fit
 
 class ReturnState(ProgramState):
+    """
+    Represents the state of a program when a function
+    returns a value.
+    """
     def __init__(self, value: 'ReturnValue', stack: 'Stack'):
         super().__init__(stack=stack, name="RETURN_STATE")
         if isinstance(value, dict):
