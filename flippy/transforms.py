@@ -113,9 +113,9 @@ class ClosureScopeAnalysis(ast.NodeVisitor):
     def_pass = 'def_pass'
     use_pass = 'use_pass'
 
-    def __call__(self, node, source=None):
+    def __call__(self, node, source):
         self.node = node
-        self._source = source
+        self.source = source
         self.scopes: list[Scope] = []
         self.scope_map = {}
         '''
@@ -149,12 +149,6 @@ class ClosureScopeAnalysis(ast.NodeVisitor):
         with self.in_scope(node):
             self.visit(node)
         return self.scope_map
-
-    @property
-    def source(self):
-        if self._source is None:
-            return ast.unparse(self.node)
-        return self._source
 
     def generic_visit(self, node):
         # Refactored from ASTVisitor
