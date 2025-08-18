@@ -504,6 +504,7 @@ def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
     '''
     Decorator to interpret a function as deterministic Python.
     Any random sampling in the function will not be targeted for inference.
+    Any conditioning will not be incorporated into the inference process.
 
     This is helpful if the transform slows a function down, if a
     deterministic library is being called, or if a distribution is being

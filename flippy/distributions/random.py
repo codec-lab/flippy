@@ -11,6 +11,8 @@ try:
     class RandomNumberGenerator(BaseRandomNumberGenerator):
         """
         Random number generator for both Python and NumPy.
+
+        To access the NumPy random generator, use `rng.np`.
         """
         def __init__(self, seed=None):
             super().__init__(seed)

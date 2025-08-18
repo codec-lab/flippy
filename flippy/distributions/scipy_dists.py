@@ -17,6 +17,7 @@ except ImportError:
 
 
 class MultivariateNormal(Distribution):
+    """Multivariate normal distribution with given means and covariance matrix."""
     def __init__(self, means=(0,), covariance=((1,),)):
         assert len(means) == len(covariance), "Means and covariance must have the same length"
         assert all(len(row) == len(means) for row in covariance), "Covariance must be a square matrix matching the length of means"
@@ -36,6 +37,7 @@ class MultivariateNormal(Distribution):
         return scipy_stats.multivariate_normal.logpdf(element, mean=self.means, cov=self.covariance)
 
 class InverseWishart(Distribution):
+    """Inverse Wishart distribution with given degrees of freedom and scale matrix."""
     def __init__(self, df=1, scale_matrix=((1,),)):
         scale_matrix = np.array(scale_matrix)
         assert scale_matrix.ndim == 2, "Scale matrix must be a 2D array"
