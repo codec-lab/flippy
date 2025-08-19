@@ -1,5 +1,5 @@
 import math
-from flippy import condition
+from flippy import condition, flip
 # from flippy.distributions.scipy_dists import Bernoulli, Distribution, Normal,  Gamma, Uniform, Beta
 from flippy.distributions.builtin_dists import Categorical, Dirichlet, Bernoulli, Normal, Gamma, Uniform, Beta
 from flippy.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting, MetropolisHastings
@@ -57,15 +57,15 @@ def test_mcmc_trace_and_acceptance_ratio():
         new_trace=new_tr,
         target_site_name='rv',
     )
-    assert target_site_proposal_score == math.log(1/2)
-    assert trace_proposal_score == math.log(1/3)
+    assert target_site_proposal_score == math.log(1/2), '2 possible target sites'
+    assert trace_proposal_score == math.log(1/3), '3 possible values'
 
     _, trace_proposal_score = mh.choose_new_trace(
         old_trace=tr,
         new_trace=new_tr,
         target_site_name='choice',
     )
-    assert trace_proposal_score == math.log(1/2)
+    assert trace_proposal_score == math.log(1/2), '2 possible values'
 
     # test acceptance calculation
     log_acceptance_ratio = mh.calc_log_acceptance_ratio(
@@ -228,3 +228,12 @@ def test_mcmc_initial_value():
     init_ps = mcmc.initial_program_state.step()
     trace = mcmc.generate_initial_trace(init_ps)
     assert trace['p'].value == 0.123
+
+def test_mcmc_potential_index_error():
+    def fn():
+        xs = [0, 1, 2] if flip() else [9, 10]
+        idx = Categorical(range(len(xs))).sample()
+        return xs[idx]
+    enum_dist = SimpleEnumeration(fn).run()
+    mh_dist = MH(fn, samples=10000, seed=124).run()
+    assert enum_dist.isclose(mh_dist, atol=5e-2)
