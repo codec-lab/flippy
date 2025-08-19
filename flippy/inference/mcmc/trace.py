@@ -53,19 +53,24 @@ class Trace:
                 e.name : i for i, e in enumerate(new_trace._entries)
             }
 
+        def _should_break():
+            return break_early and new_trace._entries[-1].score == float('-inf')
+
         while True:
             assert ps.name not in new_trace, f"Name {ps.name} already in trace"
             if isinstance(ps, SampleState):
                 value = sample_site_callback(ps)
                 new_trace.add_site(ps, value)
+                if _should_break():
+                    break
                 ps = ps.step(value)
             elif isinstance(ps, ObserveState):
                 new_trace.add_site(ps, observe_site_callback(ps))
+                if _should_break():
+                    break
                 ps = ps.step()
             elif isinstance(ps, ReturnState):
                 new_trace.add_return_state(ps)
-                break
-            if break_early and new_trace._entries[-1].score == float('-inf'):
                 break
         return new_trace
 
