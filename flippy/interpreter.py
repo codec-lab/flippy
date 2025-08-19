@@ -420,15 +420,15 @@ class CPSInterpreter:
         if call_name is not None:
             self.rename_class_method_in_source(trans_node, call_name)
         self.subset_validator(trans_node, source)
-        return self.transform(trans_node)
+        return self.transform(trans_node, source)
 
     def rename_class_method_in_source(self, node: ast.Module, name: str):
         assert len(node.body) == 1 and isinstance(node.body[0], ast.FunctionDef), \
             "We assume there's only a single function definition in the source"
         node.body[0].name = name
 
-    def transform(self, trans_node: ast.AST) -> ast.AST:
-        self.closure_scope_analysis(trans_node)
+    def transform(self, trans_node: ast.AST, source: str) -> ast.AST:
+        self.closure_scope_analysis(trans_node, source)
         trans_node = self.desugaring_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)

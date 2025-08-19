@@ -554,7 +554,7 @@ def test_MaximumMarginalAPosteriori__fit_binomial():
         condition(x == 6)
         return p
 
-    dist = MaximumMarginalAPosteriori(model1).run()
+    dist = MaximumMarginalAPosteriori(model1, seed=142).run()
     assert len(dist) == 1
     assert isclose(dist.sample(), 6/9, atol=1e-4)
 
@@ -578,7 +578,7 @@ def test_MaximumMarginalAPosteriori__fit_binomial():
         Binomial(9, p).observe(6)
         return p
 
-    dist = MaximumMarginalAPosteriori(model3).run()
+    dist = MaximumMarginalAPosteriori(model3, seed=142).run()
     assert isclose(dist.expected_value(), 6/9, atol=1e-4)
 
 def test_MaximumMarginalAPosteriori__fit_gaussian():
@@ -595,7 +595,7 @@ def test_MaximumMarginalAPosteriori__fit_gaussian():
 
     data = (1.579, .667, .234)
     # Maximum A Posteriori
-    dist = MaximumMarginalAPosteriori(m1, maximum_likelihood=False).run(data)
+    dist = MaximumMarginalAPosteriori(m1, maximum_likelihood=False, seed=142).run(data)
     assert len(dist) == 1
     assert isclose(dist.expected_value(), m1_conj(data), atol=1e-4)
     map_mu = dist.expected_value()
@@ -605,7 +605,7 @@ def test_MaximumMarginalAPosteriori__fit_gaussian():
     assert isclose(est_score, exp_score), (est_score, exp_score)
 
     # Maximum Likelihood
-    dist_ml = MaximumMarginalAPosteriori(m1, maximum_likelihood=True).run(data)
+    dist_ml = MaximumMarginalAPosteriori(m1, maximum_likelihood=True, seed=142).run(data)
     assert len(dist_ml) == 1
     assert isclose(dist_ml.expected_value(), sum(data)/len(data), atol=1e-4)
     ml_mu = dist_ml.expected_value()
@@ -627,6 +627,6 @@ def test_MaximumMarginalAPosteriori__fit_unbounded_number_of_vars():
         return i, p
 
     # Nelder-Mead works here; Powell tends to get stuck or hang
-    dist = MaximumMarginalAPosteriori(m, method="Nelder-Mead").run()
+    dist = MaximumMarginalAPosteriori(m, method="Nelder-Mead", seed=142).run()
     assert isclose(dist.expected_value(lambda x: x[1]), .4, atol=1e-4)
 
