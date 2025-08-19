@@ -14,7 +14,8 @@ from flippy.callentryexit import EnterCallState, ExitCallState
 from flippy.distributions.base import Distribution, Element
 from flippy.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
-    GetLineNumber, CPSFunction, HashableCollectionTransform
+    GetLineNumber, CPSFunction, HashableCollectionTransform, Placeholder, \
+    SetLineNumbers
 from flippy.core import GlobalStore, ReadOnlyProxy
 from flippy.funcutils import method_cache
 from flippy.hashable import hashabledict, hashablelist
@@ -345,24 +346,24 @@ class CPSInterpreter:
         call: 'NonCPSCallable',
         call_name: str
     ) -> CPSFunction:
-        # To handle closures, we create a dummy nonlocal function that unpacks the closure
-        # and returns the original function.
-        closure = self.get_closure(call)
-        if len(closure) > 0:
-            closure_unpacking = \
-                ','.join(closure.keys()) + " = " + ','.join(f"closure['{k}']" for k in closure)
-        else:
-            closure_unpacking = 'pass'
+        # To handle closures, we initialize functions in a temporary
+        # function that unpacks the closure and returns the transformed function.
 
-        closure_unpack_node = ast.parse(textwrap.dedent(f"""
+        closure = self.get_closure(call)
+        unpack = '\n'.join([
+            f'{k} = closure["{k}"]'
+            for k in closure.keys()
+        ])
+        unpacker_code = Placeholder.fill(ast.parse(textwrap.dedent(f'''
             def __closure_unpacker__(closure):
-                {closure_unpacking}
-            """)).body[0]
-        closure_unpack_node.body.append(code)
-        closure_unpack_node.body.append(ast.parse(f"return {code.body[0].name}").body[0])
+                {Placeholder.new('unpack')}
+                {Placeholder.new('source')}
+                return {code.body[0].name}
+        ''')), dict(unpack=ast.parse(unpack).body, source=code))
+        unpacker_code = SetLineNumbers()(unpacker_code)
         compiled_code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
-            closure_unpack_node
+            unpacker_code
         )
 
         context = {
