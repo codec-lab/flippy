@@ -35,6 +35,9 @@ Here is the documentation for writing models in FlipPy.
 - [Rational Speech Acts (RSA)](tutorials/01-RSA)
 - [Language of Thought (LoT)](tutorials/02-LoT)
 - [Hidden Markov Models (HMMs)](tutorials/03-HMMs)
+- [Bayesian Non-parametrics](tutorials/04-DP-MM)
+- [Intuitive Physics](tutorials/05-Physics)
+- [Sequential Decision-Making](tutorials/06-Sequential-DM)
 
 # API
 
