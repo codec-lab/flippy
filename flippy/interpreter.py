@@ -345,13 +345,28 @@ class CPSInterpreter:
         call: 'NonCPSCallable',
         call_name: str
     ) -> CPSFunction:
+        # To handle closures, we create a dummy nonlocal function that unpacks the closure
+        # and returns the original function.
+        closure = self.get_closure(call)
+        if len(closure) > 0:
+            closure_unpacking = \
+                ','.join(closure.keys()) + " = " + ','.join(f"closure['{k}']" for k in closure)
+        else:
+            closure_unpacking = 'pass'
+
+        closure_unpack_node = ast.parse(textwrap.dedent(f"""
+            def __closure_unpacker__(closure):
+                {closure_unpacking}
+            """)).body[0]
+        closure_unpack_node.body.append(code)
+        closure_unpack_node.body.append(ast.parse(f"return {code.body[0].name}").body[0])
         compiled_code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
-            code,
+            closure_unpack_node
         )
+
         context = {
             **call.__globals__,
-            **self.get_closure(call),
             CPSTransform.cps_interpreter_name: self,
             "global_store": self.global_store_proxy,
             CPSFunction.__name__: CPSFunction,
@@ -362,13 +377,16 @@ class CPSInterpreter:
             assert CPSInterpreter._compile_mode is False
             CPSInterpreter._compile_mode = True
             exec(compiled_code, context)
+            # Call the closure unpacker to get the transformed function
+            trans_func = context["__closure_unpacker__"](self.get_closure(call))
         except SyntaxError as err :
             raise err
         finally:
             CPSInterpreter._compile_mode = False
-        trans_func = context[call.__name__] if call_name is None else context[call_name]
+
+        # If the transformed function is a classmethod or staticmethod, we need to
+        # extract the underlying function.
         if isinstance(trans_func, (classmethod, staticmethod)):
-            # not the most elegant fix but it works
             trans_func = trans_func.__func__
         return trans_func
 
