@@ -338,13 +338,12 @@ class CPSInterpreter:
         assert not CPSTransform.is_transformed(call), "Callable already transformed"
         call_name = self.generate_unique_method_name(call)
         code = self.transform_from_func(call, call_name)
-        return self.compile_cps_transformed_code_to_function(code, call, call_name)
+        return self.compile_cps_transformed_code_to_function(code, call)
 
     def compile_cps_transformed_code_to_function(
         self,
         code: ast.AST,
         call: 'NonCPSCallable',
-        call_name: str
     ) -> CPSFunction:
         # To handle closures, we initialize functions in a temporary
         # function that unpacks the closure and returns the transformed function.
