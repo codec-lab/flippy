@@ -1,5 +1,5 @@
 """
-This moduule implements a continuation-passing style (CPS) interpreter for Python code,
+This module implements a continuation-passing style (CPS) interpreter for Python code,
 which allows us to intercept sample and observe statements as described by
 [van de Meent et al. (2018)](https://arxiv.org/abs/1809.10756).
 """
