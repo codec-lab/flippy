@@ -1,3 +1,8 @@
+"""
+This module contains various static transformations and analyses of Python ASTs
+that are used for executing Python functions in continuation-passing style (CPS).
+"""
+
 import ast
 from functools import cached_property
 from typing import Callable, TYPE_CHECKING

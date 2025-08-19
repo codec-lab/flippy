@@ -1,3 +1,9 @@
+"""
+This moduule implements a continuation-passing style (CPS) interpreter for Python code,
+which allows us to intercept sample and observe statements as described by
+[van de Meent et al. (2018)](https://arxiv.org/abs/1809.10756).
+"""
+
 import ast
 import functools
 import inspect
@@ -28,6 +34,12 @@ R = TypeVar('R')
 
 @dataclasses.dataclass(frozen=True)
 class StackFrame:
+    """
+    @private
+    The `StackFrame` class represents a single frame in the stack of function calls.
+    It contains the source code of the function, the line number of the call,
+    a unique call identifier, and the local variables at the time of the call.
+    """
     func_src: str
     lineno: int
     call_id: int
@@ -79,6 +91,14 @@ class StackFrame:
 
 @dataclasses.dataclass(frozen=True)
 class Stack:
+    """
+    @private
+    The `Stack` class represents a stack of function call frames.
+    Note that the stack is not actually used in execution since
+    CPS-transformed programs are executed with a trampoline, but it provides
+    a way to identify the current state of execution for debugging and
+    addressing.
+    """
     stack_frames: Tuple[StackFrame] = dataclasses.field(default_factory=tuple)
 
     def update(
@@ -123,6 +143,17 @@ class Stack:
         return len(self.stack_frames)
 
 class CPSInterpreter:
+    """
+    @private
+    The `CPSInterpreter` class is responsible for
+    first transforming Python functions into CPS form using
+    source-to-source transformations found in `flippy.transforms` and then
+    executing the transformed code. The `CPSInterpreter` also handles the
+    the interpretation of various callable types, including normal Python functions,
+    class methods, static methods, and distribution methods and provides
+    a way to interact with program execution with `ProgramState` objects.
+    """
+
     _compile_mode = False
     _decorator_var_name = "__decorator_vars__"
     def __init__(self, _emit_call_entryexit: bool = False):
