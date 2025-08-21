@@ -58,15 +58,16 @@ class Trace:
             if isinstance(ps, SampleState):
                 value = sample_site_callback(ps)
                 new_trace.add_site(ps, value)
-                ps = ps.step(value)
+                step_args = (value,)
             elif isinstance(ps, ObserveState):
                 new_trace.add_site(ps, observe_site_callback(ps))
-                ps = ps.step()
+                step_args = ()
             elif isinstance(ps, ReturnState):
                 new_trace.add_return_state(ps)
                 break
             if break_early and new_trace._entries[-1].score == float('-inf'):
                 break
+            ps = ps.step(*step_args)
         return new_trace
 
     def add_site(

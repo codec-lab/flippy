@@ -20,7 +20,8 @@ from flippy.callentryexit import EnterCallState, ExitCallState
 from flippy.distributions.base import Distribution, Element
 from flippy.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
-    GetLineNumber, CPSFunction, HashableCollectionTransform
+    GetLineNumber, CPSFunction, HashableCollectionTransform, Placeholder, \
+    SetLineNumbers
 from flippy.core import GlobalStore, ReadOnlyProxy
 from flippy.funcutils import method_cache
 from flippy.hashable import hashabledict, hashablelist
@@ -368,21 +369,35 @@ class CPSInterpreter:
         assert not CPSTransform.is_transformed(call), "Callable already transformed"
         call_name = self.generate_unique_method_name(call)
         code = self.transform_from_func(call, call_name)
-        return self.compile_cps_transformed_code_to_function(code, call, call_name)
+        return self.compile_cps_transformed_code_to_function(code, call)
 
     def compile_cps_transformed_code_to_function(
         self,
         code: ast.AST,
         call: 'NonCPSCallable',
-        call_name: str
     ) -> CPSFunction:
+        # To handle closures, we initialize functions in a temporary
+        # function that unpacks the closure and returns the transformed function.
+
+        closure = self.get_closure(call)
+        unpack = '\n'.join([
+            f'{k} = closure["{k}"]'
+            for k in closure.keys()
+        ])
+        unpacker_code = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+            def __closure_unpacker__(closure):
+                {Placeholder.new('unpack')}
+                {Placeholder.new('source')}
+                return {code.body[0].name}
+        ''')), dict(unpack=ast.parse(unpack).body, source=code))
+        unpacker_code = SetLineNumbers()(unpacker_code)
         compiled_code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
-            code,
+            unpacker_code
         )
+
         context = {
             **call.__globals__,
-            **self.get_closure(call),
             CPSTransform.cps_interpreter_name: self,
             "global_store": self.global_store_proxy,
             CPSFunction.__name__: CPSFunction,
@@ -393,13 +408,16 @@ class CPSInterpreter:
             assert CPSInterpreter._compile_mode is False
             CPSInterpreter._compile_mode = True
             exec(compiled_code, context)
+            # Call the closure unpacker to get the transformed function
+            trans_func = context["__closure_unpacker__"](closure)
         except SyntaxError as err :
             raise err
         finally:
             CPSInterpreter._compile_mode = False
-        trans_func = context[call.__name__] if call_name is None else context[call_name]
+
+        # If the transformed function is a classmethod or staticmethod, we need to
+        # extract the underlying function.
         if isinstance(trans_func, (classmethod, staticmethod)):
-            # not the most elegant fix but it works
             trans_func = trans_func.__func__
         return trans_func
 

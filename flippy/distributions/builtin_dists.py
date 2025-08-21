@@ -369,6 +369,8 @@ class Beta(Distribution):
 
     def log_probability(self, element):
         if element in self.support:
+            # to avoid numerical issues at the boundaries
+            element = max(min(element, 1 - sys.float_info.epsilon), sys.float_info.epsilon)
             num = (element**(self.a - 1))*(1 - element)**(self.b - 1)
             prob = num/beta_function(self.a, self.b)
             return math.log(prob) if prob != 0 else float('-inf')
@@ -548,7 +550,7 @@ class Dirichlet(Distribution):
         return vals
 
     def log_probability(self, vec):
-        """
+        r"""
         Log probability of a vector in the Dirichlet distribution:
         $$
         \ln P(x) = \sum_{i=1}^{k} (a_i - 1) \ln x_i - \ln B(a_1, a_2, \ldots, a_k)
