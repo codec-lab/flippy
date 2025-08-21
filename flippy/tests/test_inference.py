@@ -2,7 +2,6 @@ import collections
 import math
 import pytest
 
-from frozendict import frozendict
 from flippy import flip, mem, condition, draw_from
 from flippy.distributions.builtin_dists import \
     Bernoulli, Distribution, Categorical, Gaussian, Uniform, Binomial, Poisson
