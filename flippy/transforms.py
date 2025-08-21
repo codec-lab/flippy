@@ -803,6 +803,22 @@ class GetLineNumber(ast.NodeVisitor):
         return node
 
 class CPSFunction:
+    """
+    This class is used to represent a function that has been transformed into
+    continuation-passing style (CPS). It wraps a callable and stores the source code.
+    It also provides a closure property that contains the variables captured by the function.
+    The identity of a CPSFunction is determined by its source code and closure variables
+    (see `__hash__` and `__eq__`).
+
+    Note that the behavior of a function could depend on the contents of `global_store`,
+    in which case the function is not a pure function. Inference algorithms are
+    expected to be aware of this and handle the combination of the function and
+    `global_store` appropriately.
+
+    Separately, the behavior of a function could depend on variables defined in
+    the global scope of the Python interpreter. In this case, it is assumed
+    that these variables are not changed during the execution of the function.
+    """
     def __init__(
         self,
         cps_func: Callable,

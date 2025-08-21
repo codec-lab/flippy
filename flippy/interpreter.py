@@ -378,7 +378,7 @@ class CPSInterpreter:
             CPSInterpreter._compile_mode = True
             exec(compiled_code, context)
             # Call the closure unpacker to get the transformed function
-            trans_func = context["__closure_unpacker__"](self.get_closure(call))
+            trans_func = context["__closure_unpacker__"](closure)
         except SyntaxError as err :
             raise err
         finally:
