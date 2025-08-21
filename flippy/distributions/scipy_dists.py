@@ -26,6 +26,8 @@ class MultivariateNormal(Distribution):
 
     def sample(self, rng=default_rng, name=None, initial_value=None) -> float:
         x = scipy_stats.multivariate_normal.rvs(mean=self.means, cov=self.covariance, random_state=rng.np)
+        if isinstance(x, (int, float)):
+            return (x,)
         return tuple(x)
 
     def log_probability(self, element):
