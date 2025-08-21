@@ -1,6 +1,4 @@
 from typing import Sequence
-import numpy as np
-import sympy as sp
 from functools import cached_property
 
 from flippy.distributions.base import Distribution, Element
@@ -11,6 +9,14 @@ try:
     import scipy.stats as scipy_stats
 except ImportError:
     scipy_stats = PackagePlaceholder("scipy.stats")
+try:
+    import numpy as np
+except ImportError:
+    np = PackagePlaceholder("numpy")
+try:
+    import sympy as sp
+except ImportError:
+    sp = PackagePlaceholder("sympy")
 
 
 class MultivariateNormal(Distribution):
