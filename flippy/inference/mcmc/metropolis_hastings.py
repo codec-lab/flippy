@@ -9,7 +9,7 @@ from flippy.distributions import Categorical, RandomNumberGenerator, \
     Dirichlet, Uniform, Beta
 from flippy.distributions.random import default_rng
 from flippy.distributions.base import Distribution, FiniteDistribution
-from flippy.distributions.support import ClosedInterval, Simplex
+from flippy.distributions.support import Interval, Simplex
 from flippy.core import ReturnState, SampleState, ObserveState, ProgramState
 from flippy.interpreter import CPSInterpreter
 from flippy.inference.inference import InferenceAlgorithm
@@ -327,7 +327,7 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
                 alpha=old_value*self.simplex_proposal_kernel_alpha,
                 beta=(1 - old_value)*self.simplex_proposal_kernel_alpha
             )
-        elif isinstance(program_state.distribution.support, ClosedInterval):
+        elif isinstance(program_state.distribution.support, Interval):
             # Note that this should be automatically clipped for values out of
             # bounds by setting the score to -inf
             return Uniform(

@@ -11,7 +11,7 @@ from flippy.distributions.random import default_rng, RandomNumberGenerator
 from flippy.distributions import ZeroDistributionError
 from flippy.interpreter import CPSInterpreter
 from flippy.distributions import Categorical, RandomNumberGenerator
-from flippy.distributions.support import ClosedInterval
+from flippy.distributions.support import Interval
 from flippy.inference import Enumeration
 from flippy.types import Element
 from flippy.inference.inference import InferenceAlgorithm, MarginalLikelihood, \
@@ -152,7 +152,7 @@ class MaximumMarginalAPosteriori(InferenceAlgorithm[Element]):
         cont_var_sample_score = [0]
         def cont_var_func(ps: SampleState):
             if ps.name not in assignments:
-                assert isinstance(ps.distribution.support, ClosedInterval)
+                assert isinstance(ps.distribution.support, Interval)
                 if ps.initial_value in ps.distribution.support:
                     value = ps.initial_value
                 else:

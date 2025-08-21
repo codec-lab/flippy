@@ -16,7 +16,7 @@ from flippy.map import MapEnter, MapExit
 from flippy.inference.inference import InferenceAlgorithm, DiscreteInferenceResult
 from flippy.hashable import hashabledict
 from flippy.tools import LRUCache
-from flippy.distributions.support import ClosedInterval
+from flippy.distributions.support import Interval
 
 try:
     from joblib import Parallel, delayed, cpu_count
@@ -297,7 +297,7 @@ class Enumeration(InferenceAlgorithm,Generic[Element]):
         self,
         ps: SampleState,
     ) -> ExecutionResult:
-        if isinstance(ps.distribution.support, ClosedInterval):
+        if isinstance(ps.distribution.support, Interval):
             assert self._cont_var_func is not None, \
                 "Continuous sample state values must be provided for continuous distributions"
             values = self._cont_var_func(ps)
