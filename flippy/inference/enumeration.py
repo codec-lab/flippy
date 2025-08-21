@@ -15,13 +15,13 @@ from flippy.callentryexit import EnterCallState, ExitCallState
 from flippy.map import MapEnter, MapExit
 from flippy.inference.inference import InferenceAlgorithm, DiscreteInferenceResult
 from flippy.hashable import hashabledict
-from flippy.tools import LRUCache
+from flippy.tools import LRUCache, PackagePlaceholder
 from flippy.distributions.support import Interval
 
 try:
-    from joblib import Parallel, delayed, cpu_count
+    import joblib
 except ImportError:
-    pass
+    joblib = PackagePlaceholder("joblib")
 
 @dataclass
 class ScoredProgramState:
@@ -175,12 +175,12 @@ class Enumeration(InferenceAlgorithm,Generic[Element]):
         assert CPSTransform.is_transformed(self.function), \
             "Function must be CPS transformed prior to creating workers"
         if self._cpus < 0:
-            cpus = cpu_count() + 1 + self._cpus
+            cpus = joblib.cpu_count() + 1 + self._cpus
         else:
             cpus = self._cpus
 
-        all_value_scores = Parallel(n_jobs=cpus, backend="loky")(
-            delayed(self._run_partition)(
+        all_value_scores = joblib.Parallel(n_jobs=cpus, backend="loky")(
+            joblib.delayed(self._run_partition)(
                 *args, **kws,
                 _partition_idx=i,
                 _partitions=cpus,

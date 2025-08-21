@@ -1,10 +1,5 @@
-
-from scipy.optimize import minimize
-import numpy as np
 from typing import Tuple
 import linecache
-
-from joblib import Parallel, delayed
 
 from flippy.core import ReturnState, SampleState, ObserveState, ProgramState
 from flippy.distributions.random import default_rng, RandomNumberGenerator
@@ -16,6 +11,23 @@ from flippy.inference import Enumeration
 from flippy.types import Element
 from flippy.inference.inference import InferenceAlgorithm, MarginalLikelihood, \
     DiscreteInferenceResult
+from flippy.tools import PackagePlaceholder
+
+try:
+    import scipy.optimize as scipy_optimize
+except ImportError:
+    scipy_optimize = PackagePlaceholder("scipy.optimize")
+
+try:
+    import numpy as np
+except ImportError:
+    np = PackagePlaceholder("numpy")
+
+try:
+    import joblib
+except ImportError:
+    joblib = PackagePlaceholder("joblib")
+
 
 class MaximumMarginalAPosteriori(InferenceAlgorithm[Element]):
     """
@@ -91,12 +103,12 @@ class MaximumMarginalAPosteriori(InferenceAlgorithm[Element]):
             except ZeroDistributionError:
                 return float('-inf'), None
         assert self._cpus > 0
-        with Parallel(n_jobs=self._cpus) as parallel:
+        with joblib.Parallel(n_jobs=self._cpus) as parallel:
             valid_results = []
             retries = 0
             while len(valid_results) < self.min_valid_runs:
                 results = parallel(
-                    delayed(job)(linecache.cache) for _ in range(self._cpus)
+                    joblib.delayed(job)(linecache.cache) for _ in range(self._cpus)
                 )
                 retries += len(results)
                 valid_results.extend([r for r in results if r[0] > float('-inf')])
@@ -128,7 +140,7 @@ class MaximumMarginalAPosteriori(InferenceAlgorithm[Element]):
                 raise NewVariableException(new_assignment)
             return -np.exp(log_marginal_likelihood)
         try:
-            res = minimize(
+            res = scipy_optimize.minimize(
                 objective,
                 init_values,
                 method=self.method,

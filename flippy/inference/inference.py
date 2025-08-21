@@ -2,10 +2,14 @@ from typing import Callable, Generic, TypeVar, Dict, Any, Tuple, List, Union, Op
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
-import numpy as np
-
 from flippy.distributions import Distribution, Element
 from flippy.distributions.builtin_dists import Categorical
+from flippy.tools import PackagePlaceholder
+
+try:
+    import numpy as np
+except ImportError:
+    np = PackagePlaceholder("numpy")
 
 MarginalLikelihood = float
 

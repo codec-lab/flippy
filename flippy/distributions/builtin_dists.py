@@ -227,8 +227,6 @@ class Categorical(FiniteDistribution[Element]):
 
     def _plot_2d(self, ax=None, bins=100, **kwargs):
         assert all(isinstance(s, (list, tuple)) and len(s) == 2 for s in self.support)
-        import matplotlib.pyplot as plt
-        import numpy as np
         if ax is None:
             fig, ax = plt.subplots()
         kwargs = {
@@ -251,7 +249,6 @@ class Categorical(FiniteDistribution[Element]):
 
     def _plot_1d(self, ax=None, bins=100, **kwargs):
         assert all(isinstance(s, (int, float)) for s in self.support)
-        import matplotlib.pyplot as plt
         if ax is None:
             fig, ax = plt.subplots()
         ax.hist(self.support, weights=self.probabilities, bins=bins, **kwargs)
@@ -386,8 +383,6 @@ class Beta(Distribution):
         return float('-inf')
 
     def plot(self, ax=None, bins=100, **kwargs):
-        import matplotlib.pyplot as plt
-        import numpy as np
         if ax is None:
             fig, ax = plt.subplots()
         x = np.linspace(0, 1, 1000)

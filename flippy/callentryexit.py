@@ -4,10 +4,12 @@ function calls.
 """
 
 from typing import Callable, TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+
 from flippy.core import ProgramState
 from flippy.types import CPSCallable, Continuation, Thunk
 from flippy.transforms import CPSTransform, CPSFunction
 from flippy.hashable import hashabledict
+
 if TYPE_CHECKING:
     from flippy.interpreter import CPSInterpreter, Stack
 
