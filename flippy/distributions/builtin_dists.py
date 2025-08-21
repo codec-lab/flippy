@@ -550,7 +550,7 @@ class Dirichlet(Distribution):
         return vals
 
     def log_probability(self, vec):
-        """
+        r"""
         Log probability of a vector in the Dirichlet distribution:
         $$
         \ln P(x) = \sum_{i=1}^{k} (a_i - 1) \ln x_i - \ln B(a_1, a_2, \ldots, a_k)
