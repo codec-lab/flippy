@@ -369,6 +369,8 @@ class Beta(Distribution):
 
     def log_probability(self, element):
         if element in self.support:
+            # to avoid numerical issues at the boundaries
+            element = max(min(element, 1 - sys.float_info.epsilon), sys.float_info.epsilon)
             num = (element**(self.a - 1))*(1 - element)**(self.b - 1)
             prob = num/beta_function(self.a, self.b)
             return math.log(prob) if prob != 0 else float('-inf')
