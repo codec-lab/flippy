@@ -1,8 +1,7 @@
 import math
-from functools import partial, cached_property
-import abc
+from functools import cached_property
 from collections import defaultdict
-from typing import Callable, List, Union, Dict, Tuple, TypeVar, TYPE_CHECKING
+from typing import Callable, Tuple
 
 from flippy.tools import isclose
 from flippy.distributions import Categorical, RandomNumberGenerator, \
@@ -15,7 +14,7 @@ from flippy.interpreter import CPSInterpreter
 from flippy.inference.inference import InferenceAlgorithm
 from flippy.types import Element
 
-from flippy.inference.mcmc.trace import Trace, Entry
+from flippy.inference.mcmc.trace import Trace
 from flippy.inference.mcmc.diagnostics import MCMCDiagnostics, MCMCDiagnosticsEntry
 
 from flippy.types import VariableName, SampleValue
@@ -37,7 +36,6 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
     proposal kernel function for that variable
     - `custom_initial_trace_kernel`: Optional function that takes a variable name and returns an initial
     value for that variable
-    - `verbose`: Whether to print progress information
     """
     # this is finite in case it is impossible to initialize a trace
     max_initial_trace_attempts = 1000
@@ -53,7 +51,6 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
         simplex_proposal_kernel_alpha : float = 10,
         custom_proposal_kernels : Callable[['VariableName'], ProposalKernel] = None,
         custom_initial_trace_kernel : Callable[['VariableName'], 'SampleValue'] = None,
-        verbose : bool = False
     ):
         self.function = function
         self.samples = samples
@@ -66,7 +63,6 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
         self.simplex_proposal_kernel_alpha = simplex_proposal_kernel_alpha
         self.custom_proposal_kernels = custom_proposal_kernels
         self.custom_initial_trace_kernel = custom_initial_trace_kernel
-        self.verbose = verbose
 
     @property
     def is_cachable(self):
@@ -103,10 +99,6 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
         return_counts = defaultdict(int)
         old_trace = initial_trace
         iterator = range(self.burn_in + self.samples*self.thinning)
-        if self.verbose:
-            from tqdm.notebook import tqdm
-            print('Running MCMC')
-            iterator = tqdm(iterator)
         for i in iterator:
             target_site_name, old_site_score = \
                 self.choose_target_site(
@@ -205,10 +197,6 @@ class MetropolisHastings(InferenceAlgorithm[Element]):
             return value
 
         iterator = range(self.max_initial_trace_attempts)
-        if self.verbose:
-            from tqdm.notebook import tqdm
-            print('Generating initial trace')
-            iterator = tqdm(iterator)
         for i in iterator:
             trace = Trace.run_from(
                 ps=initial_program_state,
