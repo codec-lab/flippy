@@ -5,15 +5,12 @@ from functools import cached_property
 
 from flippy.distributions.base import Distribution, Element
 from flippy.distributions.random import RandomNumberGenerator, default_rng
-from flippy.tools import isclose
+from flippy.tools import isclose, PackagePlaceholder
 
 try:
     import scipy.stats as scipy_stats
 except ImportError:
-    class NoSciPy:
-        def __getattr__(self, item):
-            raise ImportError("SciPy is not installed. Please install it to use this feature.")
-    scipy_stats = NoSciPy()
+    scipy_stats = PackagePlaceholder("scipy.stats")
 
 
 class MultivariateNormal(Distribution):
