@@ -2,6 +2,7 @@ from flippy import infer, flip, mem, condition, draw_from, uniform, normal
 from flippy.distributions.builtin_dists import Bernoulli, Categorical, Multinomial, \
     Gaussian, Normal, Gamma, Uniform, Beta, Binomial, Geometric, Poisson, \
     BetaBinomial, Dirichlet, DirichletMultinomial, Mixture
+from flippy.tools import isclose
 
 def test_distributions():
     flip()
@@ -68,3 +69,19 @@ def test_mem():
 
     result_mem = mem_model()
     assert dict(result_mem) == {2: 1/2, 0: 1/2}
+
+def test_likelihood_weighting():
+    @infer(method="LikelihoodWeighting", samples=1000, seed=13842)
+    def model(p):
+        def geometric():
+            x = Bernoulli(p).sample()
+            if x == 1:
+                return 1
+            return 1 + geometric()
+        return geometric()
+
+    param = 0.98
+    expected = 1/param
+
+    lw_dist = model(param)
+    assert isclose(expected, lw_dist.expected_value(), atol=1e-2), 'Should be somewhat close to expected value'
