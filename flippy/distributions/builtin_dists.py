@@ -44,7 +44,7 @@ class Bernoulli(FiniteDistribution):
         return {
             True: math.log(self.p) if self.p != 0.0 else float('-inf'),
             False: math.log(1 - self.p) if self.p != 1.0 else float('-inf')
-        }[element]
+        }.get(element, float('-inf'))
     def __repr__(self):
         return f"Bernoulli(p={self.p})"
 
