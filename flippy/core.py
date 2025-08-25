@@ -10,10 +10,10 @@ For more background on this approach, see
 """
 
 from typing import Any, Callable, Hashable, Tuple, TYPE_CHECKING, TypeVar, Sequence, Union
+
 from flippy.distributions import Distribution
 from flippy.funcutils import cached_property
 from flippy.hashable import hashabledict, hashablelist, hashableset
-
 from flippy.types import Continuation, VariableName, ReturnValue
 
 if TYPE_CHECKING:

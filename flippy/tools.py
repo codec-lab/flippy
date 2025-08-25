@@ -61,3 +61,14 @@ class LRUCache(Generic[KT, VT]):
 
     def __repr__(self) -> str:
         return f"LRUCache({self._cache}, max_size={self.max_size})"
+
+class PackagePlaceholder:
+    def __init__(self, package_name: str):
+        self.package_name = package_name
+
+    def __getattr__(self, item):
+        raise ImportError(f"Package '{self.package_name}' is not installed. "
+                          f"Please install it to use this feature.")
+
+    def __repr__(self):
+        return f"PackagePlaceholder({self.package_name})"

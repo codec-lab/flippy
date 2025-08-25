@@ -1,19 +1,22 @@
 from typing import Sequence
-import numpy as np
-import sympy as sp
 from functools import cached_property
 
 from flippy.distributions.base import Distribution, Element
 from flippy.distributions.random import RandomNumberGenerator, default_rng
-from flippy.tools import isclose
+from flippy.tools import isclose, PackagePlaceholder
 
 try:
     import scipy.stats as scipy_stats
 except ImportError:
-    class NoSciPy:
-        def __getattr__(self, item):
-            raise ImportError("SciPy is not installed. Please install it to use this feature.")
-    scipy_stats = NoSciPy()
+    scipy_stats = PackagePlaceholder("scipy.stats")
+try:
+    import numpy as np
+except ImportError:
+    np = PackagePlaceholder("numpy")
+try:
+    import sympy as sp
+except ImportError:
+    sp = PackagePlaceholder("sympy")
 
 
 class MultivariateNormal(Distribution):
@@ -29,6 +32,8 @@ class MultivariateNormal(Distribution):
 
     def sample(self, rng=default_rng, name=None, initial_value=None) -> float:
         x = scipy_stats.multivariate_normal.rvs(mean=self.means, cov=self.covariance, random_state=rng.np)
+        if isinstance(x, (int, float)):
+            return (x,)
         return tuple(x)
 
     def log_probability(self, element):

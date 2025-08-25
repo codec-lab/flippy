@@ -1,4 +1,5 @@
-import inspect, functools
+import inspect
+import functools
 
 def cached_property(fn):
     '''

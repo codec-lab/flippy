@@ -1,9 +1,13 @@
 import math
+
 import pytest
 import numpy as np
+
 from flippy.distributions import Bernoulli, Categorical, Dirichlet, Uniform, \
     Normal, Gamma, Beta, MultivariateNormal, InverseWishart, NormalNormal, \
     MultivariateNormalNormal
+from flippy.distributions.support import Interval, Range, ProductSet, \
+    UnionSet, Simplex, OrderedIntegerPartitions
 from flippy.inference.likelihood_weighting import LikelihoodWeighting
 from flippy.inference.enumeration import Enumeration
 from flippy.interpreter import CPSInterpreter
@@ -131,3 +135,77 @@ def test_Dirichlet_numerical_stability():
         assert 0 not in p, "We should not be able to sample a vector with a 0"
         assert 1 not in p, "We should not be able to sample a vector with a 1"
         assert dist.log_probability(p) > float('-inf')
+
+def test_support():
+    closed_interval = Interval(0, 1, left_open=False, right_open=False)
+    assert 0.0 in closed_interval
+    assert 1.0 in closed_interval
+
+    open_interval = Interval(0, 1, left_open=True, right_open=True)
+    assert .00001 in open_interval
+    assert .99999 in open_interval
+    assert 0.0 not in open_interval
+    assert 1.0 not in open_interval
+
+    half_open_interval = Interval(0, 1, left_open=True, right_open=False)
+    assert .00001 in half_open_interval
+    assert .99999 in half_open_interval
+    assert 0.0 not in half_open_interval
+    assert 1.0 in half_open_interval
+
+    range1 = Range(10)
+    assert 0 in range1
+    assert 9 in range1
+    assert 10 not in range1
+
+    range2 = Range(5, 10)
+    assert 1 not in range2
+    assert 5 in range2
+    assert 9 in range2
+    assert 10 not in range2
+
+    range3 = Range(5, 10, 2)
+    assert 5 in range3
+    assert 7 in range3
+    assert 9 in range3
+    assert 6 not in range3
+    assert 10 not in range3
+    assert 11 not in range3
+
+    product_set_1 = ProductSet(Range(0, 2), Range(5, 7))
+    assert (0, 5) in product_set_1
+    assert (1, 6) in product_set_1
+    assert (2, 5) not in product_set_1
+    assert (0, 7) not in product_set_1
+    assert (1, 5) in product_set_1
+    assert 1 not in product_set_1
+
+    product_set_2 = ProductSet(Range(10), ("A", "B", "C"))
+    assert (0, "A") in product_set_2
+    assert (9, "C") in product_set_2
+    assert (10, "A") not in product_set_2
+
+    product_set_3 = ProductSet(Range(0, 2), Interval(0, 2))
+    assert (0, 0.5) in product_set_3
+    assert (1, 1.5) in product_set_3
+    assert (2, 0.5) not in product_set_3
+
+    union_set_1 = UnionSet(Range(0, 2), Range(5, 7))
+    assert 0 in union_set_1
+    assert 1 in union_set_1
+    assert 5 in union_set_1
+    assert 6 in union_set_1
+    assert 2 not in union_set_1
+    assert 4 not in union_set_1
+
+    simplex_3 = Simplex(3)
+    assert (0.5, 0.5, 0.0) in simplex_3
+    assert (0.3, 0.4, 0.3) in simplex_3
+    assert (0.1, 0.2, 0.6) not in simplex_3
+    assert (.5, 0.5, 0.1) not in simplex_3
+
+    ordered_partitions = OrderedIntegerPartitions(5, 3)
+    assert (5, 0, 0) in ordered_partitions
+    assert (4, 1, 0) in ordered_partitions
+    assert (3, 2, 0) in ordered_partitions
+    assert (2, 1, 1) not in ordered_partitions

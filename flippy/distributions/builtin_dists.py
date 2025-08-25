@@ -5,14 +5,22 @@ from itertools import combinations_with_replacement
 from collections import Counter, defaultdict
 import math
 
-from flippy.tools import isclose, ISCLOSE_ATOL, ISCLOSE_RTOL
+from flippy.tools import isclose, ISCLOSE_ATOL, ISCLOSE_RTOL, PackagePlaceholder
 from functools import cached_property
 from flippy.distributions.base import Distribution, FiniteDistribution, Element
 from flippy.distributions.support import \
-    ClosedInterval, IntegerInterval, Simplex, OrderedIntegerPartitions, MixtureSupport
+    Interval, Range, Simplex, OrderedIntegerPartitions, UnionSet
 from flippy.distributions.random import default_rng
-import sympy as sp
 
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    plt = PackagePlaceholder("matplotlib.pyplot")
+
+try:
+    import numpy as np
+except ImportError:
+    np = PackagePlaceholder("numpy")
 
 def beta_function(*alphas):
     num = math.prod(math.gamma(a) if not isclose(a, 0) else float('inf') for a in alphas)
@@ -36,7 +44,7 @@ class Bernoulli(FiniteDistribution):
         return {
             True: math.log(self.p) if self.p != 0.0 else float('-inf'),
             False: math.log(1 - self.p) if self.p != 1.0 else float('-inf')
-        }[element]
+        }.get(element, float('-inf'))
     def __repr__(self):
         return f"Bernoulli(p={self.p})"
 
@@ -219,8 +227,6 @@ class Categorical(FiniteDistribution[Element]):
 
     def _plot_2d(self, ax=None, bins=100, **kwargs):
         assert all(isinstance(s, (list, tuple)) and len(s) == 2 for s in self.support)
-        import matplotlib.pyplot as plt
-        import numpy as np
         if ax is None:
             fig, ax = plt.subplots()
         kwargs = {
@@ -243,7 +249,6 @@ class Categorical(FiniteDistribution[Element]):
 
     def _plot_1d(self, ax=None, bins=100, **kwargs):
         assert all(isinstance(s, (int, float)) for s in self.support)
-        import matplotlib.pyplot as plt
         if ax is None:
             fig, ax = plt.subplots()
         ax.hist(self.support, weights=self.probabilities, bins=bins, **kwargs)
@@ -270,7 +275,8 @@ class Categorical(FiniteDistribution[Element]):
 class Multinomial(FiniteDistribution):
     '''
     This distribution takes multiple samples from a `Categorical` distribution.
-    It takes the same parameters as `Categorical`, with the addition of `trials`, which are the number of samples drawn from the `Categorical`.
+    It takes the same parameters as `Categorical`, with the addition of `trials`,
+    which are the number of samples drawn from the `Categorical`.
     '''
     def __init__(self, categorical_support, trials, *, probabilities=None, weights=None):
         self.categorical = Categorical(
@@ -313,7 +319,7 @@ class Gaussian(Distribution):
     - `sd` is the standard deviation.
     '''
 
-    support = ClosedInterval(float('-inf'), float('inf'))
+    support = Interval(float('-inf'), float('inf'), left_open=True, right_open=True)
     def __init__(self, mean=0, sd=1):
         self.mean = mean
         self.sd = sd
@@ -342,7 +348,7 @@ class Uniform(Distribution):
     def __init__(self, start=0, end=1):
         self.start = start
         self.end = end
-        self.support = ClosedInterval(start, end)
+        self.support = Interval(start, end, left_open=False, right_open=False)
 
     def sample(self, rng=default_rng, name=None, initial_value=None) -> float:
         return rng.uniform(self.start, self.end)
@@ -359,7 +365,7 @@ class Beta(Distribution):
     - `alpha` is the first shape parameter (default 1).
     - `beta` is the second shape parameter (default 1).
     """
-    support = ClosedInterval(0, 1)
+    support = Interval(0, 1, left_open=False, right_open=False)
     def __init__(self, alpha=1, beta=1):
         self.a = alpha
         self.b = beta
@@ -377,8 +383,6 @@ class Beta(Distribution):
         return float('-inf')
 
     def plot(self, ax=None, bins=100, **kwargs):
-        import matplotlib.pyplot as plt
-        import numpy as np
         if ax is None:
             fig, ax = plt.subplots()
         x = np.linspace(0, 1, 1000)
@@ -422,7 +426,7 @@ class Geometric(Distribution):
     - `p` is the probability of success on each trial
     """
 
-    support = IntegerInterval(0, float('inf'))
+    support = Range(0, float('inf'))
     def __init__(self, p : float):
         self.p = p
         assert 0 <= p <= 1
@@ -446,7 +450,7 @@ class Poisson(Distribution):
     A Poisson distribution, with support over the non-negative integers {0, 1, 2, ...}.
     """
 
-    support = IntegerInterval(0, float('inf'))
+    support = Range(0, float('inf'))
     def __init__(self, rate : float):
         self.rate = rate
         assert rate >= 0
@@ -469,7 +473,7 @@ class Gamma(Distribution):
     A Gamma distribution, with support over the positive real numbers (0, inf).
     """
 
-    support = ClosedInterval(0, float('inf'))
+    support = Interval(0, float('inf'), left_open=False, right_open=True)
     def __init__(self, shape, rate):
         self.shape = shape
         self.rate = rate
@@ -538,7 +542,7 @@ class Dirichlet(Distribution):
 
     @cached_property
     def support(self):
-        return sp.Interval(0, 1, left_open=True, right_open=True)**len(self.alphas)
+        return Simplex(len(self.alphas))
 
     def sample(self, rng=default_rng, name=None, initial_value=None) -> Tuple[float, ...]:
         e = [rng.gammavariate(a, 1) for a in self.alphas]
@@ -651,7 +655,7 @@ class Mixture(Distribution):
 
     @cached_property
     def support(self):
-        return MixtureSupport(self.distributions)
+        return UnionSet(*(d.support for d in self.distributions))
 
     def sample(self, rng=default_rng, name=None, initial_value=None) -> Element:
         dist = rng.choices(self.distributions, weights=self.weights)[0]
@@ -672,8 +676,6 @@ class Mixture(Distribution):
         return total_expected_value
 
     def plot(self, *, ax=None, xmin=None, xmax=None, **kwargs):
-        import matplotlib.pyplot as plt
-        import numpy as np
         if ax is None:
             fig, ax = plt.subplots()
         if xmin is None:

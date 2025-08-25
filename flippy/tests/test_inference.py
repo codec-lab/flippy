@@ -2,11 +2,11 @@ import collections
 import math
 import pytest
 
-from frozendict import frozendict
 from flippy import flip, mem, condition, draw_from
 from flippy.distributions.builtin_dists import \
     Bernoulli, Distribution, Categorical, Gaussian, Uniform, Binomial, Poisson
 from flippy.inference import SamplePrior, SimpleEnumeration, LikelihoodWeighting, _distribution_from_inference
+from flippy.inference.inference import DiscreteInferenceResult
 from flippy.inference.enumeration import Enumeration
 from flippy.inference.max_marg_post import MaximumMarginalAPosteriori
 from flippy.tools import isclose
@@ -629,4 +629,11 @@ def test_MaximumMarginalAPosteriori__fit_unbounded_number_of_vars():
     # Nelder-Mead works here; Powell tends to get stuck or hang
     dist = MaximumMarginalAPosteriori(m, method="Nelder-Mead", seed=142).run()
     assert isclose(dist.expected_value(lambda x: x[1]), .4, atol=1e-4)
+
+def test_DiscreteInferenceResult_from_values_scores():
+    values = [0, 1, 2, 3]
+    scores = [-0.1, -0.2, -0.3, -0.4]
+    numpy_dist = DiscreteInferenceResult._from_values_scores_numpy(values, scores)
+    builtin_dist = DiscreteInferenceResult._from_values_scores_builtin(values, scores)
+    assert numpy_dist.isclose(builtin_dist)
 

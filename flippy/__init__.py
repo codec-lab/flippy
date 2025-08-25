@@ -43,10 +43,9 @@ Here is the documentation for writing models in FlipPy.
 
 '''
 
-import functools
 import math
-import inspect
 from typing import Callable, Sequence, Union, TypeVar, overload, Generic
+
 from flippy.transforms import CPSTransform
 from flippy.inference import \
     SimpleEnumeration, Enumeration, SamplePrior, MetropolisHastings, \
