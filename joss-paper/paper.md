@@ -55,6 +55,7 @@ Like `WebPPL` and the LISP-based `Church` [@goodman2012church],
 (Python) that is augmented with `sample` and `observe` statements.
 A custom interpreter treats these statements as
 sampling and conditioning events, which is sufficient for universality [@van2018introduction].
+This interpreter is based on a continuation-passing style transform, allowing program execution to be forked when samples are taken, and resumed or halted to facilitate caching [@ritchie2016c3].
 Importantly, `FlipPy` itself is entirely Python-based: the codebase is implemented in Python
 and it performs the probabilistic execution necessary for inference in Python.
 This means that `FlipPy` can seamlessly interoperate with other Python code before,
@@ -72,6 +73,31 @@ abstract probabilistic concepts in a concrete,
 iterative manner by starting with simpler models and adding complexity.
 Earlier versions of `FlipPy` have been used
 in undergraduate- and graduate-level courses on computational cognitive science.
+
+# Example Usage
+
+The following is a simple program that samples (with `flip`)
+and observes (with `condition`) from Bernoulli distributions.
+
+```python
+from flippy import infer, condition, flip
+
+@infer
+def model(p):
+    x = flip(p)
+    y = flip(p)
+    condition(x >= y)
+    return x + y
+
+model(0.5)
+```
+
+||Element|Probability|
+|---|---|---|
+|0|2|0.333|
+|1|1|0.333|
+|2|0|0.333|
+
 
 # Research projects using `FlipPy`
 
