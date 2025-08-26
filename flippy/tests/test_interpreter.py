@@ -803,10 +803,30 @@ def test_CPSFunction_hashing_and_equality():
 
     ps = CPSInterpreter().initial_program_state(model)
     fs = [ps.step().step(b1).step(b2).value for b1 in [0, 1] for b2 in [0, 1]]
+    assert all(isinstance(f, CPSFunction) for f in fs), "All functions should be CPS transformed"
     assert len(set(fs)) == 3, "Functions are unique up to their source code and closures"
     assert len(set(f.func_src for f in fs)) == 1
     assert len(set(f.closure for f in fs)) == 3
     assert set(f.closure['i'] for f in fs) == {0, 1, 2}
+
+def test_CPSFunction_closure_for_dynamically_transformed_functions():
+    # This tests whether functions that are transformed at runtime
+    # capture closure variables correctly.
+    def func_factory(i, _cont, **kws):
+        def func():
+            return i
+        return lambda : _cont(func)
+    # Don't transform func_factory so we can dynamically transform func at runtime
+    setattr(func_factory, CPSTransform.is_transformed_property, True)
+
+    def model():
+        i = Bernoulli(0.5).sample()
+        fn = func_factory(i)
+        return fn()
+
+    ps = CPSInterpreter(_emit_call_entryexit=True).initial_program_state(model)
+    func_closure = ps.step().step().step(0).step().step().function.closure
+    assert func_closure.get('i') == 0
 
 def test_callsite_addressing_on_single_line():
     def m():

@@ -1,4 +1,3 @@
-import inspect
 import linecache
 import math
 from collections import defaultdict

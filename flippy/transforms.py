@@ -1,3 +1,8 @@
+"""
+This module contains various static transformations and analyses of Python ASTs
+that are used for executing Python functions in continuation-passing style (CPS).
+"""
+
 import ast
 from functools import cached_property
 from typing import Callable, TYPE_CHECKING
@@ -6,6 +11,7 @@ import copy
 import contextlib
 import collections
 import dataclasses
+
 from flippy.hashable import hashabledict
 from flippy.types import CPSCallable
 
@@ -113,9 +119,9 @@ class ClosureScopeAnalysis(ast.NodeVisitor):
     def_pass = 'def_pass'
     use_pass = 'use_pass'
 
-    def __call__(self, node, source=None):
+    def __call__(self, node, source):
         self.node = node
-        self._source = source
+        self.source = source
         self.scopes: list[Scope] = []
         self.scope_map = {}
         '''
@@ -149,12 +155,6 @@ class ClosureScopeAnalysis(ast.NodeVisitor):
         with self.in_scope(node):
             self.visit(node)
         return self.scope_map
-
-    @property
-    def source(self):
-        if self._source is None:
-            return ast.unparse(self.node)
-        return self._source
 
     def generic_visit(self, node):
         # Refactored from ASTVisitor
@@ -809,6 +809,22 @@ class GetLineNumber(ast.NodeVisitor):
         return node
 
 class CPSFunction:
+    """
+    This class is used to represent a function that has been transformed into
+    continuation-passing style (CPS). It wraps a callable and stores the source code.
+    It also provides a closure property that contains the variables captured by the function.
+    The identity of a CPSFunction is determined by its source code and closure variables
+    (see `__hash__` and `__eq__`).
+
+    Note that the behavior of a function could depend on the contents of `global_store`,
+    in which case the function is not a pure function. Inference algorithms are
+    expected to be aware of this and handle the combination of the function and
+    `global_store` appropriately.
+
+    Separately, the behavior of a function could depend on variables defined in
+    the global scope of the Python interpreter. In this case, it is assumed
+    that these variables are not changed during the execution of the function.
+    """
     def __init__(
         self,
         cps_func: Callable,

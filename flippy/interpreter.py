@@ -1,3 +1,9 @@
+"""
+This module implements a continuation-passing style (CPS) interpreter for Python code,
+which allows us to intercept sample and observe statements as described by
+[van de Meent et al. (2018)](https://arxiv.org/abs/1809.10756).
+"""
+
 import ast
 import functools
 import inspect
@@ -14,7 +20,8 @@ from flippy.callentryexit import EnterCallState, ExitCallState
 from flippy.distributions.base import Distribution, Element
 from flippy.transforms import DesugaringTransform, \
     SetLineNumbers, CPSTransform, PythonSubsetValidator, ClosureScopeAnalysis, \
-    GetLineNumber, CPSFunction, HashableCollectionTransform
+    GetLineNumber, CPSFunction, HashableCollectionTransform, Placeholder, \
+    SetLineNumbers
 from flippy.core import GlobalStore, ReadOnlyProxy
 from flippy.funcutils import method_cache
 from flippy.hashable import hashabledict, hashablelist
@@ -28,6 +35,12 @@ R = TypeVar('R')
 
 @dataclasses.dataclass(frozen=True)
 class StackFrame:
+    """
+    @private
+    The `StackFrame` class represents a single frame in the stack of function calls.
+    It contains the source code of the function, the line number of the call,
+    a unique call identifier, and the local variables at the time of the call.
+    """
     func_src: str
     lineno: int
     call_id: int
@@ -79,6 +92,14 @@ class StackFrame:
 
 @dataclasses.dataclass(frozen=True)
 class Stack:
+    """
+    @private
+    The `Stack` class represents a stack of function call frames.
+    Note that the stack is not actually used in execution since
+    CPS-transformed programs are executed with a trampoline, but it provides
+    a way to identify the current state of execution for debugging and
+    addressing.
+    """
     stack_frames: Tuple[StackFrame] = dataclasses.field(default_factory=tuple)
 
     def update(
@@ -123,6 +144,17 @@ class Stack:
         return len(self.stack_frames)
 
 class CPSInterpreter:
+    """
+    @private
+    The `CPSInterpreter` class is responsible for
+    first transforming Python functions into CPS form using
+    source-to-source transformations found in `flippy.transforms` and then
+    executing the transformed code. The `CPSInterpreter` also handles the
+    the interpretation of various callable types, including normal Python functions,
+    class methods, static methods, and distribution methods and provides
+    a way to interact with program execution with `ProgramState` objects.
+    """
+
     _compile_mode = False
     _decorator_var_name = "__decorator_vars__"
     def __init__(self, _emit_call_entryexit: bool = False):
@@ -337,21 +369,35 @@ class CPSInterpreter:
         assert not CPSTransform.is_transformed(call), "Callable already transformed"
         call_name = self.generate_unique_method_name(call)
         code = self.transform_from_func(call, call_name)
-        return self.compile_cps_transformed_code_to_function(code, call, call_name)
+        return self.compile_cps_transformed_code_to_function(code, call)
 
     def compile_cps_transformed_code_to_function(
         self,
         code: ast.AST,
         call: 'NonCPSCallable',
-        call_name: str
     ) -> CPSFunction:
+        # To handle closures, we initialize functions in a temporary
+        # function that unpacks the closure and returns the transformed function.
+
+        closure = self.get_closure(call)
+        unpack = '\n'.join([
+            f'{k} = closure["{k}"]'
+            for k in closure.keys()
+        ])
+        unpacker_code = Placeholder.fill(ast.parse(textwrap.dedent(f'''
+            def __closure_unpacker__(closure):
+                {Placeholder.new('unpack')}
+                {Placeholder.new('source')}
+                return {code.body[0].name}
+        ''')), dict(unpack=ast.parse(unpack).body, source=code))
+        unpacker_code = SetLineNumbers()(unpacker_code)
         compiled_code = self.compile(
             f'{call.__name__}_{hex(id(call)).removeprefix("0x")}.py',
-            code,
+            unpacker_code
         )
+
         context = {
             **call.__globals__,
-            **self.get_closure(call),
             CPSTransform.cps_interpreter_name: self,
             "global_store": self.global_store_proxy,
             CPSFunction.__name__: CPSFunction,
@@ -362,13 +408,16 @@ class CPSInterpreter:
             assert CPSInterpreter._compile_mode is False
             CPSInterpreter._compile_mode = True
             exec(compiled_code, context)
+            # Call the closure unpacker to get the transformed function
+            trans_func = context["__closure_unpacker__"](closure)
         except SyntaxError as err :
             raise err
         finally:
             CPSInterpreter._compile_mode = False
-        trans_func = context[call.__name__] if call_name is None else context[call_name]
+
+        # If the transformed function is a classmethod or staticmethod, we need to
+        # extract the underlying function.
         if isinstance(trans_func, (classmethod, staticmethod)):
-            # not the most elegant fix but it works
             trans_func = trans_func.__func__
         return trans_func
 
@@ -389,15 +438,15 @@ class CPSInterpreter:
         if call_name is not None:
             self.rename_class_method_in_source(trans_node, call_name)
         self.subset_validator(trans_node, source)
-        return self.transform(trans_node)
+        return self.transform(trans_node, source)
 
     def rename_class_method_in_source(self, node: ast.Module, name: str):
         assert len(node.body) == 1 and isinstance(node.body[0], ast.FunctionDef), \
             "We assume there's only a single function definition in the source"
         node.body[0].name = name
 
-    def transform(self, trans_node: ast.AST) -> ast.AST:
-        self.closure_scope_analysis(trans_node)
+    def transform(self, trans_node: ast.AST, source: str) -> ast.AST:
+        self.closure_scope_analysis(trans_node, source)
         trans_node = self.desugaring_transform(trans_node)
         trans_node = self.setlines_transform(trans_node)
         trans_node = self.cps_transform(trans_node)
@@ -504,6 +553,7 @@ def keep_deterministic(fn: Callable[..., R]) -> Callable[..., R]:
     '''
     Decorator to interpret a function as deterministic Python.
     Any random sampling in the function will not be targeted for inference.
+    Any conditioning will not be incorporated into the inference process.
 
     This is helpful if the transform slows a function down, if a
     deterministic library is being called, or if a distribution is being

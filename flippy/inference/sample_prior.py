@@ -1,5 +1,6 @@
 from collections import defaultdict
 from typing import Generic
+
 from flippy.core import ProgramState, ReturnState, SampleState, ObserveState, InitialState
 from flippy.interpreter import CPSInterpreter
 from flippy.distributions import Categorical, RandomNumberGenerator
