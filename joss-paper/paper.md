@@ -36,7 +36,7 @@ Meanwhile, Python is a widely used, general-purpose
 programming language that is commonly taught and increasingly used by students
 in psychology, neuroscience, and computer science. While several probabilistic
 programming frameworks currently exist in the scientific Python eco-system,
-these require students to learn new framework-specific syntax for specifying models
+these require beginners to learn new framework-specific syntax for specifying models
 and not all of them are universal (i.e., allow specification and inference over
 any computable distribution).
 
@@ -59,7 +59,7 @@ This interpreter is based on a continuation-passing style transform, allowing pr
 Importantly, `FlipPy` itself is entirely Python-based: the codebase is implemented in Python
 and it performs the probabilistic execution necessary for inference in Python.
 This means that `FlipPy` can seamlessly interoperate with other Python code before,
-during, and after a user performs inference, including in Jupyter notebooks.
+during, and after a user performs inference, including in Jupyter notebooks [@kluyver2016jupyter].
 
 `FlipPy` has been designed to facilitate rapid prototyping and "hackability"
 while also being as accessible as possible for users
@@ -104,7 +104,7 @@ model(0.5)
 As noted, `FlipPy` has so far been primarily used for teaching, but
 the authors and their colleagues are using the library in several
 ongoing projects related to decision-making and social cognition. For example,
-`FlipPy` in @zhang2025learning, which modeled interactions between pragmatic
+@zhang2025learning used `FlipPy` to model interactions between pragmatic
 reasoning and hierarchical Bayesian inference during the interpretation of
 generic utterances.
 
