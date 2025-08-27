@@ -7,6 +7,8 @@
 FlipPy lets you specify probabilistic programs in Python syntax
 while seamlessly interacting with the rest of Python.
 
+Documentation and tutorials can be found [here](https://codec-lab.github.io/flippy/flippy.html).
+
 ## Quick start
 
 FlipPy can be installed with `pip`:
