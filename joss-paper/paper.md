@@ -1,5 +1,5 @@
 ---
-title: 'FlipPy: Probabilistic Programming with Python'
+title: 'FlipPy: Pythonic Probabilistic Programming'
 tags:
   - Python
   - probablistic programming

@@ -1,6 +1,6 @@
 '''
-FlipPy is a library for specifying probabilistic programs that prioritizes
-interoperability with Python.
+FlipPy lets you specify probabilistic programs in Python syntax
+while seamlessly interacting with the rest of Python.
 
 # Quick start
 
