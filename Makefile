@@ -21,7 +21,7 @@ pypi_build:
 
 tutorials_build:
 	for f in tutorials/*.ipynb; do \
-		jupyter nbconvert --to markdown $$f; \
+		jupyter nbconvert --to html $$f; \
     done
 
 release_dev_main:
