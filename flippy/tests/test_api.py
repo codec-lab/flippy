@@ -818,3 +818,17 @@ def test_is_cachable_property():
     assert cachable_f() == cachable_f()
     # Stronger test, that value is identical
     assert cachable_f() is cachable_f()
+
+def test_error_for_lambda():
+    # Nested lambda works
+    @infer
+    def fn():
+        f = lambda: flip(0.5)
+        return f()
+    assert fn().isclose(Bernoulli(0.5))
+
+    # Outermost lambda does not
+    with pytest.raises(ValueError) as err:
+        d = infer(lambda: flip(0.5))()
+        print(d)
+    assert 'Cannot interpret lambda expressions' in str(err)

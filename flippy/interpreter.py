@@ -367,6 +367,8 @@ class CPSInterpreter:
 
     def non_cps_callable_to_cps_callable(self, call: 'NonCPSCallable') -> CPSFunction:
         assert not CPSTransform.is_transformed(call), "Callable already transformed"
+        if self.is_lambda_function(call):
+            raise ValueError(f'Cannot interpret lambda expressions as the outermost function. As an alternative, define as a named function.')
         call_name = self.generate_unique_method_name(call)
         code = self.transform_from_func(call, call_name)
         return self.compile_cps_transformed_code_to_function(code, call)
@@ -475,6 +477,10 @@ class CPSInterpreter:
             return dict(zip(closure_keys, closure_values))
         else:
             return {}
+
+    @classmethod
+    def is_lambda_function(cls, func):
+        return isinstance(func, types.LambdaType) and func.__name__ == "<lambda>"
 
     @contextlib.contextmanager
     def set_global_store(self, store : GlobalStore):
