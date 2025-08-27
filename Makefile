@@ -13,7 +13,7 @@ docs:
 	pdoc --math flippy
 
 docs_build:
-	pdoc --math flippy -o docs
+	pdoc --math flippy -o docs --logo "https://raw.githubusercontent.com/markkho/flippy-dev/refs/heads/main/flippy.svg?token=GHSAT0AAAAAADAQQGBQGE7G7L5WIA5CMRKQ2FONNGA"
 	$(MAKE) tutorials_build
 
 pypi_build:
