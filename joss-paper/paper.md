@@ -46,7 +46,7 @@ any computable distribution).
 Python syntax and allows users to write any computable distribution.
 Existing Python-based probabilistic programming libraries tend to be optimized
 for specific use cases in machine learning and require users to learn specialized
-syntax, which can be challenging for beginners (e.g., [@abril2023pymc,@bingham2019pyro]).
+syntax, which can be challenging for beginners (e.g., [@abril2023pymc], [@bingham2019pyro]).
 The API of `FlipPy` is intentionally beginner-friendly and heavily inspired by that of
 `WebPPL` [@dippl], a Javascript-based probabilistic programming language that
 is widely used in computational cognitive science.
