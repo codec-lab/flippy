@@ -382,6 +382,14 @@ class CPSInterpreter:
         # function that unpacks the closure and returns the transformed function.
 
         closure = self.get_closure(call)
+        closure = {
+            **closure,
+            CPSTransform.cps_interpreter_name: self,
+            "global_store": self.global_store_proxy,
+            CPSFunction.__name__: CPSFunction,
+            hashabledict.__name__: hashabledict,
+            hashablelist.__name__: hashablelist,
+        }
         unpack = '\n'.join([
             f'{k} = closure["{k}"]'
             for k in closure.keys()
@@ -398,14 +406,7 @@ class CPSInterpreter:
             unpacker_code
         )
 
-        context = {
-            **call.__globals__,
-            CPSTransform.cps_interpreter_name: self,
-            "global_store": self.global_store_proxy,
-            CPSFunction.__name__: CPSFunction,
-            hashabledict.__name__: hashabledict,
-            hashablelist.__name__: hashablelist,
-        }
+        context = call.__globals__
         try:
             assert CPSInterpreter._compile_mode is False
             CPSInterpreter._compile_mode = True

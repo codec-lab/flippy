@@ -879,3 +879,35 @@ def test_cps_loop_entryexit():
         ('exit', '_loop_fn_1'),
         ('exit', 'binom'),
     ], args=(3, 0.5), return_value=1, _emit_call_entryexit=True)
+
+def test_modifying_global_variable():
+    global data
+    data = [1, 2, 3]
+
+    def f():
+        return sum(data)
+    ps = CPSInterpreter().initial_program_state(f)
+
+    ret_val = ps.step().value
+    assert ret_val == 6
+
+    data = [1, 2, 3, 4]
+    ret_val = ps.step().value
+    assert ret_val == 10
+
+def test_modifying_closure_variable():
+    data = [1, 2, 3]
+
+    def f():
+        return sum(data)
+    ps = CPSInterpreter().initial_program_state(f)
+
+    ret_val = ps.step().value
+    assert ret_val == 6
+
+    data = [1, 2, 3, 4]
+    ret_val = ps.step().value
+
+    # This is inconsistent with normal Python closure semantics
+    with pytest.raises(AssertionError):
+        assert ret_val == 10
