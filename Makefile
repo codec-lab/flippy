@@ -1,5 +1,6 @@
-PRODUCTION_REPO="git@github.com:markkho/flippy.git"
+PRODUCTION_REPO="git@github.com:codec-lab/flippy.git"
 RELEASE_TAG=v$(shell cat version.txt | tr -d '\n')
+LOGO_URL="https://raw.githubusercontent.com/codec-lab/flippy-dev/refs/heads/main/flippy.svg?token=GHSAT0AAAAAADAQQGBQCQUBTZ3VI475NVW62FPO2ZQ"
 
 test:
 	python -m pytest $(ARGS)
@@ -13,7 +14,7 @@ docs:
 	pdoc --math flippy
 
 docs_build:
-	pdoc --math flippy -o docs --logo "https://raw.githubusercontent.com/markkho/flippy-dev/refs/heads/main/flippy.svg?token=GHSAT0AAAAAADAQQGBQGE7G7L5WIA5CMRKQ2FONNGA"
+	pdoc --math flippy -o docs --logo $(LOGO_URL)
 	$(MAKE) tutorials_build
 
 pypi_build:
