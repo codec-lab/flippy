@@ -1,6 +1,6 @@
 PRODUCTION_REPO="git@github.com:codec-lab/flippy.git"
 RELEASE_TAG=v$(shell cat version.txt | tr -d '\n')
-LOGO_URL="https://raw.githubusercontent.com/codec-lab/flippy-dev/refs/heads/main/flippy.svg?token=GHSAT0AAAAAADAQQGBQCQUBTZ3VI475NVW62FPO2ZQ"
+LOGO_URL="https://raw.githubusercontent.com/codec-lab/flippy/refs/heads/main/flippy.svg"
 
 test:
 	python -m pytest $(ARGS)
