@@ -3,6 +3,7 @@ name = "flippy-lang"
 dynamic = ["version"]
 description = 'FlipPy probabilistic programming language'
 dependencies = []
+readme = "README.md"
 
 [build-system]
 # setuptools-scm automatically adds all tracked files to package.
