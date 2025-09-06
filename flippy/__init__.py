@@ -31,13 +31,15 @@ Here is the documentation for writing models in FlipPy.
 
 # Tutorials
 
-- [Introductory tutorial](tutorials/00-intro)
-- [Rational Speech Acts (RSA)](tutorials/01-RSA)
-- [Language of Thought (LoT)](tutorials/02-LoT)
-- [Hidden Markov Models (HMMs)](tutorials/03-HMMs)
-- [Bayesian Non-parametrics](tutorials/04-DP-MM)
-- [Intuitive Physics](tutorials/05-Physics)
-- [Sequential Decision-Making](tutorials/06-Sequential-DM)
+- [Introductory tutorial](https://codec-lab.github.io/flippy-tutorials/)
+- [Rational Speech Acts (RSA)](https://codec-lab.github.io/flippy-tutorials/01-RSA)
+- [Language of Thought (LoT)](https://codec-lab.github.io/flippy-tutorials/02-LoT)
+- [Hidden Markov Models (HMMs)](https://codec-lab.github.io/flippy-tutorials/03-HMMs)
+- [Bayesian Non-parametrics](https://codec-lab.github.io/flippy-tutorials/04-DP-MM)
+- [Intuitive Physics](https://codec-lab.github.io/flippy-tutorials/05-Physics)
+- [Sequential Decision-Making](https://codec-lab.github.io/flippy-tutorials/06-Sequential-DM)
+
+Tutorial notebooks are available in [this](https://github.com/codec-lab/flippy-tutorials) Github repo.
 
 # API
 
