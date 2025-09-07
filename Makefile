@@ -15,15 +15,9 @@ docs:
 
 docs_build:
 	pdoc --math flippy -o docs --logo $(LOGO_URL)
-	$(MAKE) tutorials_build
 
 pypi_build:
 	python -m build
-
-tutorials_build:
-	for f in tutorials/*.ipynb; do \
-		jupyter nbconvert --to html $$f; \
-    done
 
 release_dev_main:
 	git checkout main
