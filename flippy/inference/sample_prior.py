@@ -1,3 +1,4 @@
+import math
 from collections import defaultdict
 from typing import Generic
 
@@ -5,7 +6,7 @@ from flippy.core import ProgramState, ReturnState, SampleState, ObserveState, In
 from flippy.interpreter import CPSInterpreter
 from flippy.distributions import Categorical, RandomNumberGenerator
 from flippy.types import Element
-from flippy.inference.inference import InferenceAlgorithm
+from flippy.inference.inference import InferenceAlgorithm, DiscreteInferenceResult
 
 class SamplePrior(InferenceAlgorithm[Element]):
     """Sample from the prior and ignore observation statements"""
@@ -35,4 +36,9 @@ class SamplePrior(InferenceAlgorithm[Element]):
             return_counts[ps.value] += 1
         total_prob = sum(return_counts.values())
         return_probs = {e: p/total_prob for e, p in return_counts.items()}
-        return Categorical.from_dict(return_probs)
+        marginal_likelihood = total_prob / self.samples
+        return DiscreteInferenceResult(
+            support=list(return_probs.keys()),
+            probabilities=list(return_probs.values()),
+            marginal_likelihood=marginal_likelihood
+        )

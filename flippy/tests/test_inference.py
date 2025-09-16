@@ -637,3 +637,17 @@ def test_DiscreteInferenceResult_from_values_scores():
     builtin_dist = DiscreteInferenceResult._from_values_scores_builtin(values, scores)
     assert numpy_dist.isclose(builtin_dist)
 
+def test_marginal_likelihood_calculation():
+    def f():
+        x = Bernoulli(0.7).sample()
+        y = Bernoulli(0.4 if x else 0.8).sample()
+        Bernoulli(.9 if y or x else .2).observe(True)
+        return x, y
+
+    enum_res = Enumeration(f).run()
+    lw_res = LikelihoodWeighting(f, samples=20000, seed=1234).run()
+    senum_res = SimpleEnumeration(f).run()
+    prior_res = SamplePrior(f, samples=1000, seed=1234).run()
+    assert isclose(enum_res.marginal_likelihood, lw_res.marginal_likelihood, rtol=0.01)
+    assert isclose(enum_res.marginal_likelihood, senum_res.marginal_likelihood)
+    assert isclose(prior_res.marginal_likelihood, 1.0)

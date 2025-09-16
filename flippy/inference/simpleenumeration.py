@@ -11,7 +11,7 @@ from flippy.tools import logsumexp, softmax_dict
 from flippy.map import MapEnter
 from flippy.callentryexit import EnterCallState, ExitCallState
 from flippy.types import Element
-from flippy.inference.inference import InferenceAlgorithm
+from flippy.inference.inference import InferenceAlgorithm, DiscreteInferenceResult
 
 @dataclasses.dataclass(order=True)
 class PrioritizedItem:
@@ -92,7 +92,10 @@ class SimpleEnumeration(InferenceAlgorithm[Element]):
         return_scores = self.enumerate_tree(ps, self.max_executions)
         if len(return_scores) == 0:
             raise ValueError("No return states encountered during enumeration")
-        return Categorical.from_dict(softmax_dict(return_scores))
+        return DiscreteInferenceResult.from_values_scores(
+            return_values=list(return_scores.keys()),
+            return_scores=list(return_scores.values())
+        )
 
     def _run_with_stats(self, *args, **kws) -> Tuple[Categorical, EnumerationStats]:
         self._stats = EnumerationStats()
