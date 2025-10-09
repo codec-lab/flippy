@@ -112,23 +112,27 @@ class Categorical(FiniteDistribution[Element]):
 
     def _default_repr_html_(self):
         format_prob = lambda p: f"{p:.3f}" if p > 0.001 else f"{p:.2e}"
+        try:
+            support = sorted(self.support)
+        except TypeError:
+            support = sorted(self.support, key=lambda s: -self.prob(s))
         return ''.join([
             "<table>",
-            "<thead><tr><th></th><th>Element</th><th>Probability</th></tr></thead>",
+            "<thead><tr><th>Element</th><th>Probability</th></tr></thead>",
             "<tbody>",
             *(
                 [
-                    f"<tr><td><b>{i}</b></td><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
-                    for i, s in enumerate(self.support)
-                ] if len(self.support) < 10 else (
+                    f"<tr><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
+                    for i, s in enumerate(support)
+                ] if len(support) < 10 else (
                     [
-                        f"<tr><td><b>{i}</b></td><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
-                        for i, s in enumerate(self.support[:5])
+                        f"<tr><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
+                        for i, s in enumerate(support[:5])
                     ] + [
                         "<tr><td>...</td><td>...</td><td>...</td></tr>"
                     ] + [
-                        f"<tr><td><b>{i}</b></td><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
-                        for i, s in zip(range(len(self.support), len(self.support) - 5, -1),self.support[-5:])
+                        f"<tr><td>{s}</td><td>{format_prob(self.prob(s))}</td></tr>"
+                        for i, s in zip(range(len(support), len(support) - 5, -1), support[-5:])
                     ]
                 )
             ),
@@ -141,7 +145,11 @@ class Categorical(FiniteDistribution[Element]):
         keys = set()
         support = []
         probs = []
-        for e in self.support:
+        try:
+            sorted_support = sorted(self.support)
+        except TypeError:
+            sorted_support = sorted(self.support, key=lambda s: -self.prob(s))
+        for e in sorted_support:
             prob = self.prob(e)
             probs.append(prob)
             if is_dataclass(e):
