@@ -10,16 +10,21 @@ pip install flippy-lang
 
 # Example: Sum of bernoullis
 
+Here, we flip two coins (heads = 1, tails = 0), condition on them being equal,
+and return their sum.
+
 ```python
-from flippy import infer, flip
+from flippy import infer, flip, condition
 
 @infer
 def fn():
     x = flip(0.5)
     y = flip(0.5)
+    condition(x == y)
     return x + y
 
-fn() # Distribution({0: 0.25, 1: 0.5, 2: 0.25})
+result = fn()
+dict(result) # {0: 0.5, 2: 0.5}
 ```
 
 # Documentation
