@@ -30,6 +30,10 @@ Here is the documentation for writing models in FlipPy.
 - Selecting inference algorithms ([link](flippy/inference))
 
 # Tutorials
+Click [here](https://mybinder.org/v2/gh/codec-lab/flippy-tutorials/main?urlpath=%2Fdoc%2Ftree%2Fnotebooks%2F00-intro.ipynb)
+to launch an interactive environment with tutorial notebooks, or clone the
+tutorial repo from [here](https://github.com/codec-lab/flippy-tutorials) and run the notebooks locally.
+Statically rendered versions of the notebooks are also available:
 
 - [Introductory tutorial](https://codec-lab.github.io/flippy-tutorials/)
 - [Rational Speech Acts (RSA)](https://codec-lab.github.io/flippy-tutorials/01-RSA)
@@ -38,8 +42,6 @@ Here is the documentation for writing models in FlipPy.
 - [Bayesian Non-parametrics](https://codec-lab.github.io/flippy-tutorials/04-DP-MM)
 - [Intuitive Physics](https://codec-lab.github.io/flippy-tutorials/05-Physics)
 - [Sequential Decision-Making](https://codec-lab.github.io/flippy-tutorials/06-Sequential-DM)
-
-Tutorial notebooks are available in [this](https://github.com/codec-lab/flippy-tutorials) Github repo.
 
 # API
 
