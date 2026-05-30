@@ -1,6 +1,7 @@
 import collections
 import math
 import pytest
+from dataclasses import dataclass
 
 from flippy import flip, mem, condition, draw_from
 from flippy.distributions.builtin_dists import \
@@ -651,3 +652,22 @@ def test_marginal_likelihood_calculation():
     assert isclose(enum_res.marginal_likelihood, lw_res.marginal_likelihood, rtol=0.01)
     assert isclose(enum_res.marginal_likelihood, senum_res.marginal_likelihood)
     assert isclose(prior_res.marginal_likelihood, 1.0)
+
+def test_Enumeration__hash_collision():
+    # Regression: ProgramState.__eq__ used to ignore .value,
+    # so Enumeration.collapse() merged ExitCallStates whose return
+    # values had colliding hashes.
+
+    @dataclass(frozen=True)
+    class Item:
+        value: int
+        def __hash__(self):
+            return 0
+
+    i1, i2 = Item(1), Item(2)
+    def model():
+        def inner():
+            return i1 if flip() else i2
+        return inner()
+    res = Enumeration(model).run()
+    assert res.isclose(Categorical.from_dict({i1: 0.5, i2: 0.5}))

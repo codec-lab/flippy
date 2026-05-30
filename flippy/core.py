@@ -81,6 +81,7 @@ class ProgramState:
             return False
         return (
             self.__class__ == other.__class__ and
+            self.value == other.value and
             self.stack == other.stack and
             self.init_global_store.store == other.init_global_store.store
         )
